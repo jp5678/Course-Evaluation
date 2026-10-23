@@ -3,6 +3,8 @@
 간호학과 교수가 학기말에 **교과목별 강의평가를 직접 운영**하는 웹 앱입니다.
 Google 스프레드시트 하나와 Apps Script만으로 동작하며 외부 서버가 필요 없습니다.
 
+> 🧪 **바로 체험하기: https://jp5678.github.io/Course-Evaluation/** — 설치 없이 브라우저에서 학생 응답 화면과 교수 대시보드를 체험할 수 있습니다(관리자 PIN `123456`, 데이터는 그 브라우저에만 저장).
+
 > ⚠️ **이 도구는 학교 공식 강의평가를 대체하지 않습니다.** 교수자가 수업 개선(CQI)을 위해 자율적으로 운영하는 형성평가용 설문 도구입니다.
 
 | 시작 화면 | 이모지 리커트 | 드롭다운(성별) | 제출 완료 |
@@ -214,7 +216,7 @@ Responses와 Tokens 탭에는 직접 편집하면 경고가 뜨도록 보호가 
 2. **[확장 프로그램] ▸ [Apps Script]** 를 엽니다. 편집기 **설정(⚙)** 에서 **「편집기에서 'appsscript.json' 매니페스트 파일 표시」** 를 켭니다.
 3. 이 저장소의 파일을 같은 이름으로 만들고 내용을 붙여 넣습니다.
    - 스크립트 파일: `Code.gs`, `Setup.gs`
-   - HTML 파일: `Index`, `Admin`, `Styles`, `Scripts` (확장자 `.html`은 자동으로 붙습니다)
+   - HTML 파일: `Student`, `Admin`, `Styles`, `Scripts` (확장자 `.html`은 자동으로 붙습니다)
    - `appsscript.json`은 기존 내용을 바꿔 씁니다.
    - [clasp](https://github.com/google/clasp)를 쓴다면 `clasp push` 한 번으로 됩니다. `.claspignore`가 테스트 파일을 제외합니다.
 4. 시트를 공유 설정 「링크가 있는 모든 사용자: 뷰어」로 바꾸고, URL의 `/edit…` 부분을 `/copy`로 바꿔 교수들에게 배포합니다.
@@ -227,16 +229,26 @@ Responses와 Tokens 탭에는 직접 편집하면 경고가 뜨도록 보호가 
 |---|---|
 | `Code.gs` | 웹 앱 진입점(`doGet`), 학생·교수 API, 통계 계산, 보안(잠금·해시·검증) |
 | `Setup.gs` | `setup()`, 스프레드시트 메뉴, 기본 문항 은행, 샘플 응답 생성·삭제 |
-| `Index.html` | 학생 화면 (`?c=교과목ID`) |
+| `Student.html` | 학생 화면 (`?c=교과목ID`). 루트의 체험판 `index.html`과 대소문자 충돌을 피하려고 이 이름을 씁니다 |
 | `Admin.html` | 교수 화면 (`?page=admin`) |
 | `Styles.html` | 디자인 시스템 *Cloud Dancer Bento* (라이트/다크 토큰) |
 | `Scripts.html` | 공통 JS: 서버 호출(재시도·로딩), 모달, 다운로드, 링 게이지·카운트업, 워드 클라우드 배치(나선형), 내장 QR 인코더, confetti |
 | `appsscript.json` | V8, Asia/Seoul, 웹 앱(실행: 소유자 / 액세스: 모든 사용자) |
 | `tests/` | 로컬 테스트(Apps Script에는 올리지 않음) |
+| `index.html`, `demo/` | GitHub Pages 체험판(`tools/build-demo.js`로 생성 — 직접 수정하지 마세요) |
+| `.github/workflows/pages.yml` | 푸시마다 테스트·체험판 최신 여부 검사, 기본 브랜치면 Pages 배포 |
 
 외부 리소스는 jsDelivr의 **Pretendard Variable 1.3.9, Lucide 0.460.0, Chart.js 4.4.1** 세 가지만 사용합니다. QR 코드는 외부 라이브러리 없이 `Scripts.html`에 내장한 인코더로 만듭니다.
 
 ---
+
+## 체험판(GitHub Pages) 자동 배포
+
+- 체험판은 Apps Script 서버 코드(`Code.gs`, `Setup.gs`)를 **브라우저 안의 모의 환경에서 그대로 실행**합니다. 응답·설정은 방문자 브라우저의 localStorage에만 저장되고 다른 사람과 공유되지 않습니다. **실제 강의평가 운영에는 쓸 수 없습니다.** 실제 운영은 위 설치 가이드대로 Google 스프레드시트에 설치하세요.
+- 소스를 고친 뒤에는 `node tools/build-demo.js`로 체험판을 다시 빌드해 함께 커밋합니다. 빠뜨리면 GitHub Actions 검사가 실패해서 알려 줍니다.
+- 기본 브랜치(`index`)에 푸시하면 자동 배포됩니다. 저장소 **Settings → Pages**의 Source가
+  - 「Deploy from a branch」(브랜치 `index`, 폴더 `/ (root)`)이면 GitHub이 바로 배포하고,
+  - 「GitHub Actions」이면 `pages.yml` 워크플로가 테스트를 통과한 뒤 배포합니다.
 
 ## 개발자용: 로컬 테스트
 
@@ -255,6 +267,7 @@ node preview-server.js 8787   # 브라우저 미리보기: http://127.0.0.1:8787
 | `concurrency.test.js` | worker_threads로 **실제 병렬** 동시 제출 20건(토큰·접속코드), 같은 토큰 동시 20건 → 1건만 성공, 잠금 해제 대조군 |
 | `qr.test.js` | 내장 QR 인코더 출력을 jsQR로 디코딩해 원문과 일치하는지 확인 |
 | `contrast.test.js` | 라이트·다크 토큰의 WCAG 2.2 AA 대비 |
+| `demo.test.js` | 체험판을 Pages와 같은 하위 경로로 제공해 첫 화면 → 학생 응답 → 교수 결과 반영 → 초기화 확인 |
 | `ui.test.js` | Playwright: 360px 학생 전체 흐름(이모지 칩·키보드), 혼합 수업 온라인 문항·성별 드롭다운, 임시 저장 복원, 네트워크 실패 후 재시도, 안내 화면, 다크 모드·모션 최소화, 교수 화면(360px·데스크톱: 교과목 한눈에, 링 게이지, 워드 클라우드 필터, 드롭다운 교과목 폼) |
 
 **모의 환경의 한계**: 실제 Google 서버의 동시 실행 한도(사용자당 약 30건)와 Sheets 지연 시간은 재현하지 못합니다. 배포 후에는 학생 몇 명과 함께 동시에 제출해 보는 실사용 점검을 권장합니다.

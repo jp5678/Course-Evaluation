@@ -63,7 +63,7 @@ function doGet(e) {
   var settings = {};
   try { settings = getSettingsMap_(); } catch (err) { /* setup 이전: 빈 푸터 */ }
   var isAdmin = String(p.page || '') === 'admin';
-  var t = HtmlService.createTemplateFromFile(isAdmin ? 'Admin' : 'Index');
+  var t = HtmlService.createTemplateFromFile(isAdmin ? 'Admin' : 'Student');
   t.courseId = sanitizeId_(p.c);
   t.tokenPrefill = normalizeToken_(p.t || '');
   t.professorName = String(settings.professor_name || '');

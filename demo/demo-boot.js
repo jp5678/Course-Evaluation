@@ -1,0 +1,538 @@
+/* 강의평가 Studio 체험판 부트 — tools/build-demo.js로 생성(직접 수정하지 마세요) */
+/*
+ * Google Apps Script 모의 환경 (Node·브라우저 공용)
+ * - Sheets 동작 모사: ' 접두 텍스트, 숫자·날짜·TRUE/FALSE 자동 변환, 수식 실행 감지(__FORMULA__ 표식)
+ * - LockService: 메모리(단일 스레드) 또는 파일 잠금(멀티 스레드)
+ * - HtmlService: GAS 스크립틀릿(<? ?>, <?= ?>, <?!= ?>) 템플릿 엔진
+ */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.GasMock = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
+  'use strict';
+  var KST = 9 * 3600 * 1000;
+  var isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
+
+  /* ───── SHA-256 (동기, 순수 JS) ───── */
+  function sha256Bytes(str) {
+    var bytes = Array.from(new TextEncoder().encode(str));
+    var K = [0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2];
+    var H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+    var l = bytes.length * 8;
+    bytes.push(0x80);
+    while (bytes.length % 64 !== 56) bytes.push(0);
+    for (var i = 7; i >= 0; i--) bytes.push(i >= 4 ? 0 : (l >>> (i * 8)) & 0xff);
+    var w = new Array(64);
+    var rotr = function (x, n) { return (x >>> n) | (x << (32 - n)); };
+    for (var off = 0; off < bytes.length; off += 64) {
+      for (i = 0; i < 16; i++) w[i] = (bytes[off + i * 4] << 24) | (bytes[off + i * 4 + 1] << 16) | (bytes[off + i * 4 + 2] << 8) | bytes[off + i * 4 + 3];
+      for (i = 16; i < 64; i++) {
+        var s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >>> 3);
+        var s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >>> 10);
+        w[i] = (w[i - 16] + s0 + w[i - 7] + s1) | 0;
+      }
+      var a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+      for (i = 0; i < 64; i++) {
+        var S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+        var t1 = (h + S1 + ((e & f) ^ (~e & g)) + K[i] + w[i]) | 0;
+        var S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+        var t2 = (S0 + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+        h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+      }
+      H = [H[0] + a, H[1] + b, H[2] + c, H[3] + d, H[4] + e, H[5] + f, H[6] + g, H[7] + h].map(function (x) { return x | 0; });
+    }
+    var out = [];
+    H.forEach(function (x) { for (var k = 3; k >= 0; k--) out.push((x >>> (k * 8)) & 0xff); });
+    return out.map(function (b) { return b > 127 ? b - 256 : b; }); // GAS는 부호 있는 바이트 배열
+  }
+
+  /* ───── 날짜(Asia/Seoul 고정 +09:00) ───── */
+  function formatDate(d, tz, pattern) {
+    var k = new Date(d.getTime() + KST);
+    var p2 = function (n) { return ('0' + n).slice(-2); };
+    var map = {
+      yyyy: String(k.getUTCFullYear()), MM: p2(k.getUTCMonth() + 1), dd: p2(k.getUTCDate()),
+      HH: p2(k.getUTCHours()), mm: p2(k.getUTCMinutes()), ss: p2(k.getUTCSeconds()), M: String(k.getUTCMonth() + 1)
+    };
+    return pattern.replace(/'([^']*)'|yyyy|MM|dd|HH|mm|ss|M/g, function (m, lit) { return lit != null ? lit : map[m]; });
+  }
+  function parseDate(str, tz, pattern) {
+    var m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(str);
+    if (!m || pattern !== 'yyyy-MM-dd HH:mm') throw new Error('parseDate mock: unsupported ' + str + ' / ' + pattern);
+    return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) - KST);
+  }
+
+  /* ───── 셀 값 모사 ───── */
+  function coerce(v) {
+    if (v === null || v === undefined) return '';
+    if (v instanceof Date) return new Date(v.getTime());
+    if (typeof v !== 'string') return v;
+    if (v.charAt(0) === "'") return v.slice(1);
+    if (v === '') return '';
+    if (/^[=]/.test(v)) return '__FORMULA__' + v;
+    if (/^[+-]?\d+(\.\d+)?$/.test(v.trim())) return Number(v);
+    if (/^(TRUE|FALSE)$/i.test(v)) return v.toUpperCase() === 'TRUE';
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+    if (m) return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]) - KST);
+    return v;
+  }
+  function cloneVal(v) { return v instanceof Date ? new Date(v.getTime()) : v; }
+
+  function serialize(state) {
+    return JSON.stringify(state, function (k, v) {
+      if (this[k] instanceof Date) return { $d: this[k].getTime() };
+      return v;
+    });
+  }
+  function revive(json) {
+    return JSON.parse(typeof json === 'string' ? json : JSON.stringify(json), function (k, v) {
+      return v && typeof v === 'object' && typeof v.$d === 'number' ? new Date(v.$d) : v;
+    });
+  }
+
+  /* ───── 저장소 ───── */
+  function memoryStore(initial) {
+    var state = initial || { order: [], sheets: {} };
+    return { read: function () { return state; }, write: function (s) { state = s; }, snapshot: function () { return state; } };
+  }
+  function fileStore(path, jitter) {
+    var fs = require('fs');
+    var sleep = makeSleep();
+    return {
+      read: function () { if (jitter) sleep(Math.random() * jitter); return revive(fs.readFileSync(path, 'utf8')); },
+      write: function (s) {
+        if (jitter) sleep(Math.random() * jitter);
+        var tmp = path + '.' + process.pid + '.' + Math.random().toString(36).slice(2) + '.tmp';
+        fs.writeFileSync(tmp, serialize(s));
+        fs.renameSync(tmp, path); // 원자적 교체(실제 Sheets 읽기는 부분 쓰기를 보지 않음)
+      },
+      snapshot: function () { return revive(fs.readFileSync(path, 'utf8')); }
+    };
+  }
+
+  function makeSleep() {
+    if (isNode) {
+      var sab = new Int32Array(new SharedArrayBuffer(4));
+      return function (ms) { if (ms > 0) Atomics.wait(sab, 0, 0, ms); };
+    }
+    return function () { /* 브라우저: 메인 스레드를 막지 않음 */ };
+  }
+
+  /* ───── 시트·범위 ───── */
+  function createSpreadsheet(store, log) {
+    function S(name) {
+      this.name = name;
+    }
+    function data(name) {
+      var st = store.read();
+      if (!st.sheets[name]) throw new Error('Sheet deleted: ' + name);
+      return { st: st, sh: st.sheets[name] };
+    }
+    function lastRowOf(sh) {
+      for (var r = sh.values.length - 1; r >= 0; r--) {
+        if (sh.values[r] && sh.values[r].some(function (v) { return v !== '' && v != null; })) return r + 1;
+      }
+      return 0;
+    }
+    function lastColOf(sh) {
+      var max = 0;
+      sh.values.forEach(function (row) {
+        if (!row) return;
+        for (var c = row.length - 1; c >= 0; c--) if (row[c] !== '' && row[c] != null) { max = Math.max(max, c + 1); break; }
+      });
+      return max;
+    }
+    S.prototype.getName = function () { return this.name; };
+    S.prototype.getLastRow = function () { return lastRowOf(data(this.name).sh); };
+    S.prototype.getLastColumn = function () { return lastColOf(data(this.name).sh); };
+    S.prototype.getMaxRows = function () { return Math.max(1000, data(this.name).sh.values.length); };
+    S.prototype.getMaxColumns = function () { return data(this.name).sh.maxCols; };
+    S.prototype.insertColumnsAfter = function (after, n) {
+      var d = data(this.name);
+      d.sh.maxCols += n;
+      d.sh.values.forEach(function (row) { if (row) row.splice(after, 0, ...new Array(n).fill('')); });
+      store.write(d.st);
+    };
+    S.prototype.insertRowBefore = function (pos) {
+      var d = data(this.name);
+      d.sh.values.splice(pos - 1, 0, []);
+      store.write(d.st);
+    };
+    S.prototype.setFrozenRows = function () { return this; };
+    S.prototype.setTabColor = function () { return this; };
+    S.prototype.protect = function () {
+      var name = this.name;
+      var prot = { warningOnly: false, description: '' };
+      var api = {
+        setDescription: function (s) { prot.description = s; save(); return api; },
+        setWarningOnly: function (b) { prot.warningOnly = b; save(); return api; }
+      };
+      function save() { var d = data(name); d.sh.protections = [prot]; store.write(d.st); }
+      save();
+      return api;
+    };
+    S.prototype.getProtections = function () { return (data(this.name).sh.protections || []).slice(); };
+    S.prototype.getRange = function (row, col, numRows, numCols) {
+      numRows = numRows || 1; numCols = numCols || 1;
+      if (row < 1 || col < 1) throw new Error('Range out of bounds');
+      if (col + numCols - 1 > data(this.name).sh.maxCols) throw new Error('Range exceeds max columns: ' + (col + numCols - 1));
+      return new R(this.name, row, col, numRows, numCols);
+    };
+
+    function R(name, row, col, nr, nc) { this.n = name; this.r = row; this.c = col; this.nr = nr; this.nc = nc; }
+    R.prototype.getValues = function () {
+      var sh = data(this.n).sh, out = [];
+      for (var i = 0; i < this.nr; i++) {
+        var row = sh.values[this.r - 1 + i] || [], line = [];
+        for (var j = 0; j < this.nc; j++) {
+          var v = row[this.c - 1 + j];
+          line.push(v === undefined || v === null ? '' : cloneVal(v));
+        }
+        out.push(line);
+      }
+      return out;
+    };
+    R.prototype.getValue = function () { return this.getValues()[0][0]; };
+    R.prototype.setValues = function (vals) {
+      if (vals.length !== this.nr || vals.some(function (r) { return r.length !== this.nc; }, this)) {
+        throw new Error('setValues dimension mismatch: expected ' + this.nr + 'x' + this.nc + ', got ' + vals.length + 'x' + (vals[0] || []).length);
+      }
+      var d = data(this.n);
+      for (var i = 0; i < this.nr; i++) {
+        var ri = this.r - 1 + i;
+        d.sh.values[ri] = d.sh.values[ri] || [];
+        for (var j = 0; j < this.nc; j++) {
+          if (vals[i][j] instanceof Date === false && typeof vals[i][j] === 'object' && vals[i][j] !== null) throw new Error('Object value');
+          if (log) log.push({ sheet: this.n, row: ri + 1, col: this.c + j, raw: vals[i][j] });
+          d.sh.values[ri][this.c - 1 + j] = coerce(vals[i][j]);
+        }
+      }
+      store.write(d.st);
+      return this;
+    };
+    R.prototype.setValue = function (v) { return this.setValues([[v]]); };
+    R.prototype.clearContent = function () {
+      var vals = [];
+      for (var i = 0; i < this.nr; i++) vals.push(new Array(this.nc).fill(''));
+      return this.setValues(vals);
+    };
+    ['setFontWeight', 'setBackground', 'setFontColor', 'setNumberFormat', 'setNote', 'setNotes', 'clearNote'].forEach(function (m) {
+      R.prototype[m] = function () { return this; };
+    });
+
+    return {
+      getSheetByName: function (name) { return store.read().sheets[name] ? new S(name) : null; },
+      insertSheet: function (name) {
+        var st = store.read();
+        if (st.sheets[name]) throw new Error('exists');
+        st.sheets[name] = { values: [], maxCols: 26, protections: [] };
+        st.order.push(name);
+        store.write(st);
+        return new S(name);
+      },
+      getSheets: function () { return store.read().order.map(function (n) { return new S(n); }); },
+      deleteSheet: function (s) {
+        var st = store.read();
+        delete st.sheets[s.getName()];
+        st.order = st.order.filter(function (n) { return n !== s.getName(); });
+        store.write(st);
+      }
+    };
+  }
+
+  /* ───── 잠금 ───── */
+  function memoryLock(ctl) {
+    return function () {
+      var mine = false;
+      return {
+        tryLock: function () { if (ctl.held) return false; ctl.held = true; mine = true; ctl.count = (ctl.count || 0) + 1; return true; },
+        waitLock: function () { if (!this.tryLock()) throw new Error('Lock timeout'); },
+        releaseLock: function () { if (mine) { ctl.held = false; mine = false; } },
+        hasLock: function () { return mine; }
+      };
+    };
+  }
+  function fileLock(dir, disabled) {
+    var fs = require('fs');
+    var sleep = makeSleep();
+    return function () {
+      var mine = false;
+      return {
+        tryLock: function (ms) {
+          if (disabled) { mine = true; return true; }
+          var t0 = Date.now();
+          for (;;) {
+            try { fs.mkdirSync(dir); mine = true; return true; } catch (e) { if (e.code !== 'EEXIST') throw e; }
+            if (Date.now() - t0 > ms) return false;
+            sleep(2 + Math.random() * 6);
+          }
+        },
+        releaseLock: function () { if (mine && !disabled) { try { fs.rmdirSync(dir); } catch (e) { /* 무시 */ } } mine = false; },
+        hasLock: function () { return mine; }
+      };
+    };
+  }
+
+  /* ───── 캐시 ───── */
+  function memoryCache() {
+    var m = new Map();
+    return {
+      get: function (k) { var e = m.get(k); if (!e) return null; if (e.exp < Date.now()) { m.delete(k); return null; } return e.v; },
+      put: function (k, v, ttl) { m.set(k, { v: String(v), exp: Date.now() + (ttl || 600) * 1000 }); },
+      remove: function (k) { m.delete(k); },
+      _map: m
+    };
+  }
+  function fileCache(path) {
+    var fs = require('fs');
+    var read = function () { try { return JSON.parse(fs.readFileSync(path, 'utf8')); } catch (e) { return {}; } };
+    var write = function (o) {
+      var tmp = path + '.' + Math.random().toString(36).slice(2) + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(o));
+      fs.renameSync(tmp, path);
+    };
+    return {
+      get: function (k) { var o = read()[k]; return o && o.exp > Date.now() ? o.v : null; },
+      put: function (k, v, ttl) { var o = read(); o[k] = { v: String(v), exp: Date.now() + (ttl || 600) * 1000 }; write(o); },
+      remove: function (k) { var o = read(); delete o[k]; write(o); }
+    };
+  }
+
+  /* ───── HtmlService(템플릿 엔진) ───── */
+  function htmlEscape(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function output(content) {
+    var o = {
+      _content: content, _title: '', _meta: [],
+      getContent: function () { return o._content; },
+      setTitle: function (t) { o._title = t; return o; },
+      addMetaTag: function (n, c) { o._meta.push([n, c]); return o; },
+      setXFrameOptionsMode: function () { return o; },
+      setWidth: function () { return o; },
+      setHeight: function () { return o; }
+    };
+    return o;
+  }
+  function makeHtmlService(readFile, getServer) {
+    return {
+      XFrameOptionsMode: { DEFAULT: 'DEFAULT', ALLOWALL: 'ALLOWALL' },
+      createHtmlOutput: function (html) { return output(html); },
+      createHtmlOutputFromFile: function (name) { return output(readFile(name + '.html')); },
+      createTemplateFromFile: function (name) {
+        var src = readFile(name + '.html');
+        var t = {
+          evaluate: function () {
+            var vars = {};
+            Object.keys(t).forEach(function (k) { if (k !== 'evaluate') vars[k] = t[k]; });
+            var code = 'var __o="";\n', re = /<\?(!?=)?([\s\S]*?)\?>/g, last = 0, m;
+            while ((m = re.exec(src))) {
+              code += '__o+=' + JSON.stringify(src.slice(last, m.index)) + ';\n';
+              var expr = m[2].trim().replace(/;$/, '');
+              if (m[1] === '=') code += '__o+=__esc(' + expr + ');\n';
+              else if (m[1] === '!=') code += '__o+=String(' + expr + ');\n';
+              else code += m[2] + '\n';
+              last = re.lastIndex;
+            }
+            code += '__o+=' + JSON.stringify(src.slice(last)) + ';return __o;';
+            var names = Object.keys(vars);
+            /* eslint-disable-next-line no-new-func */
+            var fn = new Function(['__esc', 'include'].concat(names).join(','), code);
+            return output(fn.apply(null, [htmlEscape, getServer().include].concat(names.map(function (n) { return vars[n]; }))));
+          }
+        };
+        return t;
+      }
+    };
+  }
+
+  /* ───── 환경 조립 ───── */
+  function createEnv(opts) {
+    opts = opts || {};
+    var store = opts.store || memoryStore(opts.state);
+    var lockCtl = opts.lockCtl || { held: false };
+    var log = opts.writeLog || null;
+    var ss = createSpreadsheet(store, log);
+    var cache = opts.cache || memoryCache();
+    var sleep = opts.sleep || makeSleep();
+    var uiCalls = [];
+    var serverRef = { current: null };
+    var env = {
+      SpreadsheetApp: {
+        getActiveSpreadsheet: function () { return ss; },
+        flush: function () {},
+        getUi: function () {
+          if (!opts.ui) throw new Error('Cannot call SpreadsheetApp.getUi() from this context.');
+          return opts.ui;
+        },
+        ProtectionType: { SHEET: 'SHEET', RANGE: 'RANGE' }
+      },
+      LockService: { getScriptLock: opts.lockFactory || memoryLock(lockCtl) },
+      CacheService: { getScriptCache: function () { return cache; } },
+      Utilities: {
+        DigestAlgorithm: { SHA_256: 'SHA_256' },
+        Charset: { UTF_8: 'UTF_8' },
+        computeDigest: function (alg, str) { return sha256Bytes(String(str)); },
+        getUuid: function () {
+          if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+          return require('crypto').randomUUID();
+        },
+        sleep: function (ms) { sleep(opts.fastSleep ? Math.min(ms, 5) : ms); },
+        formatDate: formatDate,
+        parseDate: parseDate
+      },
+      Session: { getScriptTimeZone: function () { return 'Asia/Seoul'; } },
+      ScriptApp: { getService: function () { return { getUrl: function () { return opts.url || 'https://script.google.com/macros/s/TEST/exec'; } }; } },
+      HtmlService: makeHtmlService(opts.readFile || function () { throw new Error('readFile not configured'); }, function () { return serverRef.current; }),
+      console: opts.console || console
+    };
+    env.__store = store;
+    env.__cache = cache;
+    env.__lockCtl = lockCtl;
+    env.__uiCalls = uiCalls;
+    env.__serverRef = serverRef;
+    return env;
+  }
+
+  /** GAS 전역 함수들을 하나의 스코프에 로드하고 모든 최상위 함수를 반환합니다. */
+  function loadServer(env, sources) {
+    var src = sources.join('\n;\n');
+    var names = [];
+    var re = /^function\s+([A-Za-z_$][\w$]*)\s*\(/gm, m;
+    while ((m = re.exec(src))) names.push(m[1]);
+    ['APP', 'HEADERS', 'LIKERT_LABELS', 'DEFAULT_ITEMS'].forEach(function (n) { if (new RegExp('^var ' + n + '\\b', 'm').test(src)) names.push(n); });
+    var keys = Object.keys(env).filter(function (k) { return k.indexOf('__') !== 0; });
+    /* eslint-disable-next-line no-new-func */
+    var fn = new Function(keys.join(','), src + '\nreturn {' + names.map(function (n) { return JSON.stringify(n) + ':' + n; }).join(',') + '};');
+    var server = fn.apply(null, keys.map(function (k) { return env[k]; }));
+    env.__serverRef.current = server;
+    return server;
+  }
+
+  /** 반환값에 Date 등 직렬화 불가 값이 있으면 예외(google.script.run 동작 모사). */
+  function assertSerializable(v, path) {
+    path = path || 'result';
+    if (v instanceof Date) throw new Error('google.script.run cannot return Date at ' + path);
+    if (typeof v === 'function') throw new Error('function at ' + path);
+    if (v && typeof v === 'object') Object.keys(v).forEach(function (k) { assertSerializable(v[k], path + '.' + k); });
+  }
+
+  /** 브라우저용 google.script.run 모사 */
+  function makeRun(server, opt) {
+    opt = opt || {};
+    function runner(succ, fail) {
+      var base = {
+        withSuccessHandler: function (f) { return runner(f, fail); },
+        withFailureHandler: function (f) { return runner(succ, f); },
+        withUserObject: function () { return runner(succ, fail); }
+      };
+      return new Proxy(base, {
+        get: function (t, name) {
+          if (name in t) return t[name];
+          return function () {
+            var args = JSON.parse(JSON.stringify(Array.prototype.slice.call(arguments)));
+            setTimeout(function () {
+              try {
+                if (/_$/.test(name) || typeof server[name] !== 'function') throw new Error('Script function not found: ' + String(name));
+                if (opt.failNext && opt.failNext[name] > 0) { opt.failNext[name]--; throw new Error('NetworkError: 연결 끊김(모의)'); }
+                var r = server[name].apply(null, args);
+                assertSerializable(r);
+                if (opt.onCall) opt.onCall(name, args, r);
+                if (succ) succ(r === undefined ? null : JSON.parse(JSON.stringify(r)));
+              } catch (e) {
+                if (fail) fail(new Error(e.message)); else console.error(e);
+              }
+            }, opt.latency == null ? 40 : opt.latency);
+          };
+        }
+      });
+    }
+    return runner(null, null);
+  }
+
+  return {
+    createEnv: createEnv, loadServer: loadServer, makeRun: makeRun, assertSerializable: assertSerializable,
+    memoryStore: memoryStore, fileStore: fileStore, fileLock: fileLock, fileCache: fileCache, memoryCache: memoryCache,
+    serialize: serialize, revive: revive, sha256Bytes: sha256Bytes, formatDate: formatDate, makeSleep: makeSleep
+  };
+});
+
+;(function () {
+  'use strict';
+  var SOURCES = ["/**\n * 강의평가 Studio — 서버 코드\n * 교수자 자율형 형성평가·CQI용 설문 도구입니다. 학교 공식 강의평가를 대체하지 않습니다.\n *\n * 모든 공개 API(google.script.run 대상)는 { ok: boolean, ... } 객체를 반환합니다.\n * 날짜는 문자열로만 반환합니다(google.script.run은 Date 반환을 허용하지 않음).\n *\n * @OnlyCurrentDoc\n */\n\nvar APP = {\n  NAME: '강의평가 Studio',\n  VERSION: '1.2.0',\n  SHEETS: {\n    SETTINGS: 'Settings',\n    COURSES: 'Courses',\n    ITEMS: 'Items',\n    TOKENS: 'Tokens',\n    RESPONSES: 'Responses'\n  },\n  TEMPLATE_ID: 'TEMPLATE',\n  TEXT_MAX: 1000,\n  ITEM_TEXT_MAX: 300,\n  OPTION_MAX: 60,\n  MAX_ITEMS: 60,\n  PIN_PATTERN: /^\\d{6,12}$/,\n  PIN_MAX_FAIL: 5,\n  PIN_LOCK_SEC: 600,\n  SESSION_SEC: 21600,\n  LOCK_WAIT_MS: 25000,\n  TOKEN_LENGTH: 8,\n  TOKEN_MAX_BATCH: 300,\n  TOKEN_ALPHABET: 'ABCDEFGHJKMNPQRSTUVWXYZ23456789',\n  ID_ALPHABET: 'abcdefghjkmnpqrstuvwxyz23456789',\n  SUBMIT_DEDUP_SEC: 3600,\n  MIN_RESPONSES_FLOOR: 3,\n  SEMESTERS: ['1', '여름', '2', '겨울'],\n  GRADES: [1, 2, 3, 4],\n  SECTIONS: ['A', 'B', 'C', 'D', 'E', 'F'],\n  DELIVERY: ['대면', '비대면', '혼합'],\n  COURSE_TYPES: ['이론', '실습', '이론+실습'],\n  // 문항 표시 조건: ''=항상, online=비대면·혼합만, theory=이론 포함 교과목만, practice=실습 포함 교과목만\n  SCOPES: ['', 'online', 'theory', 'practice'],\n  ITEM_TYPES: ['likert5', 'single', 'multi', 'select', 'text'],\n  STATUS: { READY: '준비', OPEN: '진행', CLOSED: '마감' }\n};\n\nvar HEADERS = {\n  Settings: ['key', 'value', 'description'],\n  Courses: ['course_id', 'course_name', 'year', 'semester', 'grade', 'section', 'enrollment',\n    'start_at', 'end_at', 'access_mode', 'access_code', 'status', 'result_open_date', 'department', 'delivery_mode', 'course_type'],\n  Items: ['item_id', 'course_id', 'domain', 'text', 'type', 'required', 'order', 'reverse', 'options', 'scope'],\n  Tokens: ['course_id', 'token_hash', 'used'],\n  Responses: ['response_id', 'course_id', 'submitted_date']\n};\n\nvar LIKERT_LABELS = ['전혀 그렇지 않다', '그렇지 않다', '보통이다', '그렇다', '매우 그렇다'];\n\n/* ───────────────────────────── 웹 앱 진입점 ───────────────────────────── */\n\nfunction doGet(e) {\n  var p = (e && e.parameter) || {};\n  var settings = {};\n  try { settings = getSettingsMap_(); } catch (err) { /* setup 이전: 빈 푸터 */ }\n  var isAdmin = String(p.page || '') === 'admin';\n  var t = HtmlService.createTemplateFromFile(isAdmin ? 'Admin' : 'Student');\n  t.courseId = sanitizeId_(p.c);\n  t.tokenPrefill = normalizeToken_(p.t || '');\n  t.professorName = String(settings.professor_name || '');\n  t.affiliation = String(settings.affiliation || '');\n  return t.evaluate()\n    .setTitle(isAdmin ? APP.NAME + ' · 교수' : APP.NAME)\n    .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')\n    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);\n}\n\n/** HTML include 패턴: <?!= include('Styles'); ?> */\nfunction include(name) {\n  return HtmlService.createHtmlOutputFromFile(name).getContent();\n}\n\n/* ───────────────────────────── 학생 API ───────────────────────────── */\n\n/** 교과목 카드 정보와 현재 상태(준비/진행/마감)를 반환합니다. */\nfunction getCourseForStudent(courseId) {\n  return safe_(function () {\n    var course = findCourse_(sanitizeId_(courseId));\n    if (!course) return { ok: false, code: 'NOT_FOUND' };\n    var items = itemsForCourse_(course);\n    return {\n      ok: true,\n      state: effectiveStatus_(course, new Date()),\n      course: publicCourse_(course, items, getSettingsMap_())\n    };\n  });\n}\n\n/** 접속코드 또는 토큰을 확인하고 문항을 반환합니다(토큰은 이 단계에서 사용 처리하지 않음). */\nfunction verifyAccess(courseId, credential) {\n  return safe_(function () {\n    var course = findCourse_(sanitizeId_(courseId));\n    if (!course) return { ok: false, code: 'NOT_FOUND' };\n    var state = effectiveStatus_(course, new Date());\n    if (state !== APP.STATUS.OPEN) return { ok: false, code: stateCode_(state) };\n    var check = checkCredential_(course, credential);\n    if (!check.ok) {\n      Utilities.sleep(400); // 무차별 대입 속도 저하\n      return { ok: false, code: check.code };\n    }\n    return {\n      ok: true,\n      items: itemsForCourse_(course).map(publicItem_),\n      likertLabels: LIKERT_LABELS\n    };\n  });\n}\n\n/**\n * 응답을 제출합니다.\n * 토큰 검증 → 사용 처리 → 응답 기록을 스크립트 잠금 안에서 원자적으로 수행합니다.\n * nonce는 네트워크 재시도 시 중복 기록을 막는 멱등 키이며, 응답과 함께 저장하지 않습니다.\n */\nfunction submitResponse(courseId, credential, answers, nonce) {\n  return safe_(function () {\n    var course = findCourse_(sanitizeId_(courseId));\n    if (!course) return { ok: false, code: 'NOT_FOUND' };\n    var state = effectiveStatus_(course, new Date());\n    if (state !== APP.STATUS.OPEN) return { ok: false, code: stateCode_(state) };\n\n    var items = itemsForCourse_(course);\n    var clean = sanitizeAnswers_(items, answers);\n    if (!clean.ok) return clean;\n\n    nonce = /^[A-Za-z0-9-]{16,64}$/.test(String(nonce || '')) ? String(nonce) : '';\n    var cache = CacheService.getScriptCache();\n\n    return withLock_(function () {\n      if (nonce && cache.get('sub_' + nonce)) return { ok: true, duplicate: true };\n\n      var check = checkCredential_(course, credential);\n      if (!check.ok) return { ok: false, code: check.code };\n\n      if (check.tokenRow) setTokenUsed_(check.tokenRow, true);\n      try {\n        retry_(function () {\n          appendResponse_(course.course_id, items, clean.values, Utilities.getUuid());\n        });\n      } catch (err) {\n        if (check.tokenRow) setTokenUsed_(check.tokenRow, false);\n        throw err;\n      }\n      if (nonce) cache.put('sub_' + nonce, '1', APP.SUBMIT_DEDUP_SEC);\n      return { ok: true };\n    });\n  });\n}\n\n/* ───────────────────────────── 교수 인증 API ───────────────────────────── */\n\nfunction adminLogin(pin) {\n  return safe_(function () {\n    var cache = CacheService.getScriptCache();\n    var now = Date.now();\n    var lockedUntil = Number(cache.get('pin_lock_until') || 0);\n    if (lockedUntil > now) {\n      return { ok: false, code: 'LOCKED', remainSec: Math.ceil((lockedUntil - now) / 1000) };\n    }\n    var s = getSettingsMap_();\n    if (!s.pin_hash) return { ok: false, code: 'NO_PIN' };\n\n    pin = String(pin == null ? '' : pin);\n    var valid = APP.PIN_PATTERN.test(pin) && safeEqual_(hashPin_(pin, s.pin_salt), String(s.pin_hash));\n    if (!valid) {\n      var failed = withLock_(function () {\n        var fails = Number(cache.get('pin_fail') || 0) + 1;\n        if (fails >= APP.PIN_MAX_FAIL) {\n          cache.put('pin_lock_until', String(Date.now() + APP.PIN_LOCK_SEC * 1000), APP.PIN_LOCK_SEC);\n          cache.remove('pin_fail');\n          return { ok: false, code: 'LOCKED', remainSec: APP.PIN_LOCK_SEC };\n        }\n        cache.put('pin_fail', String(fails), APP.PIN_LOCK_SEC);\n        return { ok: false, code: 'WRONG', left: APP.PIN_MAX_FAIL - fails };\n      });\n      if (failed.code === 'WRONG') Utilities.sleep(500); // 잠금 밖에서 지연\n      return failed;\n    }\n    cache.remove('pin_fail');\n    var session = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');\n    cache.put('sess_' + session, String(s.session_epoch || '0'), APP.SESSION_SEC);\n    return { ok: true, session: session };\n  });\n}\n\nfunction adminLogout(session) {\n  return safe_(function () {\n    if (isSessionFormat_(session)) CacheService.getScriptCache().remove('sess_' + session);\n    return { ok: true };\n  });\n}\n\nfunction changePin(session, currentPin, newPin) {\n  return adminApi_(session, function () {\n    var s = getSettingsMap_();\n    if (!safeEqual_(hashPin_(String(currentPin || ''), s.pin_salt), String(s.pin_hash))) {\n      return { ok: false, code: 'WRONG' };\n    }\n    if (!APP.PIN_PATTERN.test(String(newPin || ''))) return { ok: false, code: 'PIN_FORMAT' };\n    withLock_(function () { storePin_(String(newPin)); });\n    return { ok: true };\n  });\n}\n\n/* ───────────────────────────── 교수 데이터 API ───────────────────────────── */\n\n/** 대시보드·교과목 목록·설정을 한 번에 반환합니다. */\nfunction getAdminBootstrap(session) {\n  return adminApi_(session, function () {\n    var settings = getSettingsMap_();\n    var minN = minResponses_(settings);\n    var courses = getCourses_();\n    var itemsByCourse = groupBy_(getAllItems_(), 'course_id');\n    var respByCourse = groupBy_(readResponses_(), 'course_id');\n    var tokenStats = getTokenStats_();\n    var now = new Date();\n    var url = webAppUrl_();\n\n    var list = courses.map(function (c) {\n      var rows = respByCourse[c.course_id] || [];\n      var its = filterScope_(itemsByCourse[c.course_id] || [], c);\n      var lock = resultLock_(c, rows.length, minN, now);\n      var summary = courseSummary_(c, rows.length, now, url);\n      summary.locked_reason = lock;\n      var st = lock || !rows.length ? null : computeStats_(its, rows);\n      summary.mean = st ? st.overall : null;\n      summary.pos_pct = st ? st.overall_pos_pct : null;\n      summary.domains = st ? st.domains.map(function (d) { return { domain: d.domain, mean: d.mean, pos_pct: d.pos_pct }; }) : [];\n      summary.item_count = its.length;\n      summary.tokens_total = (tokenStats[c.course_id] || {}).total || 0;\n      summary.tokens_used = (tokenStats[c.course_id] || {}).used || 0;\n      return summary;\n    });\n    list.sort(function (a, b) {\n      return (b.year - a.year) || (semesterRank_(b.semester) - semesterRank_(a.semester)) ||\n        String(a.course_name).localeCompare(String(b.course_name)) || String(a.section).localeCompare(String(b.section));\n    });\n\n    return {\n      ok: true,\n      settings: {\n        professor_name: String(settings.professor_name || ''),\n        affiliation: String(settings.affiliation || ''),\n        min_responses: minN,\n        departments: departments_(settings)\n      },\n      courses: list,\n      webAppUrl: url,\n      now: fmtDT_(now),\n      version: APP.VERSION\n    };\n  });\n}\n\n/** 교과목 생성(course_id 없음) 또는 수정. */\nfunction saveCourse(session, data) {\n  return adminApi_(session, function () {\n    var v = validateCourse_(data || {});\n    if (!v.ok) return v;\n    var c = v.course;\n    return withLock_(function () {\n      var table = readTable_(APP.SHEETS.COURSES);\n      var existing = null;\n      if (data.course_id) {\n        existing = table.rows.filter(function (r) { return String(r.course_id) === String(data.course_id); })[0];\n        if (!existing) return { ok: false, code: 'NOT_FOUND' };\n        c.course_id = existing.course_id;\n      } else {\n        c.course_id = newCourseId_(table.rows);\n      }\n      c.status = data.manual_close ? APP.STATUS.CLOSED : statusByDates_(c, new Date());\n      var row = courseToRow_(c);\n      if (existing) {\n        // 응답이 들어온 뒤 문항 구성(표시 조건)이 바뀌면 앞뒤 응답의 문항이 달라지므로 막습니다.\n        var prev = normalizeCourse_(existing);\n        var changed = prev.course_type !== c.course_type ? 'course_type' : prev.delivery_mode !== c.delivery_mode ? 'delivery_mode' : '';\n        if (changed && readResponses_(c.course_id).length > 0) {\n          return { ok: false, code: 'VALIDATION', field: changed, message: '응답이 수집된 뒤에는 수업 방식·교과목 유형을 바꿀 수 없습니다(문항 구성이 바뀌기 때문입니다).' };\n        }\n        table.sheet.getRange(existing._row, 1, 1, row.length).setValues([row]);\n        if (c.delivery_mode !== '대면') addOnlineItems_(c.course_id);\n      } else {\n        table.sheet.getRange(table.sheet.getLastRow() + 1, 1, 1, row.length).setValues([row]);\n        // 기본 문항을 모두 복사하고, 화면에는 수업 방식·교과목 유형에 맞는 문항만 표시합니다(filterScope_).\n        if (data.copy_template !== false) copyItems_(APP.TEMPLATE_ID, c.course_id);\n      }\n      return { ok: true, course_id: c.course_id };\n    });\n  });\n}\n\n/** 이전 학기 교과목을 새 학기로 복제합니다(문항 포함, 응답·토큰 제외). */\nfunction duplicateCourse(session, sourceId, data) {\n  return adminApi_(session, function () {\n    var src = findCourse_(sanitizeId_(sourceId));\n    if (!src) return { ok: false, code: 'NOT_FOUND' };\n    var merged = {\n      course_name: src.course_name, grade: src.grade, enrollment: src.enrollment,\n      access_mode: src.access_mode, access_code: randomString_(6, APP.TOKEN_ALPHABET),\n      department: src.department, delivery_mode: data.delivery_mode || src.delivery_mode,\n      course_type: data.course_type || src.course_type,\n      year: data.year, semester: data.semester, section: data.section != null ? data.section : src.section,\n      start_at: data.start_at, end_at: data.end_at, result_open_date: data.result_open_date || ''\n    };\n    var v = validateCourse_(merged);\n    if (!v.ok) return v;\n    var c = v.course;\n    return withLock_(function () {\n      var table = readTable_(APP.SHEETS.COURSES);\n      c.course_id = newCourseId_(table.rows);\n      c.status = statusByDates_(c, new Date());\n      var row = courseToRow_(c);\n      table.sheet.getRange(table.sheet.getLastRow() + 1, 1, 1, row.length).setValues([row]);\n      copyItems_(src.course_id, c.course_id);\n      if (c.delivery_mode !== '대면') addOnlineItems_(c.course_id);\n      return { ok: true, course_id: c.course_id };\n    });\n  });\n}\n\n/** 응답이 없는 교과목만 삭제합니다(문항·토큰 함께 삭제). */\nfunction deleteCourse(session, courseId) {\n  return adminApi_(session, function () {\n    var id = sanitizeId_(courseId);\n    if (!id || id === APP.TEMPLATE_ID) return { ok: false, code: 'NOT_FOUND' };\n    return withLock_(function () {\n      if (readResponses_(id).length > 0) return { ok: false, code: 'HAS_RESPONSES' };\n      var removed = filterTable_(APP.SHEETS.COURSES, function (r) { return String(r.course_id) !== id; });\n      if (!removed) return { ok: false, code: 'NOT_FOUND' };\n      filterTable_(APP.SHEETS.ITEMS, function (r) { return String(r.course_id) !== id; });\n      filterTable_(APP.SHEETS.TOKENS, function (r) { return String(r.course_id) !== id; });\n      return { ok: true };\n    });\n  });\n}\n\n/** 일회용 토큰 N개를 생성합니다. 원문은 이 응답에서만 반환되고 시트에는 해시만 저장됩니다. */\nfunction generateTokens(session, courseId, count) {\n  return adminApi_(session, function () {\n    var course = findCourse_(sanitizeId_(courseId));\n    if (!course) return { ok: false, code: 'NOT_FOUND' };\n    var n = Math.floor(Number(count));\n    if (!(n >= 1 && n <= APP.TOKEN_MAX_BATCH)) return { ok: false, code: 'VALIDATION', field: 'count' };\n    var salt = tokenSalt_();\n    return withLock_(function () {\n      var sh = sheet_(APP.SHEETS.TOKENS);\n      var existing = {};\n      readTable_(APP.SHEETS.TOKENS).rows.forEach(function (r) { existing[String(r.token_hash)] = true; });\n      var tokens = [], rows = [];\n      while (tokens.length < n) {\n        var t = randomString_(APP.TOKEN_LENGTH, APP.TOKEN_ALPHABET);\n        var h = tokenHash_(course.course_id, t, salt);\n        if (existing[h]) continue;\n        existing[h] = true;\n        tokens.push(t.slice(0, 4) + '-' + t.slice(4));\n        rows.push([course.course_id, asTextCell_(h), false]);\n      }\n      sh.getRange(sh.getLastRow() + 1, 1, rows.length, 3).setValues(rows);\n      return {\n        ok: true,\n        tokens: tokens,\n        course: courseSummary_(course, 0, new Date(), webAppUrl_())\n      };\n    });\n  });\n}\n\n/** 문항 목록. courseId가 'TEMPLATE'이면 공통 기본 문항 은행입니다. */\nfunction getItemsAdmin(session, courseId) {\n  return adminApi_(session, function () {\n    var id = courseId === APP.TEMPLATE_ID ? APP.TEMPLATE_ID : sanitizeId_(courseId);\n    if (id !== APP.TEMPLATE_ID && !findCourse_(id)) return { ok: false, code: 'NOT_FOUND' };\n    var n = id === APP.TEMPLATE_ID ? 0 : readResponses_(id).length;\n    return { ok: true, items: getItems_(id), locked: n > 0, response_count: n };\n  });\n}\n\n/** 문항 전체 저장(교체). 응답이 1건 이상인 교과목은 잠깁니다. */\nfunction saveItems(session, courseId, items) {\n  return adminApi_(session, function () {\n    var id = courseId === APP.TEMPLATE_ID ? APP.TEMPLATE_ID : sanitizeId_(courseId);\n    if (id !== APP.TEMPLATE_ID && !findCourse_(id)) return { ok: false, code: 'NOT_FOUND' };\n    if (!Array.isArray(items) || items.length === 0) return { ok: false, code: 'VALIDATION', message: '문항이 1개 이상 필요합니다.' };\n    if (items.length > APP.MAX_ITEMS) return { ok: false, code: 'VALIDATION', message: '문항은 최대 ' + APP.MAX_ITEMS + '개입니다.' };\n\n    return withLock_(function () {\n      if (id !== APP.TEMPLATE_ID && readResponses_(id).length > 0) return { ok: false, code: 'LOCKED_ITEMS' };\n      var all = readTable_(APP.SHEETS.ITEMS);\n      var ownIds = {}, takenIds = {};\n      all.rows.forEach(function (r) {\n        takenIds[String(r.item_id)] = true;\n        if (String(r.course_id) === id) ownIds[String(r.item_id)] = true;\n      });\n      var clean = [];\n      for (var i = 0; i < items.length; i++) {\n        var v = validateItem_(items[i], i);\n        if (!v.ok) return v;\n        var itemId = String(items[i].item_id || '');\n        if (!ownIds[itemId] || clean.some(function (x) { return x.item_id === itemId; })) {\n          itemId = newItemId_(takenIds);\n        }\n        takenIds[itemId] = true;\n        v.item.item_id = itemId;\n        v.item.course_id = id;\n        v.item.order = i + 1;\n        clean.push(v.item);\n      }\n      var kept = all.rows.filter(function (r) { return String(r.course_id) !== id; }).map(function (r) {\n        return HEADERS.Items.map(function (h) { return r[h]; });\n      });\n      var rows = kept.concat(clean.map(itemToRow_));\n      rewriteBody_(all.sheet, HEADERS.Items.length, rows);\n      return { ok: true, items: getItems_(id) };\n    });\n  });\n}\n\n/** 결과 분석. 응답 수 < 최소 공개 수, 또는 결과공개일 이전이면 잠깁니다. */\nfunction getResults(session, courseId) {\n  return adminApi_(session, function () {\n    var ctx = resultContext_(courseId);\n    if (!ctx.ok) return ctx;\n    if (ctx.locked) return lockedResult_(ctx);\n\n    var stats = computeStats_(ctx.items, ctx.rows);\n    // 드롭다운(성별 등) 분포는 집단이 작으면 인원수 자체를 숨깁니다.\n    stats.items.forEach(function (st) {\n      if (st.type !== 'select') return;\n      var it = ctx.items.filter(function (x) { return x.item_id === st.item_id; })[0];\n      if (!selectGroups_(it, ctx.rows, ctx.minN).safe) { delete st.options; st.n = null; st.suppressed = true; }\n    });\n    return {\n      ok: true,\n      locked: false,\n      course: ctx.summary,\n      n: ctx.rows.length,\n      min_responses: ctx.minN,\n      stats: stats,\n      semester_compare: compareGroups_(ctx, 'semester'),\n      section_compare: compareGroups_(ctx, 'section'),\n      groups: groupCompare_(ctx.items, ctx.rows, ctx.minN),\n      texts: textAnswers_(ctx.items, ctx.rows),\n      wordcloud: wordCloudData_(ctx.items, ctx.rows),\n      cqi: cqiSummary_(stats),\n      likertLabels: LIKERT_LABELS\n    };\n  });\n}\n\n/** 원자료 CSV(행 순서 무작위, 수식 주입 방지). */\nfunction exportCsv(session, courseId) {\n  return adminApi_(session, function () {\n    var ctx = resultContext_(courseId);\n    if (!ctx.ok) return ctx;\n    if (ctx.locked) return lockedResult_(ctx);\n    // 소규모 집단이 생기는 드롭다운(성별 등) 열은 응답자 특정 위험이 있어 제외합니다.\n    var cols = ctx.items.filter(function (it) { return it.type !== 'select' || selectGroups_(it, ctx.rows, ctx.minN).safe; });\n    var omitted = ctx.items.length - cols.length;\n    var header = ['번호', '제출일'].concat(cols.map(function (it, i) {\n      return (i + 1) + '. [' + it.domain + '] ' + it.text + (it.reverse ? ' (역문항·원점수)' : '');\n    }));\n    var lines = [header];\n    shuffle_(ctx.rows.slice()).forEach(function (r, i) {\n      lines.push([i + 1, dateOnly_(r.submitted_date)].concat(cols.map(function (it) {\n        return r[it.item_id] == null ? '' : r[it.item_id];\n      })));\n    });\n    return { ok: true, filename: exportName_(ctx.course, '원자료') + '.csv', content: toCsv_(lines), omitted: omitted };\n  });\n}\n\n/** CQI 요약표 CSV(영역별 평균·표준편차, 강점·개선점). */\nfunction exportCqi(session, courseId) {\n  return adminApi_(session, function () {\n    var ctx = resultContext_(courseId);\n    if (!ctx.ok) return ctx;\n    if (ctx.locked) return lockedResult_(ctx);\n    var stats = computeStats_(ctx.items, ctx.rows);\n    var cqi = cqiSummary_(stats);\n    var c = ctx.summary;\n    var lines = [\n      ['CQI 요약표', c.course_name],\n      ['학년도·학기', c.year + '학년도 ' + c.semester + '학기', '학과', c.department, '학년', c.grade, '분반', c.section, '수업 방식', c.delivery_mode, '교과목 유형', c.course_type],\n      ['응답 수', ctx.rows.length, '수강인원', c.enrollment, '응답률(%)', c.response_rate],\n      ['전체 평균(5점)', stats.overall == null ? '' : stats.overall],\n      [],\n      ['영역', '문항 수', '평균', '표준편차', '긍정 응답률(%)', '해석']\n    ];\n    stats.domains.forEach(function (d) {\n      lines.push([d.domain, d.item_count, d.mean, d.sd, d.pos_pct, interpretMean_(d.mean)]);\n    });\n    lines.push([]);\n    lines.push(['구분', '영역', '문항', '평균', '표준편차']);\n    cqi.strengths.forEach(function (s) { lines.push(['강점', s.domain, s.text, s.mean, s.sd]); });\n    cqi.improvements.forEach(function (s) { lines.push(['개선점', s.domain, s.text, s.mean, s.sd]); });\n    lines.push([]);\n    lines.push(['개선 계획(교수 작성)', '']);\n    lines.push(['※ 본 자료는 학교 공식 강의평가가 아닌 교수자 자율형 형성평가·CQI 자료입니다.']);\n    return { ok: true, filename: exportName_(ctx.course, 'CQI요약') + '.csv', content: toCsv_(lines) };\n  });\n}\n\n/** 서술형 전체 텍스트(AI 요약용). 문항별로 무작위 순서. */\nfunction exportText(session, courseId) {\n  return adminApi_(session, function () {\n    var ctx = resultContext_(courseId);\n    if (!ctx.ok) return ctx;\n    if (ctx.locked) return lockedResult_(ctx);\n    var c = ctx.summary;\n    var out = [];\n    out.push('[' + APP.NAME + '] 서술형 응답 — ' + c.course_name + ' (' + c.year + '학년도 ' + c.semester +\n      '학기, ' + c.section + '반) / 응답 ' + ctx.rows.length + '명');\n    out.push('※ 응답 순서는 무작위입니다. 이름·학번 등 개인을 식별할 수 있는 내용이 있으면 AI에 입력하기 전에 삭제하세요.');\n    out.push('');\n    textAnswers_(ctx.items, ctx.rows).forEach(function (t) {\n      out.push('■ ' + t.text + ' (' + t.answers.length + '건)');\n      t.answers.forEach(function (a) { out.push('- ' + a.replace(/\\n+/g, ' ')); });\n      out.push('');\n    });\n    out.push('---');\n    out.push('[AI 요약 요청 예시]');\n    out.push('위 강의평가 서술형 응답을 문항별로 ① 주요 주제 3~5개(빈도 순) ② 대표 의견 요약 ③ 다음 학기 CQI 개선 과제 3가지로 정리해 주세요. 응답에 없는 내용은 추측하지 마세요.');\n    return { ok: true, filename: exportName_(ctx.course, '서술형') + '.txt', content: out.join('\\n') };\n  });\n}\n\nfunction saveSettings(session, data) {\n  return adminApi_(session, function () {\n    data = data || {};\n    var name = cleanText_(data.professor_name, 40);\n    var aff = cleanText_(data.affiliation, 80);\n    var minN = Math.floor(Number(data.min_responses));\n    if (!name) return { ok: false, code: 'VALIDATION', field: 'professor_name' };\n    if (!(minN >= APP.MIN_RESPONSES_FLOOR && minN <= 50)) return { ok: false, code: 'VALIDATION', field: 'min_responses' };\n    var depts = (Array.isArray(data.departments) ? data.departments : String(data.departments || '').split(/\\n|,/))\n      .map(function (d) { return cleanText_(d, 40); }).filter(String);\n    depts = depts.filter(function (d, i) { return depts.indexOf(d) === i; }).slice(0, 30);\n    if (!depts.length) return { ok: false, code: 'VALIDATION', field: 'departments' };\n    withLock_(function () {\n      setSetting_('professor_name', name);\n      setSetting_('affiliation', aff);\n      setSetting_('min_responses', minN);\n      setSetting_('departments', depts.join('\\n'));\n    });\n    return { ok: true };\n  });\n}\n\n/* ───────────────────────────── 결과 계산 ───────────────────────────── */\n\nfunction resultContext_(courseId) {\n  var course = findCourse_(sanitizeId_(courseId));\n  if (!course) return { ok: false, code: 'NOT_FOUND' };\n  var settings = getSettingsMap_();\n  var minN = minResponses_(settings);\n  var rows = readResponses_(course.course_id);\n  var now = new Date();\n  return {\n    ok: true,\n    course: course,\n    summary: courseSummary_(course, rows.length, now, webAppUrl_()),\n    items: itemsForCourse_(course),\n    rows: rows,\n    minN: minN,\n    now: now,\n    locked: resultLock_(course, rows.length, minN, now)\n  };\n}\n\nfunction lockedResult_(ctx) {\n  return {\n    ok: true,\n    locked: true,\n    reason: ctx.locked,\n    n: ctx.rows.length,\n    min_responses: ctx.minN,\n    open_date: ctx.course.result_open_date ? fmtD_(ctx.course.result_open_date) : '',\n    course: ctx.summary\n  };\n}\n\n/** 잠금 사유: 'MIN_RESPONSES' | 'BEFORE_OPEN_DATE' | null */\nfunction resultLock_(course, n, minN, now) {\n  if (n < minN) return 'MIN_RESPONSES';\n  if (course.result_open_date && fmtD_(now) < fmtD_(course.result_open_date)) return 'BEFORE_OPEN_DATE';\n  return null;\n}\n\nfunction likertScore_(item, raw) {\n  var n = Number(raw);\n  if (raw === '' || raw == null || !(n >= 1 && n <= 5) || Math.floor(n) !== n) return null;\n  return item.reverse ? 6 - n : n;\n}\n\nfunction computeStats_(items, rows) {\n  var itemStats = items.map(function (it) {\n    var base = { item_id: it.item_id, domain: it.domain, text: it.text, type: it.type, reverse: it.reverse };\n    if (it.type === 'likert5') {\n      var dist = [0, 0, 0, 0, 0], scores = [];\n      rows.forEach(function (r) {\n        var raw = Number(r[it.item_id]);\n        var s = likertScore_(it, r[it.item_id]);\n        if (s == null) return;\n        dist[raw - 1]++;\n        scores.push(s);\n      });\n      base.n = scores.length;\n      base.mean = round2_(mean_(scores));\n      base.sd = round2_(sd_(scores));\n      base.dist = dist;\n      base.sdist = it.reverse ? dist.slice().reverse() : dist.slice(); // 점수 기준 분포(역문항 환산)\n      polarity_(base, base.sdist);\n      return base;\n    }\n    if (it.type === 'single' || it.type === 'multi' || it.type === 'select') {\n      var counts = {};\n      it.options.forEach(function (o) { counts[o] = 0; });\n      var answered = 0;\n      rows.forEach(function (r) {\n        var v = String(r[it.item_id] == null ? '' : r[it.item_id]);\n        if (!v) return;\n        answered++;\n        (it.type === 'multi' ? v.split('; ') : [v]).forEach(function (o) {\n          if (counts.hasOwnProperty(o)) counts[o]++;\n        });\n      });\n      base.n = answered;\n      base.options = it.options.map(function (o) { return { label: o, count: counts[o] }; });\n      return base;\n    }\n    base.n = rows.filter(function (r) { return String(r[it.item_id] == null ? '' : r[it.item_id]).trim() !== ''; }).length;\n    return base;\n  });\n\n  var byDomain = {}, order = [];\n  itemStats.forEach(function (s) {\n    if (s.type !== 'likert5' || s.mean == null) return;\n    if (!byDomain[s.domain]) { byDomain[s.domain] = []; order.push(s.domain); }\n    byDomain[s.domain].push(s);\n  });\n  var domains = order.map(function (d) {\n    var means = byDomain[d].map(function (s) { return s.mean; });\n    var dist = [0, 0, 0, 0, 0];\n    byDomain[d].forEach(function (s) { s.sdist.forEach(function (n, i) { dist[i] += n; }); });\n    return polarity_({ domain: d, item_count: means.length, mean: round2_(mean_(means)), sd: round2_(domainSd_(byDomain[d], items, rows)), dist: dist }, dist);\n  });\n  var likert = itemStats.filter(function (s) { return s.type === 'likert5' && s.mean != null; });\n  var allMeans = likert.map(function (s) { return s.mean; });\n  var pick = function (re) {\n    var s = likert.filter(function (x) { return re.test(x.text); })[0];\n    return s ? { text: s.text, mean: s.mean, pos_pct: s.pos_pct, n: s.n } : null;\n  };\n  var total = [0, 0, 0, 0, 0];\n  likert.forEach(function (s) { s.sdist.forEach(function (n, i) { total[i] += n; }); });\n  return {\n    items: itemStats,\n    domains: domains,\n    overall: round2_(mean_(allMeans)),\n    overall_pos_pct: polarity_({}, total).pos_pct,\n    kpis: { satisfaction: pick(/만족/), recommend: pick(/추천/) }\n  };\n}\n\n/** 점수 분포로 긍정(4·5)·중립(3)·부정(1·2) 비율(%)을 붙입니다. */\nfunction polarity_(obj, sdist) {\n  var n = sdist.reduce(function (a, b) { return a + b; }, 0);\n  var pct = function (x) { return n ? Math.round(x / n * 1000) / 10 : null; };\n  obj.pos_pct = pct(sdist[3] + sdist[4]);\n  obj.neu_pct = pct(sdist[2]);\n  obj.neg_pct = pct(sdist[0] + sdist[1]);\n  return obj;\n}\n\n/**\n * 드롭다운 문항(성별 등)의 집단 구성. 미응답 포함 어느 집단이든 1명 이상 minN명 미만이면 safe=false.\n * (작은 집단은 전체 평균과의 차이로 개인 응답이 역산될 수 있으므로 모두 숨깁니다.)\n */\nfunction selectGroups_(item, rows, minN) {\n  var groups = {}, none = [];\n  item.options.forEach(function (o) { groups[o] = []; });\n  rows.forEach(function (r) {\n    var v = String(r[item.item_id] == null ? '' : r[item.item_id]);\n    if (groups.hasOwnProperty(v)) groups[v].push(r); else none.push(r);\n  });\n  var sizes = Object.keys(groups).map(function (k) { return groups[k].length; }).concat([none.length]);\n  var nonEmpty = item.options.filter(function (o) { return groups[o].length > 0; }).length;\n  var safe = nonEmpty >= 2 && sizes.every(function (n) { return n === 0 || n >= minN; });\n  return { safe: safe, groups: groups, unanswered: none.length };\n}\n\n/** 드롭다운 문항별 집단 비교(예: 성별). 익명성 기준을 넘지 못하면 수치 없이 사유만 반환합니다. */\nfunction groupCompare_(items, rows, minN) {\n  var likertItems = items.filter(function (it) { return it.type === 'likert5'; });\n  return items.filter(function (it) { return it.type === 'select'; }).map(function (it) {\n    var g = selectGroups_(it, rows, minN);\n    if (!g.safe) return { item_id: it.item_id, text: it.text, suppressed: true, min_responses: minN };\n    return {\n      item_id: it.item_id, text: it.text, suppressed: false,\n      groups: it.options.filter(function (o) { return g.groups[o].length; }).map(function (o) {\n        var st = computeStats_(likertItems, g.groups[o]);\n        return { label: o, n: g.groups[o].length, overall: st.overall, pos_pct: st.overall_pos_pct, domains: st.domains.map(function (d) { return { domain: d.domain, mean: d.mean }; }) };\n      })\n    };\n  });\n}\n\n/* ───────────────────────────── 워드 클라우드 ───────────────────────────── */\n\nvar KO_PARTICLES = ['에서는', '에게서', '으로는', '으로도', '이라서', '이라도', '이라는', '라서', '에서', '에게', '한테', '으로', '까지', '부터', '처럼', '보다', '이나', '이랑', '에는', '에도', '와는', '과는', '이라', '이고',\n  '은', '는', '이', '가', '을', '를', '에', '의', '도', '로', '와', '과', '만', '랑', '라', '나'];\n// 서술어 어미(2글자 이상 + '다'). '요·고·면·게' 같은 1글자 어미는 '필요·최고·비대면' 같은 명사와 겹쳐 제외합니다.\nvar KO_PREDICATE = /(습니다|니다|어요|아요|해요|여요|네요|군요|세요|어서|아서|해서|지만|는데|면서|으면|다면|도록|었고|았고|했고|하게|하는|되는|있는|없는|좋은|같은|싶은|었던|았던|했던|겠고|다)$/;\n// 조사처럼 보이는 글자로 끝나는 명사(잘리면 안 되는 단어)\nvar KO_KEEP = ['와이파이', '난이도', '이해도', '만족도', '참여도', '집중도', '정도', '속도', '태도', '제도', '시도', '강도', '빈도', '진도',\n  '평가', '휴가', '과제', '결과', '효과', '교과', '성과', '학과', '자료', '이론', '진로', '강의', '토의', '회의', '논의', '정의', '동의',\n  '모의', '주의', '아이', '디스플레이', '지도', '도구', '문제', '주제', '실제', '경제', '체계', '관계', '단계', '기기',\n  '비대면', '대면', '화면', '측면', '보고서', '계획서', '강의계획서', '설명서', '참고', '최고'];\nvar KO_STOP = ['수업', '강의', '교수님', '교수', '학생', '정말', '너무', '조금', '많이', '매우', '진짜', '그냥', '그리고', '하지만', '그래서', '이번', '다음', '학기',\n  '부분', '생각', '느낌', '경우', '정도', '때문', '자주', '올려', '늘려', '해주', '주세요', '있으면', '있었으면', '했으면',\n  '다른', '많아', '많이', '많은', '알려', '겹치', '고르지', '주가', '있어', '없어', '같이', '함께', '위주', '대해', '더욱', '계속', '빨리', '좋겠', '어려', '쉬웠', '쉽게', '다뤄', '따라', '만들', '들어', '이것', '그것', '저것', '우리', '저희', '제가', '모든', '항상', '가장', '좀더', '보다', '없음', '없다', '있음', '해서', '대한', '관련', '통해', '위해', '여러', '것들', '좋았', '같아요'];\n\n/** 한국어 응답에서 명사 위주의 단어 빈도를 셉니다(형태소 분석기 없이 조사 제거·서술어 제외 휴리스틱). */\nfunction wordFreq_(texts, limit) {\n  var counts = {};\n  texts.forEach(function (t) {\n    String(t).replace(/wi-?fi/gi, '와이파이').replace(/e-?mr/gi, 'EMR')\n      .replace(/[^0-9A-Za-z가-힣\\s]/g, ' ').split(/\\s+/).forEach(function (raw) {\n      if (!raw) return;\n      var w = raw;\n      if (/[가-힣]/.test(w)) {\n        if (w.length >= 3 && /한$/.test(w)) return; // 필요한·부족한 등 관형형\n        if (KO_KEEP.indexOf(w) < 0 && (KO_PREDICATE.test(w) || (w.length >= 3 && /([요히고할면]|[겨져워려와]서)$/.test(w)))) return; // 서술어·부사 제외\n        for (var i = 0; i < KO_PARTICLES.length && KO_KEEP.indexOf(w) < 0; i++) {\n          var p = KO_PARTICLES[i];\n          if (w.length - p.length >= 2 && w.slice(-p.length) === p) { w = w.slice(0, -p.length); break; }\n        }\n      }\n      if (/^[A-Za-z0-9]+$/.test(w)) w = w.toUpperCase();\n      if (w.length < 2 || /^\\d+$/.test(w) || KO_STOP.indexOf(w) >= 0) return;\n      counts[w] = (counts[w] || 0) + 1;\n    });\n  });\n  return Object.keys(counts).map(function (w) { return { w: w, n: counts[w] }; })\n    .sort(function (a, b) { return (b.n - a.n) || a.w.localeCompare(b.w); })\n    .slice(0, limit || 50);\n}\n\nfunction wordCloudData_(items, rows) {\n  var all = [], byItem = {};\n  items.filter(function (it) { return it.type === 'text'; }).forEach(function (it) {\n    var texts = rows.map(function (r) { return String(r[it.item_id] == null ? '' : r[it.item_id]).trim(); }).filter(String);\n    all = all.concat(texts);\n    byItem[it.item_id] = wordFreq_(texts, 40);\n  });\n  return { all: wordFreq_(all, 50), items: byItem };\n}\n\n/** 영역 표준편차: 응답자별 영역 평균 점수의 표준편차. */\nfunction domainSd_(domainStats, items, rows) {\n  var ids = {};\n  domainStats.forEach(function (s) { ids[s.item_id] = true; });\n  var its = items.filter(function (it) { return ids[it.item_id]; });\n  var perResp = [];\n  rows.forEach(function (r) {\n    var sc = its.map(function (it) { return likertScore_(it, r[it.item_id]); }).filter(function (x) { return x != null; });\n    if (sc.length) perResp.push(mean_(sc));\n  });\n  return sd_(perResp);\n}\n\nfunction overallMean_(items, rows) {\n  if (!items.length || !rows.length) return null;\n  return computeStats_(items, rows).overall;\n}\n\n/** 학기 간(동일 교과목명·분반) 또는 분반 간(동일 교과목명·학년도·학기) 비교. 각 집단도 최소 공개 수를 적용합니다. */\nfunction compareGroups_(ctx, kind) {\n  var name = normName_(ctx.course.course_name);\n  var all = getCourses_().filter(function (c) {\n    if (normName_(c.course_name) !== name) return false;\n    if (kind === 'section') {\n      return Number(c.year) === Number(ctx.course.year) && String(c.semester) === String(ctx.course.semester);\n    }\n    return normName_(c.section) === normName_(ctx.course.section); // 학기 비교는 같은 분반끼리\n  });\n  if (all.length < 2) return { groups: [], excluded: 0 };\n  var itemsBy = groupBy_(getAllItems_(), 'course_id');\n  var respBy = groupBy_(readResponses_(), 'course_id');\n  var groups = [], excluded = 0;\n  all.forEach(function (c) {\n    var rows = respBy[c.course_id] || [];\n    if (resultLock_(c, rows.length, ctx.minN, ctx.now)) { excluded++; return; }\n    var st = computeStats_(filterScope_(itemsBy[c.course_id] || [], c), rows);\n    groups.push({\n      course_id: c.course_id,\n      label: kind === 'section' ? (c.section + '반') : (c.year + '-' + c.semester + (c.section ? ' ' + c.section + '반' : '')),\n      year: Number(c.year), semester: String(c.semester), section: String(c.section),\n      n: rows.length, overall: st.overall, domains: st.domains,\n      current: c.course_id === ctx.course.course_id\n    });\n  });\n  groups.sort(function (a, b) {\n    return (a.year - b.year) || (semesterRank_(a.semester) - semesterRank_(b.semester)) || a.section.localeCompare(b.section);\n  });\n  return { groups: groups, excluded: excluded };\n}\n\nfunction textAnswers_(items, rows) {\n  return items.filter(function (it) { return it.type === 'text'; }).map(function (it) {\n    var answers = rows.map(function (r) { return String(r[it.item_id] == null ? '' : r[it.item_id]).trim(); })\n      .filter(function (s) { return s !== ''; });\n    return { item_id: it.item_id, text: it.text, answers: shuffle_(answers) };\n  });\n}\n\nfunction cqiSummary_(stats) {\n  var likert = stats.items.filter(function (s) { return s.type === 'likert5' && s.mean != null; });\n  var sorted = likert.slice().sort(function (a, b) { return (b.mean - a.mean) || (a.sd - b.sd); });\n  var k = Math.min(3, Math.floor(sorted.length / 2));\n  var pick = function (s) { return { domain: s.domain, text: s.text, mean: s.mean, sd: s.sd }; };\n  return {\n    strengths: sorted.slice(0, k).map(pick),\n    improvements: sorted.slice(sorted.length - k).reverse().map(pick)\n  };\n}\n\nfunction interpretMean_(m) {\n  if (m == null) return '';\n  if (m >= 4.5) return '매우 우수';\n  if (m >= 4.0) return '우수';\n  if (m >= 3.5) return '보통 이상';\n  if (m >= 3.0) return '보통';\n  return '개선 필요';\n}\n\n/* ───────────────────────────── 응답 처리 ───────────────────────────── */\n\nfunction checkCredential_(course, credential) {\n  if (course.access_mode === 'token') {\n    var tok = normalizeToken_(credential);\n    if (tok.length !== APP.TOKEN_LENGTH) return { ok: false, code: 'TOKEN_INVALID' };\n    var h = tokenHash_(course.course_id, tok, tokenSalt_());\n    var t = readTable_(APP.SHEETS.TOKENS);\n    for (var i = 0; i < t.rows.length; i++) {\n      var r = t.rows[i];\n      if (String(r.course_id) === course.course_id && String(r.token_hash) === h) {\n        if (toBool_(r.used)) return { ok: false, code: 'TOKEN_USED' };\n        return { ok: true, tokenRow: r._row };\n      }\n    }\n    return { ok: false, code: 'TOKEN_INVALID' };\n  }\n  var expected = String(course.access_code || '').trim().toUpperCase();\n  if (!expected) return { ok: true };\n  var given = String(credential == null ? '' : credential).trim().toUpperCase().slice(0, 20);\n  return safeEqual_(given, expected) ? { ok: true } : { ok: false, code: 'BAD_CODE' };\n}\n\nfunction setTokenUsed_(row, used) {\n  sheet_(APP.SHEETS.TOKENS).getRange(row, 3).setValue(used);\n}\n\nfunction sanitizeAnswers_(items, answers) {\n  answers = (answers && typeof answers === 'object') ? answers : {};\n  var values = {}, missing = [];\n  items.forEach(function (it) {\n    var raw = answers[it.item_id];\n    var v = '';\n    if (it.type === 'likert5') {\n      var n = Number(raw);\n      if (raw !== '' && raw != null && n >= 1 && n <= 5 && Math.floor(n) === n) v = n;\n    } else if (it.type === 'single' || it.type === 'select') {\n      if (typeof raw === 'string' && it.options.indexOf(raw) >= 0) v = asTextCell_(raw);\n    } else if (it.type === 'multi') {\n      if (Array.isArray(raw)) {\n        var sel = it.options.filter(function (o) { return raw.indexOf(o) >= 0; });\n        if (sel.length) v = asTextCell_(sel.join('; '));\n      }\n    } else if (it.type === 'text') {\n      var s = cleanText_(raw, APP.TEXT_MAX);\n      if (s) v = asTextCell_(s);\n    }\n    if (it.required && v === '') missing.push(it.item_id);\n    values[it.item_id] = v;\n  });\n  if (missing.length) return { ok: false, code: 'MISSING', missing: missing };\n  return { ok: true, values: values };\n}\n\n/** 응답 1행을 무작위 위치에 삽입합니다(행 순서로 제출 순서를 추정하기 어렵게). 시각은 저장하지 않습니다. */\nfunction appendResponse_(courseId, items, values, responseId) {\n  var sh = sheet_(APP.SHEETS.RESPONSES);\n  var headers = ensureResponseColumns_(sh, items);\n  var today = asTextCell_(fmtD_(new Date()));\n  var row = headers.map(function (h) {\n    if (h === 'response_id') return responseId;\n    if (h === 'course_id') return courseId;\n    if (h === 'submitted_date') return today;\n    return values.hasOwnProperty(h) ? values[h] : '';\n  });\n  var last = sh.getLastRow();\n  var pos = last < 2 ? 2 : 2 + Math.floor(Math.random() * last); // 2 … last+1\n  if (pos <= last) sh.insertRowBefore(pos);\n  sh.getRange(pos, 1, 1, row.length).setValues([row]);\n}\n\n/** Responses 헤더에 없는 item_id 열을 추가하고 전체 헤더를 반환합니다. */\nfunction ensureResponseColumns_(sh, items) {\n  var lastCol = Math.max(sh.getLastColumn(), HEADERS.Responses.length);\n  var headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return String(h).trim(); });\n  var missing = items.filter(function (it) { return headers.indexOf(it.item_id) < 0; });\n  if (missing.length) {\n    var start = headers.length + 1;\n    var need = headers.length + missing.length;\n    if (need > sh.getMaxColumns()) sh.insertColumnsAfter(sh.getMaxColumns(), need - sh.getMaxColumns());\n    var range = sh.getRange(1, start, 1, missing.length);\n    range.setValues([missing.map(function (it) { return it.item_id; })]);\n    range.setNotes([missing.map(function (it) { return '[' + it.domain + '] ' + it.text; })]);\n    range.setFontWeight('bold');\n    headers = headers.concat(missing.map(function (it) { return it.item_id; }));\n  }\n  return headers;\n}\n\nfunction readResponses_(courseId) {\n  var t = readTable_(APP.SHEETS.RESPONSES);\n  return t.rows.filter(function (r) {\n    return r.response_id !== '' && (!courseId || String(r.course_id) === courseId);\n  });\n}\n\n/* ───────────────────────────── 교과목·문항 ───────────────────────────── */\n\nfunction getCourses_() {\n  return readTable_(APP.SHEETS.COURSES).rows\n    .filter(function (r) { return String(r.course_id).trim() !== ''; })\n    .map(normalizeCourse_);\n}\n\nfunction findCourse_(id) {\n  if (!id) return null;\n  return getCourses_().filter(function (c) { return c.course_id === id; })[0] || null;\n}\n\nfunction normalizeCourse_(r) {\n  return {\n    course_id: String(r.course_id).trim(),\n    course_name: String(r.course_name || ''),\n    year: Number(r.year) || '',\n    semester: String(r.semester || ''),\n    grade: r.grade === '' || r.grade == null ? '' : String(r.grade),\n    section: String(r.section || ''),\n    enrollment: Number(r.enrollment) || 0,\n    start_at: toDate_(r.start_at),\n    end_at: toDate_(r.end_at),\n    access_mode: String(r.access_mode) === 'token' ? 'token' : 'code',\n    access_code: String(r.access_code || ''),\n    status: String(r.status || APP.STATUS.READY),\n    result_open_date: toDate_(r.result_open_date),\n    department: String(r.department || ''),\n    delivery_mode: APP.DELIVERY.indexOf(String(r.delivery_mode)) >= 0 ? String(r.delivery_mode) : '대면',\n    course_type: APP.COURSE_TYPES.indexOf(String(r.course_type)) >= 0 ? String(r.course_type) : '이론+실습',\n    _row: r._row\n  };\n}\n\nfunction courseToRow_(c) {\n  return [c.course_id, guardFormula_(c.course_name), c.year, asTextCell_(c.semester), c.grade, asTextCell_(c.section),\n    c.enrollment, c.start_at, c.end_at, c.access_mode, asTextCell_(c.access_code), c.status, c.result_open_date || '',\n    guardFormula_(c.department || ''), c.delivery_mode || '대면', c.course_type || '이론+실습'];\n}\n\nfunction validateCourse_(d) {\n  var err = function (field, message) { return { ok: false, code: 'VALIDATION', field: field, message: message }; };\n  var name = cleanText_(d.course_name, 100);\n  if (!name) return err('course_name', '교과목명을 입력하세요.');\n  var year = Math.floor(Number(d.year));\n  if (!(year >= 2000 && year <= 2100)) return err('year', '학년도를 확인하세요.');\n  var sem = String(d.semester || '');\n  if (APP.SEMESTERS.indexOf(sem) < 0) return err('semester', '학기를 선택하세요.');\n  var grade = Math.floor(Number(d.grade));\n  if (APP.GRADES.indexOf(grade) < 0) return err('grade', '학년(1~4)을 선택하세요.');\n  var section = String(d.section == null ? '' : d.section).trim().toUpperCase();\n  if (APP.SECTIONS.indexOf(section) < 0) return err('section', '반(A~F)을 선택하세요.');\n  var department = cleanText_(d.department, 40);\n  if (!department) return err('department', '학과를 선택하세요.');\n  var delivery = String(d.delivery_mode || '대면');\n  if (APP.DELIVERY.indexOf(delivery) < 0) return err('delivery_mode', '수업 방식을 선택하세요.');\n  var ctype = String(d.course_type || '이론+실습');\n  if (APP.COURSE_TYPES.indexOf(ctype) < 0) return err('course_type', '교과목 유형(이론/실습/이론+실습)을 선택하세요.');\n  var enroll = Math.floor(Number(d.enrollment));\n  if (!(enroll >= 1 && enroll <= 1000)) return err('enrollment', '수강인원은 1~1000명입니다.');\n  var start = parseDT_(d.start_at), end = parseDT_(d.end_at);\n  if (!start) return err('start_at', '시작일시를 입력하세요.');\n  if (!end) return err('end_at', '종료일시를 입력하세요.');\n  if (end.getTime() <= start.getTime()) return err('end_at', '종료일시는 시작일시보다 늦어야 합니다.');\n  var mode = d.access_mode === 'token' ? 'token' : 'code';\n  var code = String(d.access_code == null ? '' : d.access_code).trim().toUpperCase();\n  if (!/^[A-Z0-9]{0,12}$/.test(code)) return err('access_code', '접속코드는 영문·숫자 12자 이내입니다.');\n  var open = '';\n  if (d.result_open_date) {\n    open = parseDT_(d.result_open_date);\n    if (!open) return err('result_open_date', '결과공개일을 확인하세요.');\n  }\n  return {\n    ok: true,\n    course: {\n      course_name: name, year: year, semester: sem, grade: grade, section: section, enrollment: enroll,\n      start_at: start, end_at: end, access_mode: mode, access_code: code, result_open_date: open,\n      department: department, delivery_mode: delivery, course_type: ctype\n    }\n  };\n}\n\nfunction statusByDates_(c, now) {\n  if (!c.start_at || !c.end_at) return APP.STATUS.READY;\n  if (now.getTime() < c.start_at.getTime()) return APP.STATUS.READY;\n  if (now.getTime() > c.end_at.getTime()) return APP.STATUS.CLOSED;\n  return APP.STATUS.OPEN;\n}\n\n/** 저장된 상태가 '마감'(수동 마감)이면 마감, 그 외에는 기간으로 판정합니다. */\nfunction effectiveStatus_(c, now) {\n  if (c.status === APP.STATUS.CLOSED) return APP.STATUS.CLOSED;\n  return statusByDates_(c, now);\n}\n\nfunction stateCode_(state) {\n  return state === APP.STATUS.READY ? 'NOT_STARTED' : 'CLOSED';\n}\n\nfunction courseSummary_(c, n, now, url) {\n  var status = effectiveStatus_(c, now);\n  var hoursLeft = c.end_at ? (c.end_at.getTime() - now.getTime()) / 3600000 : null;\n  return {\n    course_id: c.course_id,\n    course_name: c.course_name,\n    year: c.year,\n    semester: c.semester,\n    grade: c.grade,\n    section: c.section,\n    enrollment: c.enrollment,\n    start_at: c.start_at ? fmtDT_(c.start_at) : '',\n    end_at: c.end_at ? fmtDT_(c.end_at) : '',\n    access_mode: c.access_mode,\n    access_code: c.access_code,\n    manual_close: c.status === APP.STATUS.CLOSED && statusByDates_(c, now) !== APP.STATUS.CLOSED,\n    status: status,\n    result_open_date: c.result_open_date ? fmtD_(c.result_open_date) : '',\n    response_count: n,\n    response_rate: c.enrollment ? Math.round(n / c.enrollment * 1000) / 10 : 0,\n    department: c.department,\n    delivery_mode: c.delivery_mode,\n    course_type: c.course_type,\n    hours_left: status === APP.STATUS.OPEN && hoursLeft != null ? Math.round(hoursLeft * 10) / 10 : null,\n    link: url ? url + '?c=' + encodeURIComponent(c.course_id) : ''\n  };\n}\n\nfunction publicCourse_(c, items, settings) {\n  var sec = 0;\n  items.forEach(function (it) { sec += it.type === 'text' ? 35 : it.type === 'likert5' ? 7 : 10; });\n  return {\n    course_id: c.course_id,\n    course_name: c.course_name,\n    department: c.department,\n    delivery_mode: c.delivery_mode,\n    course_type: c.course_type,\n    year: c.year,\n    semester: c.semester,\n    grade: c.grade,\n    section: c.section,\n    access_mode: c.access_mode,\n    has_code: String(c.access_code || '').trim() !== '',\n    item_count: items.length,\n    est_minutes: Math.max(1, Math.round(sec / 60)),\n    start_label: c.start_at ? fmtLabel_(c.start_at) : '',\n    end_label: c.end_at ? fmtLabel_(c.end_at) : '',\n    min_responses: minResponses_(settings)\n  };\n}\n\nfunction getAllItems_() {\n  return readTable_(APP.SHEETS.ITEMS).rows\n    .filter(function (r) { return String(r.item_id).trim() !== ''; })\n    .map(normalizeItem_)\n    .sort(function (a, b) { return a.order - b.order; });\n}\n\nfunction getItems_(courseId) {\n  return getAllItems_().filter(function (it) { return it.course_id === courseId; });\n}\n\nfunction normalizeItem_(r) {\n  var type = APP.ITEM_TYPES.indexOf(String(r.type)) >= 0 ? String(r.type) : 'likert5';\n  return {\n    item_id: String(r.item_id).trim(),\n    course_id: String(r.course_id).trim(),\n    domain: String(r.domain || ''),\n    text: String(r.text || ''),\n    type: type,\n    required: toBool_(r.required),\n    order: Number(r.order) || 0,\n    reverse: type === 'likert5' && toBool_(r.reverse),\n    options: String(r.options || '').split('|').map(function (s) { return s.trim(); }).filter(String),\n    scope: APP.SCOPES.indexOf(String(r.scope || '')) >= 0 ? String(r.scope || '') : ''\n  };\n}\n\n/** 문항의 표시 조건이 교과목(수업 방식·유형)에 맞는지 */\nfunction scopeVisible_(scope, course) {\n  if (!scope || !course) return true;\n  if (scope === 'online') return course.delivery_mode !== '대면';\n  if (scope === 'theory') return course.course_type !== '실습';\n  if (scope === 'practice') return course.course_type !== '이론';\n  return true;\n}\n\n/** 교과목에 맞지 않는 문항(대면의 온라인 문항, 이론 교과목의 실습실 문항 등)을 제외합니다. */\nfunction filterScope_(items, course) {\n  return items.filter(function (it) { return scopeVisible_(it.scope, course); });\n}\n\nfunction itemsForCourse_(course) {\n  return filterScope_(getItems_(course.course_id), course);\n}\n\nfunction departments_(settings) {\n  var list = String(settings.departments || '간호학과').split(/\\n|,/).map(function (s) { return s.trim(); }).filter(String);\n  return list.length ? list : ['간호학과'];\n}\n\nfunction publicItem_(it) {\n  return {\n    item_id: it.item_id, domain: it.domain, text: it.text, type: it.type,\n    required: it.required, options: it.options\n  };\n}\n\nfunction itemToRow_(it) {\n  return [it.item_id, it.course_id, guardFormula_(it.domain), guardFormula_(it.text), it.type,\n    !!it.required, it.order, !!it.reverse, guardFormula_(it.options.join(' | ')), APP.SCOPES.indexOf(it.scope) >= 0 ? it.scope : ''];\n}\n\nfunction validateItem_(d, idx) {\n  var err = function (message) { return { ok: false, code: 'VALIDATION', index: idx, message: (idx + 1) + '번 문항: ' + message }; };\n  d = d || {};\n  var type = APP.ITEM_TYPES.indexOf(String(d.type)) >= 0 ? String(d.type) : '';\n  if (!type) return err('유형을 선택하세요.');\n  var domain = cleanText_(d.domain, 40);\n  if (!domain) return err('영역을 입력하세요.');\n  var text = cleanText_(d.text, APP.ITEM_TEXT_MAX).replace(/\\n+/g, ' ');\n  if (!text) return err('문항 내용을 입력하세요.');\n  var options = [];\n  if (type === 'single' || type === 'multi' || type === 'select') {\n    var raw = Array.isArray(d.options) ? d.options : String(d.options || '').split(/\\n|\\|/);\n    var seen = {};\n    raw.forEach(function (o) {\n      var s = cleanText_(o, APP.OPTION_MAX).replace(/[|;]/g, ',').replace(/\\n+/g, ' ');\n      if (s && !seen[s]) { seen[s] = true; options.push(s); }\n    });\n    if (options.length < 2 || options.length > 10) return err('선택지는 2~10개여야 합니다.');\n  }\n  return {\n    ok: true,\n    item: {\n      domain: domain, text: text, type: type, required: !!d.required,\n      reverse: type === 'likert5' && !!d.reverse, options: options,\n      scope: APP.SCOPES.indexOf(String(d.scope || '')) >= 0 ? String(d.scope || '') : ''\n    }\n  };\n}\n\nfunction copyItems_(fromId, toId) {\n  var all = readTable_(APP.SHEETS.ITEMS);\n  var taken = {};\n  all.rows.forEach(function (r) { taken[String(r.item_id)] = true; });\n  var src = getItems_(fromId);\n  if (!src.length) return 0;\n  var rows = src.map(function (it, i) {\n    var copy = JSON.parse(JSON.stringify(it));\n    copy.item_id = newItemId_(taken);\n    taken[copy.item_id] = true;\n    copy.course_id = toId;\n    copy.order = i + 1;\n    return itemToRow_(copy);\n  });\n  all.sheet.getRange(all.sheet.getLastRow() + 1, 1, rows.length, HEADERS.Items.length).setValues(rows);\n  return rows.length;\n}\n\n/**\n * 비대면·혼합으로 바뀐 교과목에 온라인 문항이 하나도 없으면, 공통 문항 은행의 온라인 문항을\n * 서술형 앞에 넣습니다. 응답이 이미 있으면 설문이 중간에 바뀌므로 넣지 않습니다.\n */\nfunction addOnlineItems_(courseId) {\n  var items = getItems_(courseId);\n  if (items.some(function (it) { return it.scope === 'online'; })) return 0;\n  if (readResponses_(courseId).length > 0) return 0;\n  var online = getItems_(APP.TEMPLATE_ID).filter(function (it) { return it.scope === 'online'; });\n  if (!online.length) return 0;\n  var at = items.findIndex ? items.findIndex(function (it) { return it.type === 'text' || it.type === 'select'; }) : -1;\n  if (at < 0) at = items.length;\n  var merged = items.slice(0, at).concat(online.map(function (it) { var c = JSON.parse(JSON.stringify(it)); c.item_id = ''; return c; }), items.slice(at));\n  var all = readTable_(APP.SHEETS.ITEMS);\n  var taken = {};\n  all.rows.forEach(function (r) { taken[String(r.item_id)] = true; });\n  var rows = merged.map(function (it, i) {\n    var c = JSON.parse(JSON.stringify(it));\n    if (!c.item_id) { c.item_id = newItemId_(taken); taken[c.item_id] = true; }\n    c.course_id = courseId;\n    c.order = i + 1;\n    return itemToRow_(c);\n  });\n  var kept = all.rows.filter(function (r) { return String(r.course_id) !== courseId; })\n    .map(function (r) { return HEADERS.Items.map(function (h) { return r[h] == null ? '' : r[h]; }); });\n  rewriteBody_(all.sheet, HEADERS.Items.length, kept.concat(rows));\n  return online.length;\n}\n\nfunction getTokenStats_() {\n  var out = {};\n  readTable_(APP.SHEETS.TOKENS).rows.forEach(function (r) {\n    var id = String(r.course_id);\n    if (!id) return;\n    out[id] = out[id] || { total: 0, used: 0 };\n    out[id].total++;\n    if (toBool_(r.used)) out[id].used++;\n  });\n  return out;\n}\n\n/* ───────────────────────────── 시트 유틸 ───────────────────────────── */\n\nfunction ss_() { return SpreadsheetApp.getActiveSpreadsheet(); }\n\nfunction sheet_(name) {\n  var sh = ss_().getSheetByName(name);\n  if (!sh) throw new Error('SETUP_REQUIRED');\n  return sh;\n}\n\nfunction readTable_(name) {\n  var sh = sheet_(name);\n  var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();\n  if (lastRow < 1 || lastCol < 1) return { sheet: sh, headers: [], rows: [] };\n  var values = sh.getRange(1, 1, lastRow, lastCol).getValues();\n  var headers = values[0].map(function (h) { return String(h).trim(); });\n  var rows = [];\n  for (var r = 1; r < values.length; r++) {\n    if (values[r].every(function (v) { return v === '' || v == null; })) continue;\n    var obj = { _row: r + 1 };\n    for (var c = 0; c < headers.length; c++) if (headers[c]) obj[headers[c]] = values[r][c];\n    rows.push(obj);\n  }\n  return { sheet: sh, headers: headers, rows: rows };\n}\n\n/** 헤더 아래 본문 전체를 rows로 교체합니다. */\nfunction rewriteBody_(sh, width, rows) {\n  var last = sh.getLastRow();\n  if (last >= 2) sh.getRange(2, 1, last - 1, Math.max(width, sh.getLastColumn())).clearContent();\n  if (rows.length) sh.getRange(2, 1, rows.length, width).setValues(rows);\n}\n\n/** keep(row)가 false인 행을 제거합니다. 제거된 행 수를 반환합니다. */\nfunction filterTable_(name, keep) {\n  var t = readTable_(name);\n  var width = t.headers.length;\n  var kept = t.rows.filter(keep);\n  var removed = t.rows.length - kept.length;\n  if (removed > 0) {\n    rewriteBody_(t.sheet, width, kept.map(function (r) {\n      return t.headers.map(function (h) { return r[h] == null ? '' : r[h]; });\n    }));\n  }\n  return removed;\n}\n\nfunction getSettingsMap_() {\n  var out = {};\n  readTable_(APP.SHEETS.SETTINGS).rows.forEach(function (r) {\n    if (r.key) out[String(r.key).trim()] = r.value;\n  });\n  return out;\n}\n\nfunction setSetting_(key, value, description) {\n  if (typeof value === 'string') value = asTextCell_(value);\n  var t = readTable_(APP.SHEETS.SETTINGS);\n  var row = t.rows.filter(function (r) { return String(r.key).trim() === key; })[0];\n  if (row) {\n    t.sheet.getRange(row._row, 2).setValue(value);\n  } else {\n    t.sheet.getRange(t.sheet.getLastRow() + 1, 1, 1, 3).setValues([[key, value, description || '']]);\n  }\n}\n\nfunction minResponses_(settings) {\n  var n = Math.floor(Number(settings.min_responses));\n  return n >= APP.MIN_RESPONSES_FLOOR ? n : 5;\n}\n\nfunction webAppUrl_() {\n  try { return ScriptApp.getService().getUrl() || ''; } catch (e) { return ''; }\n}\n\n/* ───────────────────────────── 보안 유틸 ───────────────────────────── */\n\nfunction adminApi_(session, fn) {\n  return safe_(function () {\n    requireAdmin_(session);\n    return fn();\n  });\n}\n\nfunction isSessionFormat_(s) {\n  return /^[a-f0-9]{64}$/.test(String(s || ''));\n}\n\nfunction requireAdmin_(session) {\n  if (!isSessionFormat_(session)) throw new Error('AUTH');\n  var epoch = CacheService.getScriptCache().get('sess_' + session);\n  if (epoch == null || String(epoch) !== String(getSettingsMap_().session_epoch || '0')) throw new Error('AUTH');\n}\n\n/** 예외를 일관된 { ok:false, code } 응답으로 변환합니다. */\nfunction safe_(fn) {\n  try {\n    return fn();\n  } catch (e) {\n    var msg = String(e && e.message || e);\n    if (msg === 'AUTH') return { ok: false, code: 'AUTH' };\n    if (msg === 'SETUP_REQUIRED') return { ok: false, code: 'SETUP_REQUIRED' };\n    console.error(msg + (e && e.stack ? '\\n' + e.stack : ''));\n    return { ok: false, code: 'SERVER_ERROR' };\n  }\n}\n\n/** 스크립트 잠금 안에서 실행합니다. 잠금을 얻지 못하면 클라이언트 재시도를 요청합니다. */\nfunction withLock_(fn) {\n  var lock = LockService.getScriptLock();\n  if (!lock.tryLock(APP.LOCK_WAIT_MS)) return { ok: false, code: 'BUSY', retry: true };\n  try {\n    var result = fn();\n    SpreadsheetApp.flush();\n    return result;\n  } finally {\n    lock.releaseLock();\n  }\n}\n\n/** 일시적 Sheets 서비스 오류에 대한 지수 백오프 재시도(0.5s, 1s, 2s). */\nfunction retry_(fn) {\n  var delay = 500;\n  for (var attempt = 0; ; attempt++) {\n    try {\n      return fn();\n    } catch (e) {\n      if (attempt >= 3) throw e;\n      Utilities.sleep(delay + Math.floor(Math.random() * 200));\n      delay *= 2;\n    }\n  }\n}\n\nfunction storePin_(pin) {\n  var salt = randomString_(24, APP.ID_ALPHABET);\n  setSetting_('pin_salt', salt);\n  setSetting_('pin_hash', hashPin_(pin, salt));\n  setSetting_('session_epoch', String(Date.now())); // 기존 세션 모두 무효화\n  var cache = CacheService.getScriptCache();\n  cache.remove('pin_fail');\n  cache.remove('pin_lock_until');\n}\n\nfunction hashPin_(pin, salt) {\n  return sha256Hex_(String(salt || '') + ':' + String(pin));\n}\n\nfunction tokenSalt_() {\n  var s = getSettingsMap_();\n  if (!s.token_salt) throw new Error('SETUP_REQUIRED');\n  return String(s.token_salt);\n}\n\nfunction tokenHash_(courseId, token, salt) {\n  return sha256Hex_(salt + ':' + courseId + ':' + token);\n}\n\nfunction sha256Hex_(str) {\n  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, str, Utilities.Charset.UTF_8);\n  return bytes.map(function (b) { return ('0' + ((b + 256) % 256).toString(16)).slice(-2); }).join('');\n}\n\nfunction safeEqual_(a, b) {\n  a = String(a); b = String(b);\n  var diff = a.length ^ b.length;\n  for (var i = 0; i < Math.max(a.length, b.length); i++) {\n    diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);\n  }\n  return diff === 0;\n}\n\n/** UUID(암호학적 난수)를 원천으로 거부 샘플링하여 편향 없는 문자열을 만듭니다. */\nfunction randomString_(len, alphabet) {\n  var out = '', pool = [];\n  var limit = 256 - (256 % alphabet.length);\n  while (out.length < len) {\n    if (!pool.length) {\n      var hex = Utilities.getUuid().replace(/-/g, '');\n      for (var i = 0; i + 1 < hex.length; i += 2) {\n        if (i === 12 || i === 16) continue; // UUID 버전·변형 비트가 있는 바이트 제외\n        pool.push(parseInt(hex.substr(i, 2), 16));\n      }\n    }\n    var b = pool.pop();\n    if (b < limit) out += alphabet.charAt(b % alphabet.length);\n  }\n  return out;\n}\n\nfunction newCourseId_(rows) {\n  var taken = {};\n  rows.forEach(function (r) { taken[String(r.course_id)] = true; });\n  var id;\n  do { id = 'c' + randomString_(7, APP.ID_ALPHABET); } while (taken[id]);\n  return id;\n}\n\nfunction newItemId_(taken) {\n  var id;\n  do { id = 'i' + randomString_(7, APP.ID_ALPHABET); } while (taken[id]);\n  return id;\n}\n\nfunction sanitizeId_(v) {\n  return String(v == null ? '' : v).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);\n}\n\nfunction normalizeToken_(v) {\n  return String(v == null ? '' : v).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);\n}\n\n/** 제어문자 제거, 줄바꿈 정규화, 길이 제한. HTML 이스케이프는 출력(클라이언트 렌더링) 시점에 수행합니다. */\nfunction cleanText_(v, max) {\n  return String(v == null ? '' : v)\n    .replace(/[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]/g, '')\n    .replace(/\\r\\n?/g, '\\n')\n    .trim()\n    .slice(0, max);\n}\n\n/** 수식 주입 방지: =, +, -, @(및 탭·CR)로 시작하면 앞에 ' 를 붙입니다. */\nfunction guardFormula_(s) {\n  s = String(s == null ? '' : s);\n  return /^[=+\\-@\\t\\r]/.test(s) ? \"'\" + s : s;\n}\n\n/** 학생 입력 문자열은 항상 텍스트 셀로 저장합니다(수식 실행·날짜/숫자 자동 변환 모두 차단). */\nfunction asTextCell_(s) {\n  s = String(s == null ? '' : s);\n  return s === '' ? '' : \"'\" + s;\n}\n\n/* ───────────────────────────── 일반 유틸 ───────────────────────────── */\n\nfunction tz_() {\n  return Session.getScriptTimeZone() || 'Asia/Seoul';\n}\n\nfunction isDate_(v) {\n  return Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime());\n}\n\nfunction toDate_(v) {\n  if (v === '' || v == null) return null;\n  if (isDate_(v)) return v;\n  return parseDT_(String(v));\n}\n\nfunction parseDT_(s) {\n  if (isDate_(s)) return s;\n  s = String(s == null ? '' : s).trim();\n  var m = /^(\\d{4})-(\\d{2})-(\\d{2})(?:[T ](\\d{2}):(\\d{2}))?$/.exec(s);\n  if (!m) return null;\n  var d = Utilities.parseDate(m[1] + '-' + m[2] + '-' + m[3] + ' ' + (m[4] || '00') + ':' + (m[5] || '00'),\n    tz_(), 'yyyy-MM-dd HH:mm');\n  return isDate_(d) ? d : null;\n}\n\nfunction fmtDT_(d) { return Utilities.formatDate(d, tz_(), \"yyyy-MM-dd'T'HH:mm\"); }\nfunction fmtD_(d) { return Utilities.formatDate(d, tz_(), 'yyyy-MM-dd'); }\nfunction fmtLabel_(d) { return Utilities.formatDate(d, tz_(), 'yyyy.MM.dd HH:mm'); }\n\nfunction dateOnly_(v) {\n  if (isDate_(v)) return fmtD_(v);\n  return String(v == null ? '' : v).slice(0, 10);\n}\n\nfunction toBool_(v) {\n  return v === true || /^(true|y|yes|1|o|예)$/i.test(String(v == null ? '' : v).trim());\n}\n\nfunction groupBy_(arr, key) {\n  var out = {};\n  arr.forEach(function (x) { (out[x[key]] = out[x[key]] || []).push(x); });\n  return out;\n}\n\nfunction mean_(xs) {\n  if (!xs.length) return null;\n  return xs.reduce(function (a, b) { return a + b; }, 0) / xs.length;\n}\n\nfunction sd_(xs) {\n  if (xs.length < 2) return xs.length ? 0 : null;\n  var m = mean_(xs);\n  return Math.sqrt(xs.reduce(function (a, x) { return a + (x - m) * (x - m); }, 0) / (xs.length - 1));\n}\n\nfunction round2_(x) {\n  return x == null || isNaN(x) ? null : Math.round(x * 100) / 100;\n}\n\nfunction shuffle_(arr) {\n  for (var i = arr.length - 1; i > 0; i--) {\n    var j = Math.floor(Math.random() * (i + 1));\n    var tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;\n  }\n  return arr;\n}\n\nfunction semesterRank_(s) {\n  var i = APP.SEMESTERS.indexOf(String(s));\n  return i < 0 ? 9 : i;\n}\n\nfunction normName_(s) {\n  return String(s || '').replace(/\\s+/g, '').toLowerCase();\n}\n\nfunction exportName_(c, kind) {\n  return (c.course_name + '_' + c.year + '-' + c.semester + '_' + c.section + '_' + kind)\n    .replace(/[\\\\/:*?\"<>|\\s]+/g, '_');\n}\n\nfunction toCsv_(lines) {\n  return lines.map(function (cols) {\n    return cols.map(function (v) {\n      var s = guardFormula_(v == null ? '' : String(v));\n      return /[\",\\n\\r]/.test(s) ? '\"' + s.replace(/\"/g, '\"\"') + '\"' : s;\n    }).join(',');\n  }).join('\\r\\n');\n}\n","/**\n * 강의평가 Studio — 초기 설정·스프레드시트 메뉴·테스트 데이터\n */\n\n/**\n * 공통 기본 문항 은행: [영역, 문항, 유형, 선택지, 표시 조건]\n * 표시 조건: 'online'=비대면·혼합 수업만, 'theory'=이론이 있는 교과목만, 'practice'=실습이 있는 교과목만\n * D 영역(학습성과·CLO)은 교과목마다 다르므로 교과목에서 입력합니다.\n */\nvar DEFAULT_ITEMS = [\n  ['A. 강의 설계', '강의계획서에 제시된 내용과 실제 수업이 일치하였다.', 'likert5'],\n  ['A. 강의 설계', '수업 목표가 명확하게 제시되었다.', 'likert5'],\n  ['B. 교수학습방법', '교수자의 설명은 이해하기 쉬웠다.', 'likert5'],\n  ['B. 교수학습방법', '수업 자료(교안·영상·실습자료 등)는 학습에 유용하였다.', 'likert5'],\n  ['B. 교수학습방법', '수업 중 질문하거나 참여할 기회가 충분히 주어졌다.', 'likert5'],\n  ['B. 교수학습방법', '토의·사례·시뮬레이션 등 다양한 교수학습방법이 활용되었다.', 'likert5'],\n  ['C. 평가 및 과제', '평가 기준과 방법이 사전에 공지되었다.', 'likert5'],\n  ['C. 평가 및 과제', '평가는 공정하게 이루어졌다.', 'likert5'],\n  ['C. 평가 및 과제', '과제의 양과 난이도가 적절하였다.', 'likert5'],\n  ['C. 평가 및 과제', '과제·시험에 대한 피드백을 적절한 시기에 받았다.', 'likert5'],\n  ['E. 학습 환경', '이론 강의실의 환경(좌석·조명·냉난방·기자재)이 학습에 적절하였다.', 'likert5', null, 'theory'],\n  ['E. 학습 환경', '실습실의 시설과 실습 기자재가 실습하기에 충분하였다.', 'likert5', null, 'practice'],\n  ['E. 학습 환경', '강의실·실습실의 유무선 인터넷(Wi-Fi) 환경이 원활하였다.', 'likert5'],\n  ['F. 디지털·AI 활용', '수업에서 활용한 디지털 도구·AI는 학습에 도움이 되었다.', 'likert5'],\n  ['F. 디지털·AI 활용', '이 수업에서 배운 디지털·AI 활용 역량을 간호실무에 활용할 수 있다고 느낀다.', 'likert5'],\n  ['G. 종합', '이 수업에 전반적으로 만족한다.', 'likert5'],\n  ['G. 종합', '이 수업을 후배에게 추천하고 싶다.', 'likert5'],\n  ['H. 온라인(비대면) 강의', '온라인 강의 영상·음성의 품질이 학습하기에 적절하였다.', 'likert5', null, 'online'],\n  ['H. 온라인(비대면) 강의', '온라인 학습 플랫폼(LMS) 접속과 사용이 원활하였다.', 'likert5', null, 'online'],\n  ['H. 온라인(비대면) 강의', '온라인 수업에서도 질문·토론 등 상호작용 기회가 충분하였다.', 'likert5', null, 'online'],\n  ['H. 온라인(비대면) 강의', '온라인 강의 자료와 공지가 제때 제공되었다.', 'likert5', null, 'online'],\n  ['서술형', '이 수업에서 가장 도움이 된 점은 무엇인가요?', 'text'],\n  ['서술형', '교수학습방법·평가·과제에서 개선이 필요한 점을 적어 주세요.', 'text'],\n  ['서술형', '다음 학기 수업에 바라는 점이 있다면 적어 주세요.', 'text'],\n  ['응답자 정보', '성별', 'select', ['남', '여']]\n];\n\n/** 이번 학기 교과목 예시(샘플). 교과목명·학년은 실제 담당 교과목, 수강인원·기간은 예시값입니다. */\nvar SAMPLE_COURSES = [\n  {\n    course_name: '디지털리터러시와 AI활용', grade: 1, section: 'A', enrollment: 40, delivery_mode: '대면', course_type: '이론+실습',\n    clos: [\n      '나는 디지털 도구를 활용하여 학습 자료를 검색·정리할 수 있게 되었다.',\n      '나는 생성형 AI를 학습에 윤리적이고 비판적으로 활용할 수 있게 되었다.'\n    ]\n  },\n  {\n    course_name: 'AI융합 간호정보학', grade: 3, section: 'A', enrollment: 40, delivery_mode: '혼합', course_type: '이론+실습',\n    clos: [\n      '나는 간호정보시스템(EMR)의 구조와 기능을 설명할 수 있게 되었다.',\n      '나는 AI 기반 임상의사결정지원 결과를 간호 근거에 비추어 검토할 수 있게 되었다.'\n    ]\n  }\n];\n\nvar CLO_DOMAIN = 'D. 학습성과(CLO)';\n\n/* ───────────────────────────── 메뉴 ───────────────────────────── */\n\nfunction onOpen() {\n  SpreadsheetApp.getUi().createMenu('강의평가 Studio')\n    .addItem('① 초기 설정 실행', 'setup')\n    .addItem('② 관리자 PIN 설정·재설정', 'setAdminPinFromMenu')\n    .addItem('웹 앱 주소 확인', 'showWebAppUrl')\n    .addSeparator()\n    .addItem('[테스트] 샘플 응답 생성(교과목별 30건)', 'generateSampleResponses')\n    .addItem('[테스트] 샘플 데이터 모두 삭제', 'deleteSampleData')\n    .addToUi();\n}\n\n/* ───────────────────────────── setup ───────────────────────────── */\n\n/**\n * 탭·헤더·기본 설정·기본 문항·샘플 교과목 1개를 생성합니다.\n * 여러 번 실행해도 기존 데이터는 지우지 않습니다(누락된 것만 추가).\n */\nfunction setup() {\n  var ss = ss_();\n  var colors = { Settings: '#5B4BFF', Courses: '#5B4BFF', Items: '#5B4BFF', Tokens: '#6B6B76', Responses: '#6B6B76' };\n  Object.keys(HEADERS).forEach(function (name) {\n    var sh = ss.getSheetByName(name) || ss.insertSheet(name);\n    var headers = HEADERS[name];\n    ensureHeaders_(sh, headers);\n    sh.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#ECE9FF').setFontColor('#18181B');\n    sh.setFrozenRows(1);\n    sh.setTabColor(colors[name]);\n  });\n\n  // 기본 시트(Sheet1/시트1)가 비어 있으면 정리\n  ss.getSheets().forEach(function (sh) {\n    if (!HEADERS[sh.getName()] && sh.getLastRow() === 0 && ss.getSheets().length > 5) ss.deleteSheet(sh);\n  });\n\n  annotateHeaders_();\n  upgradeTemplateScopes_();\n  sheet_(APP.SHEETS.RESPONSES).getRange(1, 3, sheet_(APP.SHEETS.RESPONSES).getMaxRows(), 1).setNumberFormat('@');\n\n  // 설정 기본값(없는 키만 추가)\n  var s = getSettingsMap_();\n  var defaults = [\n    ['professor_name', '정종필', '푸터에 표시되는 교수명([설정] 탭에서 변경)'],\n    ['affiliation', '청암대학교 간호학과', '푸터에 표시되는 소속(학교/학과)'],\n    ['min_responses', 5, '결과를 공개하는 최소 응답 수(3 이상)'],\n    ['departments', '간호학과', '교과목 설정의 학과 드롭다운 목록(줄바꿈으로 구분)'],\n    ['pin_hash', '', '관리자 PIN 해시(SHA-256 + salt). 메뉴 ② 로 설정하세요. 직접 수정 금지'],\n    ['pin_salt', '', 'PIN 해시용 salt. 직접 수정 금지'],\n    ['token_salt', randomString_(32, APP.ID_ALPHABET), '토큰 해시용 salt. 변경하면 발급된 토큰이 모두 무효가 됩니다'],\n    ['session_epoch', '0', '관리자 세션 무효화 기준값. 직접 수정 금지'],\n    ['app_version', APP.VERSION, '설치 버전']\n  ];\n  defaults.forEach(function (d) {\n    if (!s.hasOwnProperty(d[0])) setSetting_(d[0], d[1], d[2]);\n  });\n  setSetting_('app_version', APP.VERSION);\n\n  // 공통 기본 문항(TEMPLATE)\n  if (getItems_(APP.TEMPLATE_ID).length === 0) {\n    var rows = DEFAULT_ITEMS.map(function (d, i) {\n      return itemToRow_({\n        item_id: 't' + ('0' + (i + 1)).slice(-2), course_id: APP.TEMPLATE_ID, domain: d[0], text: d[1], type: d[2],\n        required: d[2] === 'likert5', order: i + 1, reverse: false, options: d[3] || [], scope: d[4] || ''\n      });\n    });\n    var itemSheet = sheet_(APP.SHEETS.ITEMS);\n    itemSheet.getRange(itemSheet.getLastRow() + 1, 1, rows.length, HEADERS.Items.length).setValues(rows);\n  }\n\n  // 이번 학기 교과목 예시(교과목이 하나도 없을 때만)\n  var created = false;\n  if (getCourses_().length === 0) {\n    SAMPLE_COURSES.forEach(createDemoCourse_);\n    created = true;\n  }\n\n  protectSheets_();\n  SpreadsheetApp.flush();\n\n  notify_('초기 설정 완료',\n    '탭·헤더·기본 문항' + (created ? '·이번 학기 교과목 예시 2개' : '') + '이 준비되었습니다.\\n\\n' +\n    '다음 단계\\n' +\n    '1) 메뉴 [강의평가 Studio] ▸ ② 관리자 PIN 설정·재설정\\n' +\n    '2) Apps Script 편집기에서 [배포] ▸ [새 배포] ▸ 웹 앱\\n' +\n    '   (실행 사용자: 나, 액세스 권한: 모든 사용자)');\n}\n\nfunction annotateHeaders_() {\n  var notes = {\n    Courses: ['자동 생성 ID', '교과목명', '학년도(예: 2026)', '학기(1/여름/2/겨울)', '학년', '분반', '수강인원',\n      '응답 시작일시', '응답 종료일시', 'code=접속코드, token=일회용 토큰', '접속코드(비우면 링크만으로 참여)',\n      '준비/진행/마감(마감=수동 마감)', '결과공개일(비우면 즉시 공개)', '학과', '수업 방식(대면/비대면/혼합)', '교과목 유형(이론/실습/이론+실습)'],\n    Items: ['문항 ID', \"교과목 ID('TEMPLATE'=공통 기본 문항)\", '영역', '문항', 'likert5|single|multi|select|text',\n      '필수 여부', '순서', '역문항 여부(likert5만)', '선택지(| 로 구분)', \"표시 조건(online=비대면·혼합만, theory=이론 포함만, practice=실습 포함만, 빈칸=항상)\"],\n    Tokens: ['교과목 ID', '토큰 해시(원문은 저장하지 않음)', '사용 여부'],\n    Responses: ['응답 ID(UUID)', '교과목 ID', '제출 날짜(시각은 저장하지 않음)']\n  };\n  Object.keys(notes).forEach(function (name) {\n    sheet_(name).getRange(1, 1, 1, notes[name].length).setNotes([notes[name]]);\n  });\n}\n\nfunction protectSheets_() {\n  [APP.SHEETS.RESPONSES, APP.SHEETS.TOKENS].forEach(function (name) {\n    var sh = sheet_(name);\n    var existing = sh.getProtections(SpreadsheetApp.ProtectionType.SHEET);\n    if (existing.length) return;\n    sh.protect()\n      .setDescription('강의평가 Studio: 직접 편집하면 익명성·토큰 검증이 깨질 수 있습니다.')\n      .setWarningOnly(true);\n  });\n}\n\n/**\n * 이전 버전 템플릿 업그레이드: 공통 기본 문항 중 문구가 기본값 그대로이고 표시 조건이 비어 있는 문항에만\n * 새 표시 조건(이론·실습·온라인)을 채웁니다. 교수가 고친 문항은 건드리지 않습니다.\n */\nfunction upgradeTemplateScopes_() {\n  var t = readTable_(APP.SHEETS.ITEMS);\n  var col = t.headers.indexOf('scope') + 1;\n  if (col < 1) return 0;\n  var want = {};\n  DEFAULT_ITEMS.forEach(function (d) { if (d[4]) want[d[1]] = d[4]; });\n  var n = 0;\n  t.rows.forEach(function (r) {\n    if (String(r.course_id) !== APP.TEMPLATE_ID || String(r.scope || '') !== '') return;\n    if (want[String(r.text)]) { t.sheet.getRange(r._row, col).setValue(want[String(r.text)]); n++; }\n  });\n  return n;\n}\n\n/** 헤더 행에 없는 열만 끝에 추가합니다(이전 버전 시트 자동 확장). */\nfunction ensureHeaders_(sh, headers) {\n  var lastCol = sh.getLastColumn();\n  var current = lastCol > 0 ? sh.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return String(h).trim(); }) : [];\n  if (!current.filter(String).length) {\n    sh.getRange(1, 1, 1, headers.length).setValues([headers]);\n    return;\n  }\n  var missing = headers.filter(function (h) { return current.indexOf(h) < 0; });\n  if (!missing.length) return;\n  var start = current.filter(String).length + 1;\n  if (start + missing.length - 1 > sh.getMaxColumns()) sh.insertColumnsAfter(sh.getMaxColumns(), start + missing.length - 1 - sh.getMaxColumns());\n  sh.getRange(1, start, 1, missing.length).setValues([missing]);\n}\n\n/** 이번 학기 기준 예시 교과목 1개를 만듭니다(지금부터 2주간 응답 가능). */\nfunction createDemoCourse_(spec) {\n  spec = spec || SAMPLE_COURSES[0];\n  var now = new Date();\n  var start = new Date(now.getTime() - 24 * 3600 * 1000);\n  start.setHours(0, 0, 0, 0);\n  var end = new Date(now.getTime() + 14 * 24 * 3600 * 1000);\n  end.setHours(23, 59, 0, 0);\n  var month = Number(Utilities.formatDate(now, tz_(), 'M'));\n  var depts = departments_(getSettingsMap_());\n  var course = {\n    course_id: 'demo' + randomString_(4, APP.ID_ALPHABET),\n    course_name: spec.course_name,\n    year: Number(Utilities.formatDate(now, tz_(), 'yyyy')) - (month <= 2 ? 1 : 0),\n    semester: month >= 3 && month <= 8 ? '1' : '2',\n    grade: spec.grade,\n    section: spec.section,\n    enrollment: spec.enrollment,\n    start_at: start,\n    end_at: end,\n    access_mode: 'code',\n    access_code: 'NURSE' + randomString_(2, '23456789'),\n    status: APP.STATUS.OPEN,\n    result_open_date: '',\n    department: depts[0],\n    delivery_mode: spec.delivery_mode,\n    course_type: spec.course_type || '이론+실습'\n  };\n  var sh = sheet_(APP.SHEETS.COURSES);\n  var row = courseToRow_(course);\n  sh.getRange(sh.getLastRow() + 1, 1, 1, row.length).setValues([row]);\n\n  // 기본 문항 복사(대면이면 온라인 문항 제외) 후 C 영역 뒤에 CLO 문항 삽입\n  var template = getItems_(APP.TEMPLATE_ID); // 모두 복사, 화면에는 교과목 조건에 맞는 문항만 표시\n  var items = [];\n  var inserted = false;\n  template.forEach(function (it) {\n    if (!inserted && it.domain.charAt(0) > 'D') {\n      spec.clos.forEach(function (t) {\n        items.push({ domain: CLO_DOMAIN, text: t, type: 'likert5', required: true, reverse: false, options: [], scope: '' });\n      });\n      inserted = true;\n    }\n    items.push(it);\n  });\n  var all = readTable_(APP.SHEETS.ITEMS);\n  var taken = {};\n  all.rows.forEach(function (r) { taken[String(r.item_id)] = true; });\n  var rows = items.map(function (it, i) {\n    var id = newItemId_(taken);\n    taken[id] = true;\n    return itemToRow_({\n      item_id: id, course_id: course.course_id, domain: it.domain, text: it.text, type: it.type,\n      required: it.required, order: i + 1, reverse: it.reverse, options: it.options || [], scope: it.scope || ''\n    });\n  });\n  all.sheet.getRange(all.sheet.getLastRow() + 1, 1, rows.length, HEADERS.Items.length).setValues(rows);\n  return course.course_id;\n}\n\n/* ───────────────────────────── PIN·주소 ───────────────────────────── */\n\n/** 스프레드시트 소유자만 접근할 수 있는 메뉴에서 PIN을 설정·재설정합니다(분실 시 복구 경로). */\nfunction setAdminPinFromMenu() {\n  var ui = SpreadsheetApp.getUi();\n  var first = ui.prompt('관리자 PIN 설정', '숫자 6~12자리 PIN을 입력하세요.', ui.ButtonSet.OK_CANCEL);\n  if (first.getSelectedButton() !== ui.Button.OK) return;\n  var pin = String(first.getResponseText()).trim();\n  if (!APP.PIN_PATTERN.test(pin)) {\n    ui.alert('PIN은 숫자 6~12자리여야 합니다. 다시 시도하세요.');\n    return;\n  }\n  var second = ui.prompt('관리자 PIN 확인', '같은 PIN을 한 번 더 입력하세요.', ui.ButtonSet.OK_CANCEL);\n  if (second.getSelectedButton() !== ui.Button.OK) return;\n  if (String(second.getResponseText()).trim() !== pin) {\n    ui.alert('두 PIN이 일치하지 않습니다. 다시 시도하세요.');\n    return;\n  }\n  storePin_(pin);\n  ui.alert('PIN이 설정되었습니다. 기존 로그인 세션과 잠금은 모두 해제되었습니다.');\n}\n\nfunction showWebAppUrl() {\n  var url = webAppUrl_();\n  var ui = SpreadsheetApp.getUi();\n  if (!url) {\n    ui.alert('아직 웹 앱으로 배포되지 않았습니다.\\nApps Script 편집기 ▸ [배포] ▸ [새 배포] ▸ 웹 앱으로 배포하세요.');\n    return;\n  }\n  var html = HtmlService.createHtmlOutput(\n    '<div style=\"font-family:sans-serif;font-size:14px;line-height:1.7\">' +\n    '<p><b>교수 관리자 화면</b><br><a href=\"' + url + '?page=admin\" target=\"_blank\">' + url + '?page=admin</a></p>' +\n    '<p><b>학생 응답 링크</b>는 관리자 화면 ▸ 교과목 ▸ [링크·QR]에서 교과목별로 확인하세요.</p></div>'\n  ).setWidth(520).setHeight(180);\n  ui.showModalDialog(html, '웹 앱 주소');\n}\n\n/* ───────────────────────────── 테스트 데이터 ───────────────────────────── */\n\n/**\n * [테스트용] 샘플 교과목에 응답 30건을 생성합니다.\n * response_id가 'SAMPLE-'로 시작하므로 deleteSampleData()로 안전하게 지울 수 있습니다.\n * 실제 운영 전에 반드시 삭제하세요.\n */\nfunction generateSampleResponses() {\n  var demos = getCourses_().filter(function (c) { return c.course_id.indexOf('demo') === 0; });\n  if (!demos.length) {\n    SAMPLE_COURSES.forEach(createDemoCourse_);\n    demos = getCourses_().filter(function (c) { return c.course_id.indexOf('demo') === 0; });\n  }\n  var made = 0, names = [];\n  var result = withLock_(function () {\n    demos.forEach(function (course) {\n      appendSampleRows_(course, 30);\n      made += 30;\n      names.push(course.course_name);\n    });\n    return { ok: true };\n  });\n  if (result.ok) result.created = made;\n  notify_('샘플 응답 생성', result.ok\n    ? names.join(', ') + '에 교과목마다 샘플 응답 30건(총 ' + made + '건)을 만들었습니다.\\n\\n⚠ 실제 강의평가를 시작하기 전에 메뉴 ▸ [테스트] 샘플 데이터 모두 삭제를 실행하세요.'\n    : '다른 작업이 진행 중입니다. 잠시 후 다시 실행하세요.');\n  return result;\n}\n\nvar SAMPLE_TEXTS = [\n  ['EMR 실습이 실제 병원 업무를 이해하는 데 도움이 되었습니다.', '생성형 AI로 간호기록 초안을 만들고 검토하는 활동이 유익했습니다.',\n    '매주 퀴즈로 복습할 수 있어 좋았습니다.', '실습 자료가 단계별로 정리되어 있어 따라 하기 쉬웠습니다.', '사례 중심 토의 수업이 흥미로웠습니다.',\n    '시뮬레이션 실습으로 간호과정을 직접 적용해 볼 수 있었습니다.', 'AI 활용 실습과 피드백이 가장 도움이 되었습니다.', '교수님의 설명과 실습 자료가 명확했습니다.'],\n  ['실습 시간이 조금 더 길었으면 좋겠습니다.', '과제 마감이 다른 과목과 겹치는 주가 있었습니다.', '실습실 Wi-Fi가 자주 끊겨서 실습이 지연되었습니다.',\n    '조별 과제 인원이 많아 참여가 어려웠습니다.', '온라인 강의 영상의 음질이 고르지 않았습니다.', '과제 피드백이 조금 더 빨랐으면 합니다.',\n    '강의실 냉난방이 불편했습니다.', '평가 기준을 루브릭으로 더 자세히 알려 주세요.'],\n  ['임상 현장의 실제 사례를 더 다뤄 주세요.', 'AI 도구 활용 실습을 더 늘려 주세요.', '중간 피드백 시간이 있으면 좋겠습니다.',\n    '실습실 인터넷 환경이 개선되면 좋겠습니다.', '시뮬레이션 실습 기회를 늘려 주세요.']\n];\n\n/** 샘플 응답 n건을 추가합니다(withLock_ 안에서 호출). */\nfunction appendSampleRows_(course, n) {\n  var items = itemsForCourse_(course);\n  var sh = sheet_(APP.SHEETS.RESPONSES);\n  var headers = ensureResponseColumns_(sh, items);\n  var start = course.start_at || new Date();\n  var span = Math.max(1, Math.floor((Date.now() - start.getTime()) / 86400000));\n  var textSlot = {}, k = 0;\n  items.forEach(function (it) { if (it.type === 'text') textSlot[it.item_id] = k++; });\n  var rows = [];\n  for (var i = 0; i < n; i++) {\n    var bias = Math.random() < 0.15 ? -1 : 0; // 일부 응답자는 전반적으로 낮게\n    var rowObj = {\n      response_id: 'SAMPLE-' + Utilities.getUuid(),\n      course_id: course.course_id,\n      submitted_date: asTextCell_(fmtD_(new Date(start.getTime() + Math.floor(Math.random() * (span + 1)) * 86400000)))\n    };\n    items.forEach(function (it, j) {\n      if (it.type === 'likert5') {\n        var r = Math.random();\n        var shift = /환경|인터넷|온라인/.test(it.domain + it.text) ? -1 : (j % 5 === 4 ? -1 : 0); // 환경·온라인 문항은 평균이 낮게\n        var v = r < 0.03 ? 1 : r < 0.09 ? 2 : r < 0.27 ? 3 : r < 0.63 ? 4 : 5;\n        rowObj[it.item_id] = Math.min(5, Math.max(1, v + bias + (Math.random() < 0.6 ? shift : 0)));\n      } else if (it.type === 'text') {\n        var pool = SAMPLE_TEXTS[textSlot[it.item_id] % SAMPLE_TEXTS.length];\n        rowObj[it.item_id] = Math.random() < 0.7 ? asTextCell_(pool[Math.floor(Math.random() * pool.length)]) : '';\n      } else if (it.type === 'select') {\n        var x = Math.random();\n        rowObj[it.item_id] = x < 0.08 ? '' : asTextCell_(it.options[x < 0.30 ? 0 : 1] || it.options[0]);\n      } else if (it.type === 'single') {\n        rowObj[it.item_id] = asTextCell_(it.options[Math.floor(Math.random() * it.options.length)]);\n      } else if (it.type === 'multi') {\n        rowObj[it.item_id] = asTextCell_(it.options.filter(function () { return Math.random() < 0.4; }).join('; '));\n      }\n    });\n    rows.push(headers.map(function (h) { return rowObj.hasOwnProperty(h) ? rowObj[h] : ''; }));\n  }\n  shuffle_(rows);\n  sh.getRange(sh.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);\n}\n\n/** [테스트용] 샘플 응답(SAMPLE-*)과, 실제 응답이 없는 예시 교과목(demo*)의 문항·토큰을 삭제합니다. */\nfunction deleteSampleData(skipConfirm) {\n  if (skipConfirm !== true) {\n    var ui = getUiOrNull_();\n    if (ui) {\n      var ans = ui.alert('샘플 데이터 삭제', 'SAMPLE 응답과 예시 교과목을 삭제합니다(실제 응답이 있는 교과목은 보존). 계속할까요?', ui.ButtonSet.YES_NO);\n      if (ans !== ui.Button.YES) return { ok: false, code: 'CANCELLED' };\n    }\n  }\n  var result = withLock_(function () {\n    var removed = filterTable_(APP.SHEETS.RESPONSES, function (r) {\n      return String(r.response_id).indexOf('SAMPLE-') !== 0;\n    });\n    // 예시 교과목(demo*)은 실제 응답이 하나도 없을 때만 삭제합니다(예시 교과목으로 실제 평가를 진행한 경우 보호).\n    var used = {};\n    readResponses_().forEach(function (r) { used[String(r.course_id)] = true; });\n    var kept = getCourses_().filter(function (c) { return c.course_id.indexOf('demo') === 0 && used[c.course_id]; }).length;\n    var isDemo = function (id) { return String(id).indexOf('demo') === 0 && !used[String(id)]; };\n    filterTable_(APP.SHEETS.TOKENS, function (r) { return !isDemo(r.course_id); });\n    filterTable_(APP.SHEETS.ITEMS, function (r) { return !isDemo(r.course_id); });\n    filterTable_(APP.SHEETS.COURSES, function (r) { return !isDemo(r.course_id); });\n    pruneResponseColumns_();\n    return { ok: true, removed: removed, keptCourses: kept };\n  });\n  notify_('샘플 데이터 삭제', result.ok\n    ? '샘플 응답 ' + result.removed + '건과 예시 교과목을 삭제했습니다.' + (result.keptCourses ? '\\n(실제 응답이 있는 예시 교과목 ' + result.keptCourses + '개는 보존했습니다.)' : '')\n    : '다른 작업이 진행 중입니다.');\n  return result;\n}\n\n/** 더 이상 존재하지 않는 문항이면서 데이터가 비어 있는 응답 열을 정리합니다. */\nfunction pruneResponseColumns_() {\n  var t = readTable_(APP.SHEETS.RESPONSES);\n  var live = {};\n  getAllItems_().forEach(function (it) { live[it.item_id] = true; });\n  var keep = t.headers.filter(function (h, i) {\n    if (i < HEADERS.Responses.length) return true;\n    if (!h) return false;\n    if (live[h]) return true;\n    return t.rows.some(function (r) { return r[h] !== '' && r[h] != null; });\n  });\n  if (keep.length === t.headers.length) return;\n  var sh = t.sheet;\n  var width = sh.getLastColumn();\n  sh.getRange(1, 1, Math.max(1, sh.getLastRow()), width).clearContent();\n  sh.getRange(1, 1, 1, width).clearNote();\n  sh.getRange(1, 1, 1, keep.length).setValues([keep]).setFontWeight('bold');\n  var body = t.rows.map(function (r) { return keep.map(function (h) { return r[h] == null ? '' : r[h]; }); });\n  if (body.length) sh.getRange(2, 1, body.length, keep.length).setValues(body);\n  var itemsById = {};\n  getAllItems_().forEach(function (it) { itemsById[it.item_id] = it; });\n  var notes = keep.map(function (h, i) {\n    if (i < HEADERS.Responses.length) return '';\n    var it = itemsById[h];\n    return it ? '[' + it.domain + '] ' + it.text : '';\n  });\n  sh.getRange(1, 1, 1, keep.length).setNotes([notes]);\n}\n\n/* ───────────────────────────── 보조 ───────────────────────────── */\n\nfunction getUiOrNull_() {\n  try { return SpreadsheetApp.getUi(); } catch (e) { return null; }\n}\n\n/** 편집기에서 실행하면 로그로, 스프레드시트 메뉴에서 실행하면 알림창으로 안내합니다. */\nfunction notify_(title, message) {\n  var ui = getUiOrNull_();\n  if (ui) {\n    try { ui.alert(title, message, ui.ButtonSet.OK); return; } catch (e) { /* 편집기 실행 */ }\n  }\n  console.log(title + '\\n' + message);\n}\n"];
+  var KEY = 'ces-demo-state-v1', CKEY = 'ces-demo-cache-v1', PIN = '123456';
+  var ls = {
+    get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) { /* 저장 불가 시 이번 방문 동안만 유지 */ } },
+    del: function (k) { try { localStorage.removeItem(k); } catch (e) { /* 무시 */ } }
+  };
+  var base = new URL(window.DEMO_BASE || './', location.href).href;
+  var saved = ls.get(KEY);
+  var store = GasMock.memoryStore(saved ? GasMock.revive(saved) : undefined);
+  var write = store.write, timer = null;
+  var persist = function () { ls.set(KEY, GasMock.serialize(store.read())); };
+  store.write = function (s) { write(s); clearTimeout(timer); timer = setTimeout(persist, 30); };
+  var readCache = function () { try { return JSON.parse(ls.get(CKEY)) || {}; } catch (e) { return {}; } };
+  var cache = {
+    get: function (k) { var o = readCache()[k]; return o && o.exp > Date.now() ? o.v : null; },
+    put: function (k, v, ttl) { var o = readCache(); o[k] = { v: String(v), exp: Date.now() + (ttl || 600) * 1000 }; ls.set(CKEY, JSON.stringify(o)); },
+    remove: function (k) { var o = readCache(); delete o[k]; ls.set(CKEY, JSON.stringify(o)); }
+  };
+  var env = GasMock.createEnv({ store: store, cache: cache, url: base + 'student.html', fastSleep: true,
+    console: { log: function () {}, info: function () {}, warn: console.warn, error: console.error } });
+  var server = GasMock.loadServer(env, SOURCES);
+  if (!saved) {
+    server.setup();
+    server.storePin_(PIN);
+    server.generateSampleResponses(); // 예시 교과목마다 30건
+    persist();
+  }
+  window.__server = server;
+  window.google = { script: { run: GasMock.makeRun(server, { latency: 120 }) } };
+
+  function openCourses() {
+    var now = new Date();
+    return server.getCourses_().filter(function (c) { return server.effectiveStatus_(c, now) === '진행'; });
+  }
+
+  window.DemoBoot = {
+    PIN: PIN,
+    courses: function () {
+      return openCourses().map(function (c) {
+        return { course_id: c.course_id, course_name: c.course_name, grade: c.grade, section: c.section,
+          delivery_mode: c.delivery_mode, course_type: c.course_type, access_code: c.access_code,
+          items: server.itemsForCourse_(c).length };
+      });
+    },
+    studentUrl: function (id) { return base + 'student.html?c=' + encodeURIComponent(id); },
+    adminUrl: function () { return base + 'admin.html'; },
+    /** 페이지 본문 시작 직후 실행: 쿼리 파라미터를 템플릿 값(data-*)으로 옮깁니다. */
+    applyBody: function (kind) {
+      var q = new URLSearchParams(location.search);
+      var hint = document.getElementById('demo-hint');
+      if (kind === 'admin') {
+        if (hint) hint.innerHTML = '관리자 PIN <span class="k">' + PIN + '</span>';
+        return;
+      }
+      if (q.get('page') === 'admin') { location.replace(base + 'admin.html'); return; }
+      var c = (q.get('c') || '').replace(/[^A-Za-z0-9_-]/g, '');
+      if (!c) { var first = openCourses()[0]; c = first ? first.course_id : ''; }
+      document.body.setAttribute('data-course', c);
+      document.body.setAttribute('data-token', (q.get('t') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16));
+      var course = server.findCourse_(c);
+      if (hint && course) {
+        hint.innerHTML = course.access_mode === 'token' ? '토큰 방식 교과목'
+          : '접속코드 <span class="k">' + (course.access_code || '없음') + '</span>';
+      }
+    },
+    reset: function () {
+      if (!window.confirm('체험 데이터를 처음 상태로 되돌릴까요? (이 브라우저에 저장된 응답·설정이 지워집니다)')) return;
+      ls.del(KEY); ls.del(CKEY);
+      try { Object.keys(sessionStorage).forEach(function (k) { if (k.indexOf('ces:') === 0) sessionStorage.removeItem(k); }); } catch (e) { /* 무시 */ }
+      try { Object.keys(localStorage).forEach(function (k) { if (k.indexOf('ces:') === 0) localStorage.removeItem(k); }); } catch (e) { /* 무시 */ }
+      location.reload();
+    }
+  };
+})();
