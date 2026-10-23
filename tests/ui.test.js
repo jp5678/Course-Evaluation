@@ -324,6 +324,9 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·QR·토큰 인�
   await page.getByRole('tab', { name: '교과목' }).click();
   await page.locator('[data-act="qr"]').first().click();
   await page.waitForSelector('.qr-box svg');
+  const open = page.locator('[data-open-link]');
+  assert.equal(await open.getAttribute('target'), '_blank', '새 창에서 열기');
+  assert.match(await open.getAttribute('href'), /^https:\/\/script\.google\.com\/macros\/s\/PREVIEW\/exec\?c=/);
   await shot(page, 'd13-qr-modal');
   await page.keyboard.press('Escape');
 
@@ -408,6 +411,30 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·QR·토큰 인�
   await dl.saveAs(file);
   const csv = fs.readFileSync(file, 'utf8');
   assert.ok(csv.charCodeAt(0) === 0xFEFF && csv.includes('CQI 요약표'), 'BOM 포함 CSV');
+});
+
+test('관리자를 테스트용(/dev) 주소로 연 경우: 원인 안내 → 설정에 /exec 주소 저장 → 링크·QR 정상', async () => {
+  const page = await newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(base + '?scenario=dev&page=admin');
+  await page.locator('#pin').fill('123456');
+  await page.getByRole('button', { name: '로그인' }).click();
+  await page.getByText('테스트용(/dev) 주소로 열었습니다').first().waitFor();
+  await shot(page, 'd20-dev-banner');
+  await page.getByRole('tab', { name: '교과목' }).click();
+  await page.locator('[data-act="qr"]').first().click();
+  await page.getByText('학생 링크·QR을 만들지 않았습니다').waitFor();
+  assert.equal(await page.locator('.qr-box').count(), 0, '/dev 링크로 QR을 만들지 않음');
+  await page.getByRole('button', { name: '설정으로 이동' }).click();
+  await page.locator('#s-url').fill('https://script.google.com/macros/s/PREVIEW/dev');
+  await page.getByRole('button', { name: '저장' }).first().click();
+  await page.getByText(/dev 주소는 학생이 열 수 없습니다/).first().waitFor();
+  await page.locator('#s-url').fill('https://script.google.com/macros/s/PREVIEW/exec');
+  await page.getByRole('button', { name: '저장' }).first().click();
+  await page.getByText('설정을 저장했습니다.').waitFor();
+  await page.getByRole('tab', { name: '교과목' }).click();
+  await page.locator('[data-act="qr"]').first().click();
+  await page.waitForSelector('.qr-box svg');
+  assert.match(await page.locator('[data-open-link]').getAttribute('href'), /PREVIEW\/exec\?c=/);
 });
 
 test('브라우저 콘솔 오류 없음', () => {

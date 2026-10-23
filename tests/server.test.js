@@ -519,3 +519,42 @@ test('doGet: 템플릿 렌더링, 파라미터 이스케이프, 관리자 라우
   assert.ok(admin.getContent().includes('교수자 로그인') || admin.getContent().includes('renderLogin'));
   assert.ok(admin._meta.some(([n]) => n === 'viewport'));
 });
+
+test('학생 링크 주소: 테스트용 /dev로 접속하면 링크를 만들지 않고, 저장된 /exec 주소를 사용', () => {
+  const DEV = 'https://script.google.com/macros/s/AKfyc123/dev';
+  const EXEC = 'https://script.google.com/macros/s/AKfyc123/exec';
+  const { server } = H.makeServer({ pin: PIN, url: DEV });
+  const s = H.login(server, PIN);
+  let b = server.getAdminBootstrap(s);
+  assert.equal(b.devMode, true);
+  assert.equal(b.webAppUrl, '', '/dev는 학생 링크로 쓰지 않음');
+  assert.ok(b.courses.every((c) => c.link === ''));
+
+  const base = { professor_name: '정종필', affiliation: '청암대학교 간호학과', min_responses: 5, departments: '간호학과' };
+  let r = server.saveSettings(s, Object.assign({}, base, { webapp_url: DEV }));
+  assert.equal(r.field, 'webapp_url', '/dev 주소는 저장 거부');
+  assert.equal(server.saveSettings(s, Object.assign({}, base, { webapp_url: 'https://evil.example.com/exec' })).field, 'webapp_url');
+  assert.equal(server.saveSettings(s, Object.assign({}, base, { webapp_url: EXEC + '?page=admin' })).ok, true, '쿼리는 떼고 저장');
+  b = server.getAdminBootstrap(s);
+  assert.equal(b.webAppUrl, EXEC);
+  assert.ok(b.courses.every((c) => c.link.startsWith(EXEC + '?c=')));
+  assert.equal(server.generateTokens(s, b.courses[0].course_id, 1).course.link.startsWith(EXEC), true, '토큰 시트 링크도 /exec');
+  // Workspace 도메인 형식도 허용
+  assert.equal(server.saveSettings(s, Object.assign({}, base, { webapp_url: 'https://script.google.com/a/macros/cheongam.ac.kr/s/AKfyc123/exec' })).ok, true);
+});
+
+test('학생 링크 주소: /exec로 실행되면 setup·doGet이 주소를 자동 기억', () => {
+  const EXEC = 'https://script.google.com/macros/s/NEWDEPLOY9/exec';
+  const { env, server } = H.makeServer({ url: EXEC });
+  assert.equal(server.getSettingsMap_().webapp_url, EXEC, 'setup 시 기억');
+  // 배포를 새로 만들어 주소가 바뀌면 다음 접속 때 갱신
+  const env2 = H.GasMock.createEnv({ state: env.__store.read(), url: 'https://script.google.com/macros/s/OTHER77/exec', fastSleep: true, readFile: H.readFile, console: { log() {}, error() {} } });
+  const s2 = H.GasMock.loadServer(env2, H.SOURCES);
+  s2.doGet({ parameter: { page: 'admin' } });
+  assert.equal(s2.getSettingsMap_().webapp_url, 'https://script.google.com/macros/s/OTHER77/exec');
+  // /dev로 접속해도 기억된 /exec 주소는 지워지지 않음
+  const env3 = H.GasMock.createEnv({ state: env2.__store.read(), url: 'https://script.google.com/macros/s/OTHER77/dev', fastSleep: true, readFile: H.readFile, console: { log() {}, error() {} } });
+  const s3 = H.GasMock.loadServer(env3, H.SOURCES);
+  s3.doGet({ parameter: {} });
+  assert.equal(s3.studentBaseUrl_(s3.getSettingsMap_()), 'https://script.google.com/macros/s/OTHER77/exec');
+});

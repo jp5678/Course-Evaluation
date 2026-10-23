@@ -102,6 +102,7 @@ function setup() {
     ['affiliation', '청암대학교 간호학과', '푸터에 표시되는 소속(학교/학과)'],
     ['min_responses', 5, '결과를 공개하는 최소 응답 수(3 이상)'],
     ['departments', '간호학과', '교과목 설정의 학과 드롭다운 목록(줄바꿈으로 구분)'],
+    ['webapp_url', '', '학생 응답 링크·QR에 쓰는 웹 앱 주소(/exec). /exec로 접속하면 자동 저장'],
     ['pin_hash', '', '관리자 PIN 해시(SHA-256 + salt). 메뉴 ② 로 설정하세요. 직접 수정 금지'],
     ['pin_salt', '', 'PIN 해시용 salt. 직접 수정 금지'],
     ['token_salt', randomString_(32, APP.ID_ALPHABET), '토큰 해시용 salt. 변경하면 발급된 토큰이 모두 무효가 됩니다'],
@@ -133,6 +134,7 @@ function setup() {
   }
 
   protectSheets_();
+  rememberExecUrl_();
   SpreadsheetApp.flush();
 
   notify_('초기 설정 완료',
@@ -285,10 +287,14 @@ function setAdminPinFromMenu() {
 }
 
 function showWebAppUrl() {
-  var url = webAppUrl_();
+  rememberExecUrl_();
+  var url = studentBaseUrl_(getSettingsMap_());
   var ui = SpreadsheetApp.getUi();
   if (!url) {
-    ui.alert('아직 웹 앱으로 배포되지 않았습니다.\nApps Script 편집기 ▸ [배포] ▸ [새 배포] ▸ 웹 앱으로 배포하세요.');
+    ui.alert('학생용 웹 앱 주소(/exec)를 찾지 못했습니다.\n\n' +
+      '① Apps Script 편집기 ▸ [배포] ▸ [새 배포] ▸ 웹 앱으로 배포했는지 확인하세요.\n' +
+      '② [배포] ▸ [배포 관리]에 표시된 웹 앱 URL(…/exec)로 관리자 화면에 한 번 접속하면 자동으로 저장됩니다.\n' +
+      '   (「테스트 배포」의 …/dev 주소는 학생이 열 수 없습니다.)');
     return;
   }
   var html = HtmlService.createHtmlOutput(

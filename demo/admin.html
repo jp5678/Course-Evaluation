@@ -1697,6 +1697,7 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
 
       setView(`
         <h1 class="sr-only">대시보드</h1>
+        ${A.data.webAppUrl ? '' : `<div style="margin-bottom:16px">${urlNotice()}</div>`}
         <div class="bento">
           <section class="card soft rise" style="--i:0" aria-labelledby="d1">
             <div class="card-title" id="d1">${icon('radio')}진행 중 교과목</div>
@@ -1958,9 +1959,21 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
     }
 
     /* ───── 링크·QR ───── */
+    /** 학생용 주소(/exec)를 못 찾았을 때의 원인·해결 안내 */
+    function urlNotice() {
+      const dev = A.data.devMode;
+      return `<div class="callout" role="alert">${icon('triangle-alert')}<div class="small stack" style="margin:0">
+        <p><strong>${dev ? '지금 관리자 화면을 테스트용(/dev) 주소로 열었습니다.' : '학생용 웹 앱 주소(/exec)를 아직 찾지 못했습니다.'}</strong>
+        ${dev ? '테스트 주소로 만든 링크는 편집 권한이 없는 학생이 열 수 없어서, 학생 링크·QR을 만들지 않았습니다.' : ''}</p>
+        <p>해결: Apps Script 편집기 ▸ <strong>[배포] ▸ [배포 관리]</strong>에 있는 <strong>웹 앱 URL(…/exec)</strong>을 복사해
+        ① 그 주소 뒤에 <code>?page=admin</code>을 붙여 관리자 화면에 다시 접속하거나(주소가 자동 저장됨),
+        ② [설정] 탭의 「학생용 웹 앱 주소」에 붙여 넣고 저장하세요.</p></div></div>`;
+    }
+
     function openQr(c) {
       if (!c.link) {
-        CES.modal({ title: '링크·QR', html: `<div class="callout">${icon('triangle-alert')}<p class="small">웹 앱 주소를 확인할 수 없습니다. Apps Script에서 [배포] ▸ [새 배포] ▸ 웹 앱으로 먼저 배포하세요.</p></div>` });
+        CES.modal({ title: '링크·QR', html: urlNotice(),
+          footer: `<button type="button" class="btn primary" data-close data-go="settings">${icon('settings')}설정으로 이동</button>` });
         return;
       }
       let svg = '';
@@ -1973,6 +1986,7 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
             ${c.access_mode === 'code' && c.access_code ? `<div class="center"><div class="small muted">접속코드</div><div class="mid-num" style="letter-spacing:.12em">${esc(c.access_code)}</div></div>` : ''}
             ${c.access_mode === 'token' ? `<div class="callout info">${icon('ticket')}<p class="small">토큰 방식입니다. 학생은 이 링크에서 종이 토큰을 입력합니다. 토큰 시트의 QR은 토큰이 미리 입력된 링크입니다.</p></div>` : ''}
             <div class="linkbox"><code>${esc(c.link)}</code><button type="button" class="btn sm" data-copy>${icon('copy')}복사</button></div>
+            <div class="row" style="justify-content:center"><a class="btn sm" href="${esc(c.link)}" target="_blank" rel="noopener" data-open-link>${icon('external-link')}새 창에서 열기(학생 화면 확인)</a></div>
           </div>`,
         footer: `<button type="button" class="btn" data-svg>${icon('download')}QR 저장(SVG)</button>
           <button type="button" class="btn primary" data-present>${icon('presentation')}수업 화면에 띄우기</button>`
@@ -2711,6 +2725,10 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
               <div class="field"><label for="s-dept">학과 목록 (교과목 설정의 드롭다운)</label>
                 <textarea class="textarea" id="s-dept" name="departments" rows="3" style="min-height:90px" aria-describedby="s-dept-h">${esc((s.departments || []).join('\n'))}</textarea>
                 <p class="hint" id="s-dept-h">한 줄에 하나씩 입력하세요. 예: 간호학과</p></div>
+              <div class="field"><label for="s-url">학생용 웹 앱 주소 (/exec)</label>
+                <input class="input" id="s-url" name="webapp_url" type="url" inputmode="url" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec"
+                  value="${esc(s.webapp_url || '')}" aria-describedby="s-url-h">
+                <p class="hint" id="s-url-h">학생 링크·QR에 쓰는 주소입니다. [배포] ▸ [배포 관리]의 웹 앱 URL을 붙여 넣으세요. /exec 주소로 관리자 화면에 접속하면 자동으로 채워집니다. 테스트용 /dev 주소는 학생이 열 수 없어 저장되지 않습니다.</p></div>
               <div class="field"><label for="s-min">최소 공개 응답 수</label>
                 <input class="input num" id="s-min" name="min_responses" type="number" min="3" max="50" value="${s.min_responses}" aria-describedby="s-min-h">
                 <p class="hint" id="s-min-h">응답이 이 수보다 적으면 결과·비교·서술형을 숨깁니다(3~50, 권장 5 이상).</p></div>
@@ -2728,7 +2746,7 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
             ${url ? `<div class="stack"><div class="small">교수 관리자 화면(즐겨찾기 권장)</div>
               <div class="linkbox"><code>${esc(url)}?page=admin</code><button type="button" class="btn sm" data-copy-url="${esc(url)}?page=admin">${icon('copy')}복사</button></div>
               <p class="small">학생 응답 링크는 [교과목] 탭의 [링크·QR]에서 교과목별로 확인하세요.</p></div>`
-              : `<p class="small">아직 배포되지 않았습니다.</p>`}
+              : urlNotice()}
             <p class="tiny muted" style="margin-top:12px">버전 ${esc(A.data.version)}</p>
           </section>
         </div>`, true);
@@ -2743,13 +2761,15 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
           if (res.field === 'min_responses') return CES.toast('최소 공개 응답 수는 3~50입니다.', 'error');
           if (res.field === 'professor_name') return CES.toast('교수명을 입력하세요.', 'error');
           if (res.field === 'departments') return CES.toast('학과를 1개 이상 입력하세요.', 'error');
+          if (res.field === 'webapp_url') { $('#s-url').setAttribute('aria-invalid', 'true'); $('#s-url').focus(); return CES.toast(res.message, 'error'); }
           return fail(res);
         }
         Object.assign(A.data.settings, { professor_name: data.professor_name.trim(), affiliation: data.affiliation.trim(), min_responses: Number(data.min_responses),
           departments: data.departments.split('\n').map((x) => x.trim()).filter(Boolean) });
         $('#footer-owner').textContent = [A.data.settings.professor_name, A.data.settings.affiliation].filter(Boolean).join(' · ');
+        await refresh();
         CES.toast('설정을 저장했습니다.');
-        refresh();
+        if (A.tab === 'settings') renderSettings(); // 그사이 다른 탭으로 옮겼으면 화면을 되돌리지 않음
       });
       $('#pin-form').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -2818,6 +2838,11 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
     window.addEventListener('resize', () => {
       clearTimeout(wcResize);
       wcResize = setTimeout(() => { if (A.tab === 'results' && $('#wc')) drawWordCloud(); }, 250);
+    });
+
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest('.modal [data-go]');
+      if (b) go(b.dataset.go);
     });
 
     $('#logout-btn').addEventListener('click', () => signOut(false));

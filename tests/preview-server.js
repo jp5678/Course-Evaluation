@@ -13,12 +13,15 @@ const H = require('./helpers');
 
 const MOCK_SRC = fs.readFileSync(path.join(__dirname, 'gas-mock.js'), 'utf8');
 const URL_BASE = 'https://script.google.com/macros/s/PREVIEW/exec';
+const DEV_URL = 'https://script.google.com/macros/s/PREVIEW/dev';
+// 'dev' 시나리오: 관리자가 테스트 배포(/dev) 주소로 접속한 상황 재현
+const urlFor = (name) => (name === 'dev' ? DEV_URL : URL_BASE);
 const cache = {};
 
 /** 시나리오별 초기 시트 상태(서버 수명 동안 고정) */
 function scenario(name) {
   if (cache[name]) return cache[name];
-  const { env, server } = H.makeServer({ pin: '123456', url: URL_BASE });
+  const { env, server } = H.makeServer({ pin: '123456', url: urlFor(name) });
   const s = H.login(server, '123456');
   const demo = H.demoCourse(server);
   const online = server.getCourses_().find((c) => c.delivery_mode !== '대면');
@@ -68,7 +71,8 @@ function scenario(name) {
 
 function render(query) {
   const sc = scenario(query.scenario || 'student');
-  const { env, server } = H.makeServer({ setup: false, state: H.GasMock.revive(sc.state), url: URL_BASE });
+  const URL_NOW = urlFor(query.scenario);
+  const { env, server } = H.makeServer({ setup: false, state: H.GasMock.revive(sc.state), url: URL_NOW });
   const params = Object.assign({}, query);
   if (!params.page && params.c === undefined) params.c = sc.meta.courseId;
   const out = server.doGet({ parameter: params });
@@ -78,7 +82,7 @@ function render(query) {
 <script>${MOCK_SRC.replace(/<\/script/gi, '<\\/script')}</script>
 <script>
 (function(){
-  var env = GasMock.createEnv({ state: GasMock.revive(window.__GAS_STATE), url: ${JSON.stringify(URL_BASE)}, fastSleep: true });
+  var env = GasMock.createEnv({ state: GasMock.revive(window.__GAS_STATE), url: ${JSON.stringify(URL_NOW)}, fastSleep: true });
   var server = GasMock.loadServer(env, ${JSON.stringify(H.SOURCES).replace(/<\/script/gi, '<\\/script')});
   window.__server = server; window.__env = env;
   window.__runOpt = { latency: 60, failNext: {}, calls: [] , onCall: function(n){ window.__runOpt.calls.push(n); } };

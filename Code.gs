@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.2.0',
+  VERSION: '1.2.1',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -19,6 +19,8 @@ var APP = {
     RESPONSES: 'Responses'
   },
   TEMPLATE_ID: 'TEMPLATE',
+  // 학생이 열 수 있는 배포 주소(/exec). /dev(테스트 배포)는 편집자만 열 수 있습니다.
+  EXEC_URL_RE: /^https:\/\/script\.google\.com\/(?:a\/macros\/[^/?#]+|macros)\/s\/[A-Za-z0-9_-]+\/exec$/,
   TEXT_MAX: 1000,
   ITEM_TEXT_MAX: 300,
   OPTION_MAX: 60,
@@ -63,6 +65,7 @@ function doGet(e) {
   var settings = {};
   try { settings = getSettingsMap_(); } catch (err) { /* setup 이전: 빈 푸터 */ }
   var isAdmin = String(p.page || '') === 'admin';
+  rememberExecUrl_(settings);
   var t = HtmlService.createTemplateFromFile(isAdmin ? 'Admin' : 'Student');
   t.courseId = sanitizeId_(p.c);
   t.tokenPrefill = normalizeToken_(p.t || '');
@@ -222,7 +225,8 @@ function getAdminBootstrap(session) {
     var respByCourse = groupBy_(readResponses_(), 'course_id');
     var tokenStats = getTokenStats_();
     var now = new Date();
-    var url = webAppUrl_();
+    var url = studentBaseUrl_(settings);
+    var current = webAppUrl_();
 
     var list = courses.map(function (c) {
       var rows = respByCourse[c.course_id] || [];
@@ -250,10 +254,13 @@ function getAdminBootstrap(session) {
         professor_name: String(settings.professor_name || ''),
         affiliation: String(settings.affiliation || ''),
         min_responses: minN,
-        departments: departments_(settings)
+        departments: departments_(settings),
+        webapp_url: String(settings.webapp_url || '')
       },
       courses: list,
       webAppUrl: url,
+      currentUrl: current,
+      devMode: isDevUrl_(current),
       now: fmtDT_(now),
       version: APP.VERSION
     };
@@ -367,7 +374,7 @@ function generateTokens(session, courseId, count) {
       return {
         ok: true,
         tokens: tokens,
-        course: courseSummary_(course, 0, new Date(), webAppUrl_())
+        course: courseSummary_(course, 0, new Date(), studentBaseUrl_(getSettingsMap_()))
       };
     });
   });
@@ -544,11 +551,16 @@ function saveSettings(session, data) {
       .map(function (d) { return cleanText_(d, 40); }).filter(String);
     depts = depts.filter(function (d, i) { return depts.indexOf(d) === i; }).slice(0, 30);
     if (!depts.length) return { ok: false, code: 'VALIDATION', field: 'departments' };
+    var execUrl = String(data.webapp_url == null ? '' : data.webapp_url).trim().replace(/[?#].*$/, '');
+    if (execUrl && !APP.EXEC_URL_RE.test(execUrl)) {
+      return { ok: false, code: 'VALIDATION', field: 'webapp_url', message: '웹 앱 주소는 https://script.google.com/…/exec 형식이어야 합니다(/dev 주소는 학생이 열 수 없습니다).' };
+    }
     withLock_(function () {
       setSetting_('professor_name', name);
       setSetting_('affiliation', aff);
       setSetting_('min_responses', minN);
       setSetting_('departments', depts.join('\n'));
+      if (data.webapp_url !== undefined) setSetting_('webapp_url', execUrl);
     });
     return { ok: true };
   });
@@ -566,7 +578,7 @@ function resultContext_(courseId) {
   return {
     ok: true,
     course: course,
-    summary: courseSummary_(course, rows.length, now, webAppUrl_()),
+    summary: courseSummary_(course, rows.length, now, studentBaseUrl_(settings)),
     items: itemsForCourse_(course),
     rows: rows,
     minN: minN,
@@ -1311,6 +1323,33 @@ function minResponses_(settings) {
 
 function webAppUrl_() {
   try { return ScriptApp.getService().getUrl() || ''; } catch (e) { return ''; }
+}
+
+function isDevUrl_(url) {
+  return /\/dev(?:[?#].*)?$/.test(String(url || ''));
+}
+
+/**
+ * 학생 응답 링크·QR의 기준 주소.
+ * ① 설정에 저장된 /exec 주소 → ② 현재 실행 주소(테스트용 /dev 제외) → ③ 없음('')
+ * getUrl()은 테스트 배포(/dev)로 실행 중이면 /dev 주소를 돌려주는데, 학생은 /dev를 열 수 없습니다.
+ */
+function studentBaseUrl_(settings) {
+  var saved = String((settings || {}).webapp_url || '').trim();
+  if (APP.EXEC_URL_RE.test(saved)) return saved;
+  var current = webAppUrl_();
+  return current && !isDevUrl_(current) ? current : '';
+}
+
+/** 정식 배포 주소(/exec)로 실행되면 그 주소를 설정에 기억합니다(바뀐 경우에만 기록). */
+function rememberExecUrl_(settings) {
+  try {
+    var current = webAppUrl_();
+    if (!APP.EXEC_URL_RE.test(current)) return;
+    settings = settings || getSettingsMap_();
+    if (!settings.hasOwnProperty('webapp_url') && !settings.hasOwnProperty('token_salt')) return; // setup 이전
+    if (String(settings.webapp_url || '') !== current) setSetting_('webapp_url', current);
+  } catch (e) { /* 기록 실패는 화면 표시에 영향 없음 */ }
 }
 
 /* ───────────────────────────── 보안 유틸 ───────────────────────────── */
