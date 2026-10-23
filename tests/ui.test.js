@@ -351,7 +351,9 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·QR·토큰 인�
   // 새 교과목: 드롭다운(학과·학년·반·수업 방식)
   await page.getByRole('button', { name: '새 교과목' }).click();
   await page.locator('#f-name').fill('기본간호학실습');
-  for (const id of ['#f-dept', '#f-grade', '#f-sec', '#f-mode']) assert.equal(await page.locator(id).evaluate((e) => e.tagName), 'SELECT', id + ' 드롭다운');
+  for (const id of ['#f-dept', '#f-grade', '#f-sec', '#f-mode', '#f-type']) assert.equal(await page.locator(id).evaluate((e) => e.tagName), 'SELECT', id + ' 드롭다운');
+  assert.deepEqual(await page.$$eval('#f-type option', (o) => o.map((x) => x.value)), ['이론', '실습', '이론+실습']);
+  await page.selectOption('#f-type', '실습');
   assert.deepEqual(await page.$$eval('#f-grade option', (o) => o.map((x) => x.value)), ['1', '2', '3', '4']);
   assert.deepEqual(await page.$$eval('#f-sec option', (o) => o.map((x) => x.value)), ['A', 'B', 'C', 'D', 'E', 'F']);
   await page.selectOption('#f-grade', '2');
@@ -365,6 +367,17 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·QR·토큰 인�
   assert.equal(made.c.section, 'C');
   assert.equal(made.c.delivery_mode, '비대면');
   assert.equal(made.n, 4, '비대면 교과목에 온라인 문항 포함');
+  assert.equal(made.c.course_type, '실습');
+  // 문항 편집기: 이론 강의실 문항은 '이 교과목에서 숨김'으로 표시, 예상 시간은 보이는 문항 기준
+  await page.getByRole('tab', { name: '문항' }).click();
+  await page.selectOption('#items-course', made.c.course_id);
+  await page.waitForSelector('.item-row');
+  assert.equal(await page.locator('.item-row.is-hidden').count(), 1, '숨김 문항 1개(이론 강의실)');
+  assert.match(await page.locator('.item-row.is-hidden textarea[data-f="text"]').inputValue(), /^이론 강의실/);
+  await page.getByText(/1개 숨김/).waitFor();
+  assert.equal(await page.locator('select[data-f="scope"]').first().evaluate((e) => e.tagName), 'SELECT');
+  await shot(page, 'd13c-items-scope');
+  await page.getByRole('tab', { name: '교과목' }).click();
 
   // 문항: 새 교과목(응답 0)에 CLO 일괄 입력 → 저장
   await page.getByRole('tab', { name: '문항' }).click();

@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.1.0',
+  VERSION: '1.2.0',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -38,6 +38,9 @@ var APP = {
   GRADES: [1, 2, 3, 4],
   SECTIONS: ['A', 'B', 'C', 'D', 'E', 'F'],
   DELIVERY: ['대면', '비대면', '혼합'],
+  COURSE_TYPES: ['이론', '실습', '이론+실습'],
+  // 문항 표시 조건: ''=항상, online=비대면·혼합만, theory=이론 포함 교과목만, practice=실습 포함 교과목만
+  SCOPES: ['', 'online', 'theory', 'practice'],
   ITEM_TYPES: ['likert5', 'single', 'multi', 'select', 'text'],
   STATUS: { READY: '준비', OPEN: '진행', CLOSED: '마감' }
 };
@@ -45,7 +48,7 @@ var APP = {
 var HEADERS = {
   Settings: ['key', 'value', 'description'],
   Courses: ['course_id', 'course_name', 'year', 'semester', 'grade', 'section', 'enrollment',
-    'start_at', 'end_at', 'access_mode', 'access_code', 'status', 'result_open_date', 'department', 'delivery_mode'],
+    'start_at', 'end_at', 'access_mode', 'access_code', 'status', 'result_open_date', 'department', 'delivery_mode', 'course_type'],
   Items: ['item_id', 'course_id', 'domain', 'text', 'type', 'required', 'order', 'reverse', 'options', 'scope'],
   Tokens: ['course_id', 'token_hash', 'used'],
   Responses: ['response_id', 'course_id', 'submitted_date']
@@ -276,11 +279,18 @@ function saveCourse(session, data) {
       c.status = data.manual_close ? APP.STATUS.CLOSED : statusByDates_(c, new Date());
       var row = courseToRow_(c);
       if (existing) {
+        // 응답이 들어온 뒤 문항 구성(표시 조건)이 바뀌면 앞뒤 응답의 문항이 달라지므로 막습니다.
+        var prev = normalizeCourse_(existing);
+        var changed = prev.course_type !== c.course_type ? 'course_type' : prev.delivery_mode !== c.delivery_mode ? 'delivery_mode' : '';
+        if (changed && readResponses_(c.course_id).length > 0) {
+          return { ok: false, code: 'VALIDATION', field: changed, message: '응답이 수집된 뒤에는 수업 방식·교과목 유형을 바꿀 수 없습니다(문항 구성이 바뀌기 때문입니다).' };
+        }
         table.sheet.getRange(existing._row, 1, 1, row.length).setValues([row]);
         if (c.delivery_mode !== '대면') addOnlineItems_(c.course_id);
       } else {
         table.sheet.getRange(table.sheet.getLastRow() + 1, 1, 1, row.length).setValues([row]);
-        if (data.copy_template !== false) copyItems_(APP.TEMPLATE_ID, c.course_id, c.delivery_mode === '대면');
+        // 기본 문항을 모두 복사하고, 화면에는 수업 방식·교과목 유형에 맞는 문항만 표시합니다(filterScope_).
+        if (data.copy_template !== false) copyItems_(APP.TEMPLATE_ID, c.course_id);
       }
       return { ok: true, course_id: c.course_id };
     });
@@ -296,6 +306,7 @@ function duplicateCourse(session, sourceId, data) {
       course_name: src.course_name, grade: src.grade, enrollment: src.enrollment,
       access_mode: src.access_mode, access_code: randomString_(6, APP.TOKEN_ALPHABET),
       department: src.department, delivery_mode: data.delivery_mode || src.delivery_mode,
+      course_type: data.course_type || src.course_type,
       year: data.year, semester: data.semester, section: data.section != null ? data.section : src.section,
       start_at: data.start_at, end_at: data.end_at, result_open_date: data.result_open_date || ''
     };
@@ -308,7 +319,7 @@ function duplicateCourse(session, sourceId, data) {
       c.status = statusByDates_(c, new Date());
       var row = courseToRow_(c);
       table.sheet.getRange(table.sheet.getLastRow() + 1, 1, 1, row.length).setValues([row]);
-      copyItems_(src.course_id, c.course_id, false);
+      copyItems_(src.course_id, c.course_id);
       if (c.delivery_mode !== '대면') addOnlineItems_(c.course_id);
       return { ok: true, course_id: c.course_id };
     });
@@ -477,7 +488,7 @@ function exportCqi(session, courseId) {
     var c = ctx.summary;
     var lines = [
       ['CQI 요약표', c.course_name],
-      ['학년도·학기', c.year + '학년도 ' + c.semester + '학기', '학과', c.department, '학년', c.grade, '분반', c.section, '수업 방식', c.delivery_mode],
+      ['학년도·학기', c.year + '학년도 ' + c.semester + '학기', '학과', c.department, '학년', c.grade, '분반', c.section, '수업 방식', c.delivery_mode, '교과목 유형', c.course_type],
       ['응답 수', ctx.rows.length, '수강인원', c.enrollment, '응답률(%)', c.response_rate],
       ['전체 평균(5점)', stats.overall == null ? '' : stats.overall],
       [],
@@ -956,6 +967,7 @@ function normalizeCourse_(r) {
     result_open_date: toDate_(r.result_open_date),
     department: String(r.department || ''),
     delivery_mode: APP.DELIVERY.indexOf(String(r.delivery_mode)) >= 0 ? String(r.delivery_mode) : '대면',
+    course_type: APP.COURSE_TYPES.indexOf(String(r.course_type)) >= 0 ? String(r.course_type) : '이론+실습',
     _row: r._row
   };
 }
@@ -963,7 +975,7 @@ function normalizeCourse_(r) {
 function courseToRow_(c) {
   return [c.course_id, guardFormula_(c.course_name), c.year, asTextCell_(c.semester), c.grade, asTextCell_(c.section),
     c.enrollment, c.start_at, c.end_at, c.access_mode, asTextCell_(c.access_code), c.status, c.result_open_date || '',
-    guardFormula_(c.department || ''), c.delivery_mode || '대면'];
+    guardFormula_(c.department || ''), c.delivery_mode || '대면', c.course_type || '이론+실습'];
 }
 
 function validateCourse_(d) {
@@ -982,6 +994,8 @@ function validateCourse_(d) {
   if (!department) return err('department', '학과를 선택하세요.');
   var delivery = String(d.delivery_mode || '대면');
   if (APP.DELIVERY.indexOf(delivery) < 0) return err('delivery_mode', '수업 방식을 선택하세요.');
+  var ctype = String(d.course_type || '이론+실습');
+  if (APP.COURSE_TYPES.indexOf(ctype) < 0) return err('course_type', '교과목 유형(이론/실습/이론+실습)을 선택하세요.');
   var enroll = Math.floor(Number(d.enrollment));
   if (!(enroll >= 1 && enroll <= 1000)) return err('enrollment', '수강인원은 1~1000명입니다.');
   var start = parseDT_(d.start_at), end = parseDT_(d.end_at);
@@ -1001,7 +1015,7 @@ function validateCourse_(d) {
     course: {
       course_name: name, year: year, semester: sem, grade: grade, section: section, enrollment: enroll,
       start_at: start, end_at: end, access_mode: mode, access_code: code, result_open_date: open,
-      department: department, delivery_mode: delivery
+      department: department, delivery_mode: delivery, course_type: ctype
     }
   };
 }
@@ -1045,6 +1059,7 @@ function courseSummary_(c, n, now, url) {
     response_rate: c.enrollment ? Math.round(n / c.enrollment * 1000) / 10 : 0,
     department: c.department,
     delivery_mode: c.delivery_mode,
+    course_type: c.course_type,
     hours_left: status === APP.STATUS.OPEN && hoursLeft != null ? Math.round(hoursLeft * 10) / 10 : null,
     link: url ? url + '?c=' + encodeURIComponent(c.course_id) : ''
   };
@@ -1058,6 +1073,7 @@ function publicCourse_(c, items, settings) {
     course_name: c.course_name,
     department: c.department,
     delivery_mode: c.delivery_mode,
+    course_type: c.course_type,
     year: c.year,
     semester: c.semester,
     grade: c.grade,
@@ -1095,14 +1111,22 @@ function normalizeItem_(r) {
     order: Number(r.order) || 0,
     reverse: type === 'likert5' && toBool_(r.reverse),
     options: String(r.options || '').split('|').map(function (s) { return s.trim(); }).filter(String),
-    scope: String(r.scope || '') === 'online' ? 'online' : ''
+    scope: APP.SCOPES.indexOf(String(r.scope || '')) >= 0 ? String(r.scope || '') : ''
   };
 }
 
-/** 대면 수업이면 온라인 전용 문항(scope=online)을 제외합니다. */
+/** 문항의 표시 조건이 교과목(수업 방식·유형)에 맞는지 */
+function scopeVisible_(scope, course) {
+  if (!scope || !course) return true;
+  if (scope === 'online') return course.delivery_mode !== '대면';
+  if (scope === 'theory') return course.course_type !== '실습';
+  if (scope === 'practice') return course.course_type !== '이론';
+  return true;
+}
+
+/** 교과목에 맞지 않는 문항(대면의 온라인 문항, 이론 교과목의 실습실 문항 등)을 제외합니다. */
 function filterScope_(items, course) {
-  if (!course || course.delivery_mode !== '대면') return items;
-  return items.filter(function (it) { return it.scope !== 'online'; });
+  return items.filter(function (it) { return scopeVisible_(it.scope, course); });
 }
 
 function itemsForCourse_(course) {
@@ -1123,7 +1147,7 @@ function publicItem_(it) {
 
 function itemToRow_(it) {
   return [it.item_id, it.course_id, guardFormula_(it.domain), guardFormula_(it.text), it.type,
-    !!it.required, it.order, !!it.reverse, guardFormula_(it.options.join(' | ')), it.scope === 'online' ? 'online' : ''];
+    !!it.required, it.order, !!it.reverse, guardFormula_(it.options.join(' | ')), APP.SCOPES.indexOf(it.scope) >= 0 ? it.scope : ''];
 }
 
 function validateItem_(d, idx) {
@@ -1150,16 +1174,16 @@ function validateItem_(d, idx) {
     item: {
       domain: domain, text: text, type: type, required: !!d.required,
       reverse: type === 'likert5' && !!d.reverse, options: options,
-      scope: d.scope === 'online' ? 'online' : ''
+      scope: APP.SCOPES.indexOf(String(d.scope || '')) >= 0 ? String(d.scope || '') : ''
     }
   };
 }
 
-function copyItems_(fromId, toId, skipOnline) {
+function copyItems_(fromId, toId) {
   var all = readTable_(APP.SHEETS.ITEMS);
   var taken = {};
   all.rows.forEach(function (r) { taken[String(r.item_id)] = true; });
-  var src = getItems_(fromId).filter(function (it) { return !(skipOnline && it.scope === 'online'); });
+  var src = getItems_(fromId);
   if (!src.length) return 0;
   var rows = src.map(function (it, i) {
     var copy = JSON.parse(JSON.stringify(it));

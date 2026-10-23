@@ -3,7 +3,8 @@
  */
 
 /**
- * 공통 기본 문항 은행: [영역, 문항, 유형, 선택지, 범위('online' = 비대면·혼합 수업 전용)]
+ * 공통 기본 문항 은행: [영역, 문항, 유형, 선택지, 표시 조건]
+ * 표시 조건: 'online'=비대면·혼합 수업만, 'theory'=이론이 있는 교과목만, 'practice'=실습이 있는 교과목만
  * D 영역(학습성과·CLO)은 교과목마다 다르므로 교과목에서 입력합니다.
  */
 var DEFAULT_ITEMS = [
@@ -17,8 +18,8 @@ var DEFAULT_ITEMS = [
   ['C. 평가 및 과제', '평가는 공정하게 이루어졌다.', 'likert5'],
   ['C. 평가 및 과제', '과제의 양과 난이도가 적절하였다.', 'likert5'],
   ['C. 평가 및 과제', '과제·시험에 대한 피드백을 적절한 시기에 받았다.', 'likert5'],
-  ['E. 학습 환경', '이론 강의실의 환경(좌석·조명·냉난방·기자재)이 학습에 적절하였다.', 'likert5'],
-  ['E. 학습 환경', '실습실의 시설과 실습 기자재가 실습하기에 충분하였다.', 'likert5'],
+  ['E. 학습 환경', '이론 강의실의 환경(좌석·조명·냉난방·기자재)이 학습에 적절하였다.', 'likert5', null, 'theory'],
+  ['E. 학습 환경', '실습실의 시설과 실습 기자재가 실습하기에 충분하였다.', 'likert5', null, 'practice'],
   ['E. 학습 환경', '강의실·실습실의 유무선 인터넷(Wi-Fi) 환경이 원활하였다.', 'likert5'],
   ['F. 디지털·AI 활용', '수업에서 활용한 디지털 도구·AI는 학습에 도움이 되었다.', 'likert5'],
   ['F. 디지털·AI 활용', '이 수업에서 배운 디지털·AI 활용 역량을 간호실무에 활용할 수 있다고 느낀다.', 'likert5'],
@@ -37,14 +38,14 @@ var DEFAULT_ITEMS = [
 /** 이번 학기 교과목 예시(샘플). 교과목명·학년은 실제 담당 교과목, 수강인원·기간은 예시값입니다. */
 var SAMPLE_COURSES = [
   {
-    course_name: '디지털리터러시와 AI활용', grade: 1, section: 'A', enrollment: 40, delivery_mode: '대면',
+    course_name: '디지털리터러시와 AI활용', grade: 1, section: 'A', enrollment: 40, delivery_mode: '대면', course_type: '이론+실습',
     clos: [
       '나는 디지털 도구를 활용하여 학습 자료를 검색·정리할 수 있게 되었다.',
       '나는 생성형 AI를 학습에 윤리적이고 비판적으로 활용할 수 있게 되었다.'
     ]
   },
   {
-    course_name: 'AI융합 간호정보학', grade: 3, section: 'A', enrollment: 40, delivery_mode: '혼합',
+    course_name: 'AI융합 간호정보학', grade: 3, section: 'A', enrollment: 40, delivery_mode: '혼합', course_type: '이론+실습',
     clos: [
       '나는 간호정보시스템(EMR)의 구조와 기능을 설명할 수 있게 되었다.',
       '나는 AI 기반 임상의사결정지원 결과를 간호 근거에 비추어 검토할 수 있게 되었다.'
@@ -91,6 +92,7 @@ function setup() {
   });
 
   annotateHeaders_();
+  upgradeTemplateScopes_();
   sheet_(APP.SHEETS.RESPONSES).getRange(1, 3, sheet_(APP.SHEETS.RESPONSES).getMaxRows(), 1).setNumberFormat('@');
 
   // 설정 기본값(없는 키만 추가)
@@ -145,9 +147,9 @@ function annotateHeaders_() {
   var notes = {
     Courses: ['자동 생성 ID', '교과목명', '학년도(예: 2026)', '학기(1/여름/2/겨울)', '학년', '분반', '수강인원',
       '응답 시작일시', '응답 종료일시', 'code=접속코드, token=일회용 토큰', '접속코드(비우면 링크만으로 참여)',
-      '준비/진행/마감(마감=수동 마감)', '결과공개일(비우면 즉시 공개)', '학과', '수업 방식(대면/비대면/혼합)'],
+      '준비/진행/마감(마감=수동 마감)', '결과공개일(비우면 즉시 공개)', '학과', '수업 방식(대면/비대면/혼합)', '교과목 유형(이론/실습/이론+실습)'],
     Items: ['문항 ID', "교과목 ID('TEMPLATE'=공통 기본 문항)", '영역', '문항', 'likert5|single|multi|select|text',
-      '필수 여부', '순서', '역문항 여부(likert5만)', '선택지(| 로 구분)', "범위('online'=비대면·혼합 수업 전용)"],
+      '필수 여부', '순서', '역문항 여부(likert5만)', '선택지(| 로 구분)', "표시 조건(online=비대면·혼합만, theory=이론 포함만, practice=실습 포함만, 빈칸=항상)"],
     Tokens: ['교과목 ID', '토큰 해시(원문은 저장하지 않음)', '사용 여부'],
     Responses: ['응답 ID(UUID)', '교과목 ID', '제출 날짜(시각은 저장하지 않음)']
   };
@@ -165,6 +167,24 @@ function protectSheets_() {
       .setDescription('강의평가 Studio: 직접 편집하면 익명성·토큰 검증이 깨질 수 있습니다.')
       .setWarningOnly(true);
   });
+}
+
+/**
+ * 이전 버전 템플릿 업그레이드: 공통 기본 문항 중 문구가 기본값 그대로이고 표시 조건이 비어 있는 문항에만
+ * 새 표시 조건(이론·실습·온라인)을 채웁니다. 교수가 고친 문항은 건드리지 않습니다.
+ */
+function upgradeTemplateScopes_() {
+  var t = readTable_(APP.SHEETS.ITEMS);
+  var col = t.headers.indexOf('scope') + 1;
+  if (col < 1) return 0;
+  var want = {};
+  DEFAULT_ITEMS.forEach(function (d) { if (d[4]) want[d[1]] = d[4]; });
+  var n = 0;
+  t.rows.forEach(function (r) {
+    if (String(r.course_id) !== APP.TEMPLATE_ID || String(r.scope || '') !== '') return;
+    if (want[String(r.text)]) { t.sheet.getRange(r._row, col).setValue(want[String(r.text)]); n++; }
+  });
+  return n;
 }
 
 /** 헤더 행에 없는 열만 끝에 추가합니다(이전 버전 시트 자동 확장). */
@@ -207,16 +227,15 @@ function createDemoCourse_(spec) {
     status: APP.STATUS.OPEN,
     result_open_date: '',
     department: depts[0],
-    delivery_mode: spec.delivery_mode
+    delivery_mode: spec.delivery_mode,
+    course_type: spec.course_type || '이론+실습'
   };
   var sh = sheet_(APP.SHEETS.COURSES);
   var row = courseToRow_(course);
   sh.getRange(sh.getLastRow() + 1, 1, 1, row.length).setValues([row]);
 
   // 기본 문항 복사(대면이면 온라인 문항 제외) 후 C 영역 뒤에 CLO 문항 삽입
-  var template = getItems_(APP.TEMPLATE_ID).filter(function (it) {
-    return !(course.delivery_mode === '대면' && it.scope === 'online');
-  });
+  var template = getItems_(APP.TEMPLATE_ID); // 모두 복사, 화면에는 교과목 조건에 맞는 문항만 표시
   var items = [];
   var inserted = false;
   template.forEach(function (it) {

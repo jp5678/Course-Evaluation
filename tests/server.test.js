@@ -19,6 +19,9 @@ test('setup: 탭·헤더·기본 문항 은행·이번 학기 교과목 예시 2
   assert.deepEqual(doms, ['A. 강의 설계', 'B. 교수학습방법', 'C. 평가 및 과제', 'E. 학습 환경', 'F. 디지털·AI 활용', 'G. 종합', 'H. 온라인(비대면) 강의', '서술형', '응답자 정보']);
   assert.ok(tpl.some((i) => /유무선 인터넷/.test(i.text)) && tpl.some((i) => /실습실의 시설/.test(i.text)) && tpl.some((i) => /이론 강의실/.test(i.text)), '학습 환경 문항');
   assert.equal(tpl.filter((i) => i.scope === 'online').length, 4, '온라인 전용 문항 4개');
+  assert.match(tpl.find((i) => i.scope === 'theory').text, /^이론 강의실/);
+  assert.match(tpl.find((i) => i.scope === 'practice').text, /^실습실의 시설/);
+  assert.equal(tpl.find((i) => /유무선 인터넷/.test(i.text)).scope, '', '인터넷 문항은 항상 표시');
   const gender = tpl.find((i) => i.type === 'select');
   assert.deepEqual(gender.options, ['남', '여']);
   assert.equal(gender.required, false, '성별은 선택 응답');
@@ -29,6 +32,7 @@ test('setup: 탭·헤더·기본 문항 은행·이번 학기 교과목 예시 2
   const cs = server.getCourses_();
   assert.deepEqual(cs.map((c) => [c.course_name, c.grade, c.section, c.department, c.delivery_mode]),
     [['디지털리터러시와 AI활용', '1', 'A', '간호학과', '대면'], ['AI융합 간호정보학', '3', 'A', '간호학과', '혼합']]);
+  assert.ok(cs.every((c) => c.course_type === '이론+실습'), '예시 교과목 유형');
   assert.ok(cs.every((c) => c.year === 2026 && c.semester === '2'), '2026학년도 2학기(오늘 기준)');
   assert.equal(server.itemsForCourse_(cs[0]).length, 23, '대면: 온라인 문항 제외 + CLO 2');
   assert.equal(server.itemsForCourse_(cs[1]).length, 27, '혼합: 온라인 문항 포함');
@@ -40,14 +44,14 @@ test('setup: 탭·헤더·기본 문항 은행·이번 학기 교과목 예시 2
   assert.equal(server.getCourses_().length, 2, '재실행 시 교과목 중복 없음');
 });
 
-test('이전 버전 시트: setup이 빠진 열(학과·수업 방식·범위)을 끝에 추가', () => {
+test('이전 버전 시트: setup이 빠진 열(학과·수업 방식·교과목 유형·표시 조건)을 끝에 추가', () => {
   const { env, server } = H.makeServer({ setup: false });
   const ss = env.SpreadsheetApp.getActiveSpreadsheet();
   const old = server.HEADERS.Courses.slice(0, 13);
   ss.insertSheet('Courses').getRange(1, 1, 1, old.length).setValues([old]);
   server.setup();
   const hdr = env.__store.read().sheets.Courses.values[0];
-  assert.deepEqual(hdr.slice(0, 15), server.HEADERS.Courses);
+  assert.deepEqual(hdr.slice(0, server.HEADERS.Courses.length), server.HEADERS.Courses);
 });
 
 test('PIN: 해시(SHA-256+salt) 저장, 5회 실패 시 10분 잠금, 잠금 중 올바른 PIN도 거부', () => {
@@ -352,6 +356,65 @@ test('수업 방식: 대면은 온라인 문항 숨김, 비대면으로 바꾸�
   assert.ok(firstOnline < items.findIndex((i) => i.type === 'text'), '온라인 문항은 서술형 앞');
   assert.equal(server.saveCourse(s, Object.assign({}, cur, { delivery_mode: '비대면' })).ok, true);
   assert.equal(server.itemsForCourse_(c()).filter((i) => i.scope === 'online').length, 4, '중복 추가 없음');
+});
+
+test('교과목 유형: 이론은 실습실 문항, 실습은 이론 강의실 문항 제외(학생·결과 모두)', () => {
+  const { server } = H.makeServer({ pin: PIN });
+  const s = H.login(server, PIN);
+  const visible = (id) => server.itemsForCourse_(server.findCourse_(id)).map((i) => i.text);
+  const theory = H.createCourse(server, s, { course_type: '이론' });
+  const practice = H.createCourse(server, s, { course_type: '실습' });
+  const both = H.createCourse(server, s, { course_type: '이론+실습' });
+  const has = (id, re) => visible(id).some((t) => re.test(t));
+  assert.equal(has(theory, /^실습실의 시설/), false);
+  assert.equal(has(theory, /^이론 강의실/), true);
+  assert.equal(has(practice, /^이론 강의실/), false);
+  assert.equal(has(practice, /^실습실의 시설/), true);
+  assert.equal(has(both, /^이론 강의실/) && has(both, /^실습실의 시설/), true);
+  assert.equal(visible(theory).length, visible(both).length - 1, '이론 교과목은 1문항 적음');
+  assert.equal(server.verifyAccess(theory, 'ABC123').items.some((i) => /^실습실/.test(i.text)), false, '학생 화면에서도 제외');
+  assert.equal(server.getAdminBootstrap(s).courses.find((c) => c.course_id === theory).item_count, visible(theory).length);
+  // 숨긴 문항은 제출 검증·결과에도 나타나지 않음
+  const items = server.itemsForCourse_(server.findCourse_(theory));
+  for (let i = 0; i < 5; i++) server.submitResponse(theory, 'ABC123', H.fullAnswers(items));
+  const r = server.getResults(s, theory);
+  assert.equal(r.stats.items.some((x) => /^실습실/.test(x.text)), false);
+  assert.equal(server.saveCourse(s, Object.assign({}, base(server, s, practice), { course_type: '보건' })).field, 'course_type');
+});
+
+function base(server, s, id) {
+  return server.getAdminBootstrap(s).courses.find((c) => c.course_id === id);
+}
+
+test('응답 수집 후에는 교과목 유형·수업 방식 변경 불가(문항 구성 고정), 응답 전에는 변경 가능', () => {
+  const { server } = H.makeServer({ pin: PIN });
+  const s = H.login(server, PIN);
+  const id = H.createCourse(server, s, { course_type: '이론+실습' });
+  assert.equal(server.saveCourse(s, Object.assign({}, base(server, s, id), { course_type: '이론' })).ok, true, '응답 전 변경 허용');
+  server.submitResponse(id, 'ABC123', H.fullAnswers(server.itemsForCourse_(server.findCourse_(id))));
+  let r = server.saveCourse(s, Object.assign({}, base(server, s, id), { course_type: '실습' }));
+  assert.equal(r.code, 'VALIDATION');
+  assert.equal(r.field, 'course_type');
+  r = server.saveCourse(s, Object.assign({}, base(server, s, id), { delivery_mode: '비대면' }));
+  assert.equal(r.field, 'delivery_mode');
+  assert.equal(server.saveCourse(s, Object.assign({}, base(server, s, id), { enrollment: 35 })).ok, true, '다른 항목 수정은 허용');
+  assert.equal(server.findCourse_(id).course_type, '이론');
+});
+
+test('이전 버전 템플릿: setup이 기본 문구 그대로인 환경 문항에만 표시 조건을 채움', () => {
+  const { env, server } = H.makeServer();
+  const t = server.readTable_('Items');
+  const col = t.headers.indexOf('scope') + 1;
+  const sh = env.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Items');
+  const theoryRow = t.rows.find((r) => r.course_id === 'TEMPLATE' && /^이론 강의실/.test(r.text));
+  const practiceRow = t.rows.find((r) => r.course_id === 'TEMPLATE' && /^실습실의 시설/.test(r.text));
+  sh.getRange(theoryRow._row, col).setValue('');           // v1.1 상태로 되돌림
+  sh.getRange(practiceRow._row, col).setValue('');
+  sh.getRange(practiceRow._row, t.headers.indexOf('text') + 1).setValue('실습실이 좋았다(교수가 수정한 문구)');
+  server.setup();
+  const tpl = server.getItems_('TEMPLATE');
+  assert.equal(tpl.find((i) => /^이론 강의실/.test(i.text)).scope, 'theory', '기본 문구는 업그레이드');
+  assert.equal(tpl.find((i) => /교수가 수정한/.test(i.text)).scope, '', '교수가 고친 문항은 그대로');
 });
 
 test('드롭다운 검증: 학년 1~4, 반 A~F, 학과 필수, 수업 방식', () => {

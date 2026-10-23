@@ -54,6 +54,11 @@
     const GRADES = [1, 2, 3, 4];
     const SECTIONS = ['A', 'B', 'C', 'D', 'E', 'F'];
     const DELIVERY = ['대면', '비대면', '혼합'];
+    const COURSE_TYPES = ['이론', '실습', '이론+실습'];
+    const SCOPES = { '': '항상 표시', online: '비대면·혼합 수업만', theory: '이론 있는 교과목만', practice: '실습 있는 교과목만' };
+    /** 서버 scopeVisible_과 같은 규칙: 문항이 이 교과목에서 보이는지 */
+    const scopeVisible = (scope, c) => !scope || !c ||
+      (scope === 'online' ? c.delivery_mode !== '대면' : scope === 'theory' ? c.course_type !== '실습' : scope === 'practice' ? c.course_type !== '이론' : true);
     const TABS = [
       ['dashboard', 'layout-dashboard', '대시보드'],
       ['courses', 'book-open', '교과목'],
@@ -356,7 +361,7 @@
           <div class="row-between"><div class="meta">${statusBadge(c)}<span class="badge">${esc(term(c))}</span></div>
             ${c.result_open_date ? `<span class="badge warn" title="결과공개일">${icon('calendar-clock')}${esc(c.result_open_date)}</span>` : ''}</div>
           <div><h2 id="cn-${id}">${esc(c.course_name)}</h2>
-            <p class="small muted">${esc([c.department, c.grade ? c.grade + '학년' : '', c.section ? c.section + '반' : '', c.delivery_mode, '수강 ' + c.enrollment + '명', c.item_count + '문항'].filter(Boolean).join(' · '))}</p></div>
+            <p class="small muted">${esc([c.department, c.grade ? c.grade + '학년' : '', c.section ? c.section + '반' : '', c.course_type, c.delivery_mode, '수강 ' + c.enrollment + '명', c.item_count + '문항'].filter(Boolean).join(' · '))}</p></div>
           <p class="small num muted">${icon('calendar')} ${esc(dt(c.start_at))} ~ ${esc(dt(c.end_at))}</p>
           <div>
             <div class="row-between small"><span>응답</span><span class="num"><strong>${c.response_count}</strong> / ${c.enrollment}명 (${c.response_rate}%)</span></div>
@@ -385,7 +390,7 @@
       const depts = A.data.settings.departments || ['간호학과'];
       c = Object.assign({
         course_name: '', year: now.getMonth() < 2 ? now.getFullYear() - 1 : now.getFullYear(), semester: now.getMonth() >= 2 && now.getMonth() <= 7 ? '1' : '2',
-        grade: 1, section: 'A', department: depts[0], delivery_mode: '대면',
+        grade: 1, section: 'A', department: depts[0], delivery_mode: '대면', course_type: '이론+실습',
         enrollment: 40, start_at: localDT(start), end_at: localDT(end), access_mode: 'code', access_code: randCode(), result_open_date: ''
       }, c || {});
       const deptList = depts.indexOf(c.department) < 0 && c.department ? depts.concat([c.department]) : depts;
@@ -399,6 +404,8 @@
           <div class="field"><label for="f-dept">학과</label>${selectHtml('department', 'f-dept', deptList, c.department)}</div>
           <div class="field"><label for="f-mode">수업 방식</label>${selectHtml('delivery_mode', 'f-mode', DELIVERY, c.delivery_mode)}
             <p class="hint">비대면·혼합이면 온라인 강의 문항(H 영역)이 함께 표시됩니다.</p></div>
+          <div class="field"><label for="f-type">교과목 유형</label>${selectHtml('course_type', 'f-type', COURSE_TYPES, c.course_type)}
+            <p class="hint">이론: 실습실 문항 제외 · 실습: 이론 강의실 문항 제외 · 이론+실습: 모두 표시</p></div>
           <div class="field"><label for="f-grade">학년</label>${selectHtml('grade', 'f-grade', GRADES, c.grade, (g) => g + '학년')}</div>
           <div class="field"><label for="f-sec">반</label>${selectHtml('section', 'f-sec', SECTIONS, c.section, (x) => x + '반')}</div>
           <div class="field"><label for="f-enr">수강인원</label><input class="input num" id="f-enr" name="enrollment" type="number" min="1" max="1000" value="${esc(c.enrollment)}"></div>
@@ -497,6 +504,7 @@
             <div class="field"><label for="d-sem">학기</label><select class="select" id="d-sem" name="semester">${SEMS.map((s) => `<option value="${s}"${s === nextSem.s ? ' selected' : ''}>${s}학기</option>`).join('')}</select></div>
             <div class="field"><label for="d-sec">반</label>${selectHtml('section', 'd-sec', SECTIONS, c.section, (x) => x + '반')}</div>
             <div class="field"><label for="d-mode">수업 방식</label>${selectHtml('delivery_mode', 'd-mode', DELIVERY, c.delivery_mode)}</div>
+            <div class="field"><label for="d-type">교과목 유형</label>${selectHtml('course_type', 'd-type', COURSE_TYPES, c.course_type)}</div>
             <div class="field"><label for="d-open">결과공개일 <span class="muted small">(선택)</span></label><input class="input" id="d-open" name="result_open_date" type="date"></div>
             <div class="field"><label for="d-start">응답 시작일시</label><input class="input" id="d-start" name="start_at" type="datetime-local" value="${localDT(start)}"></div>
             <div class="field"><label for="d-end">응답 종료일시</label><input class="input" id="d-end" name="end_at" type="datetime-local" value="${localDT(end)}"></div>
@@ -703,7 +711,10 @@
       if (!body) return;
       const locked = A.itemsLocked;
       const isTemplate = A.itemsCourse === 'TEMPLATE';
-      const min = estMinutes(A.items);
+      const course = isTemplate ? null : courseById(A.itemsCourse);
+      const visible = A.items.filter((it) => scopeVisible(it.scope, course));
+      const hidden = A.items.length - visible.length;
+      const min = estMinutes(visible);
       body.innerHTML = `
         ${locked ? `<div class="callout" style="margin-bottom:16px">${icon('lock')}<p class="small"><strong>응답이 이미 수집되어 문항을 수정할 수 없습니다.</strong> 문항이 바뀌면 기존 응답과 의미가 달라지기 때문입니다. 다음 학기에는 [교과목 ▸ 복제] 후 수정하세요.</p></div>` : ''}
         ${isTemplate ? `<div class="callout info" style="margin-bottom:16px">${icon('info')}<p class="small">공통 기본 문항 은행입니다. 여기서 수정한 내용은 <strong>앞으로 새로 만드는 교과목</strong>에 복사됩니다(기존 교과목은 바뀌지 않음).</p></div>` : ''}
@@ -715,19 +726,19 @@
           <button type="button" class="btn primary sm" data-act="save-items" id="save-items">${icon('save')}저장${A.itemsDirty ? ' •' : ''}</button>
         </div>`}
         <div class="row-between small" style="margin-bottom:8px">
-          <span><strong class="num">${A.items.length}</strong>문항 · 예상 <strong class="num">${min}</strong>분</span>
+          <span>학생에게 보이는 문항 <strong class="num">${visible.length}</strong>개 · 예상 <strong class="num">${min}</strong>분${hidden ? ` <span class="muted">(이 교과목의 ${esc(course.delivery_mode)}·${esc(course.course_type)} 설정으로 ${hidden}개 숨김)</span>` : ''}</span>
           ${min > 3 ? `<span class="badge warn">${icon('timer')}3분 목표를 넘습니다</span>` : `<span class="badge open">${icon('timer')}3분 이내</span>`}
         </div>
         <datalist id="domain-list">${DOMAINS.map((d) => `<option value="${esc(d)}">`).join('')}</datalist>
-        <div id="item-list">${A.items.map((it, i) => itemRow(it, i, locked)).join('') || `<div class="card empty">${icon('list')}<p>문항이 없습니다.</p></div>`}</div>`;
+        <div id="item-list">${A.items.map((it, i) => itemRow(it, i, locked, !scopeVisible(it.scope, course))).join('') || `<div class="card empty">${icon('list')}<p>문항이 없습니다.</p></div>`}</div>`;
       CES.icons();
     }
 
-    function itemRow(it, i, locked) {
+    function itemRow(it, i, locked, isHidden) {
       const dis = locked ? ' disabled' : '';
       const choice = it.type === 'single' || it.type === 'multi' || it.type === 'select';
       return `
-        <div class="item-row" data-idx="${i}">
+        <div class="item-row${isHidden ? ' is-hidden' : ''}" data-idx="${i}">
           <div class="stack" style="margin:0">
             ${locked ? '' : `<button type="button" class="drag-handle" aria-label="${i + 1}번 문항 끌어서 순서 변경" data-handle>${icon('grip-vertical')}</button>`}
             <div class="item-index" aria-hidden="true">${i + 1}</div>
@@ -746,7 +757,10 @@
             <div class="item-tools">
               <label class="check small"><input type="checkbox" data-f="required"${it.required ? ' checked' : ''}${dis}> 필수</label>
               ${it.type === 'likert5' ? `<label class="check small"><input type="checkbox" data-f="reverse"${it.reverse ? ' checked' : ''}${dis}> 역문항(점수 역환산)</label>` : ''}
-              <label class="check small"><input type="checkbox" data-f="scope"${it.scope === 'online' ? ' checked' : ''}${dis}> 비대면·혼합 수업에서만</label>
+              <label class="check small" for="scp-${i}">표시 조건</label>
+              <select class="select" id="scp-${i}" data-f="scope" style="min-height:40px;width:auto;font-size:.875rem"${dis}>${Object.keys(SCOPES).map((k) =>
+                `<option value="${k}"${(it.scope || '') === k ? ' selected' : ''}>${SCOPES[k]}</option>`).join('')}</select>
+              ${isHidden ? `<span class="badge closed">${icon('eye-off')}이 교과목에서 숨김</span>` : ''}
               <div class="grow"></div>
               ${locked ? '' : `
               <button type="button" class="btn ghost sm icon" data-move="-1" aria-label="${i + 1}번 문항 위로"${i === 0 ? ' disabled' : ''}>${icon('arrow-up')}</button>
@@ -863,13 +877,14 @@
       const f = e.target.dataset.f;
       if (!it || !f) return;
       if (f === 'required' || f === 'reverse') it[f] = e.target.checked;
-      else if (f === 'scope') it.scope = e.target.checked ? 'online' : '';
+      else if (f === 'scope') it.scope = e.target.value;
       else if (f === 'options') it.options = e.target.value.split('\n').map((s) => s.trim()).filter(Boolean);
       else if (f !== 'type') it[f] = e.target.value;
       markDirty();
     });
     view.addEventListener('change', (e) => {
       const row = e.target.closest('.item-row');
+      if (row && e.target.dataset.f === 'scope') { A.items[Number(row.dataset.idx)].scope = e.target.value; markDirty(); drawItems(); const sc = $(`#scp-${row.dataset.idx}`); if (sc) sc.focus(); return; }
       if (!row || e.target.dataset.f !== 'type') return;
       const it = A.items[Number(row.dataset.idx)];
       it.type = e.target.value;
