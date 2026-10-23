@@ -35,12 +35,19 @@ jobs:
         working-directory: tests
         env:
           TZ: Asia/Seoul
-        run: node --test --test-concurrency=1 server.test.js concurrency.test.js qr.test.js contrast.test.js
-      - name: 체험판이 최신 소스로 빌드되었는지 확인
+        run: node --test --test-concurrency=1 server.test.js bundle.test.js concurrency.test.js qr.test.js contrast.test.js
+      - name: 정식 설치 파일로 서버 테스트 재실행
+        working-directory: tests
+        env:
+          TZ: Asia/Seoul
+          CES_BUNDLE: '1'
+        run: node --test server.test.js
+      - name: 체험판·설치 파일이 최신 소스로 빌드되었는지 확인
         run: |
           node tools/build-demo.js
-          git diff --exit-code -- index.html demo .nojekyll || {
-            echo "::error::체험판이 소스와 다릅니다. 'node tools/build-demo.js'를 실행해 커밋하세요."; exit 1; }
+          node tools/build-installer.js
+          git diff --exit-code -- index.html demo .nojekyll dist || {
+            echo "::error::빌드 산출물이 소스와 다릅니다. 'node tools/build-demo.js && node tools/build-installer.js'를 실행해 커밋하세요."; exit 1; }
 
   detect:
     name: Pages 배포 방식 확인

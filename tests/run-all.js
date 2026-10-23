@@ -3,8 +3,10 @@
 const { spawnSync } = require('child_process');
 // 체험판을 먼저 최신 소스로 빌드
 spawnSync(process.execPath, [require('path').join(__dirname, '..', 'tools', 'build-demo.js')], { stdio: 'inherit' });
+spawnSync(process.execPath, [require('path').join(__dirname, '..', 'tools', 'build-installer.js')], { stdio: 'inherit' });
 const suites = [
   ['서버 로직·보안', 'server.test.js'],
+  ['정식 설치 파일(단일 .gs) 동등성', 'bundle.test.js'],
   ['동시 제출(멀티 스레드)', 'concurrency.test.js'],
   ['QR 인코더(jsQR 디코딩)', 'qr.test.js'],
   ['WCAG 대비', 'contrast.test.js'],

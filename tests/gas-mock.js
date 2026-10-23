@@ -320,8 +320,9 @@
       XFrameOptionsMode: { DEFAULT: 'DEFAULT', ALLOWALL: 'ALLOWALL' },
       createHtmlOutput: function (html) { return output(html); },
       createHtmlOutputFromFile: function (name) { return output(readFile(name + '.html')); },
-      createTemplateFromFile: function (name) {
-        var src = readFile(name + '.html');
+      createTemplateFromFile: function (name) { return this.createTemplate(readFile(name + '.html')); },
+      createTemplate: function (src) {
+        if (typeof src !== 'string') throw new Error('createTemplate: 문자열이 필요합니다');
         var t = {
           evaluate: function () {
             var vars = {};

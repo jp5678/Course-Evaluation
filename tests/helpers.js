@@ -5,7 +5,10 @@ const path = require('path');
 const GasMock = require('./gas-mock');
 
 const ROOT = path.join(__dirname, '..');
-const SOURCES = ['Code.gs', 'Setup.gs'].map((f) => fs.readFileSync(path.join(ROOT, f), 'utf8'));
+// CES_BUNDLE=1 이면 정식 설치 파일(dist/CourseEvaluationStudio.gs) 하나로 같은 테스트를 실행
+const SOURCES = process.env.CES_BUNDLE
+  ? [fs.readFileSync(path.join(ROOT, 'dist', 'CourseEvaluationStudio.gs'), 'utf8')]
+  : ['Code.gs', 'Setup.gs'].map((f) => fs.readFileSync(path.join(ROOT, f), 'utf8'));
 const readFile = (name) => fs.readFileSync(path.join(ROOT, name), 'utf8');
 
 /** 새 모의 환경 + 서버 로드 (+ 선택: setup·PIN) */
