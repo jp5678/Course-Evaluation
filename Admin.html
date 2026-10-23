@@ -1,0 +1,1246 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="color-scheme" content="light dark">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css">
+  <?!= include('Styles'); ?>
+</head>
+<body class="page-admin">
+  <a class="skip-link" href="#main">본문 바로가기</a>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-mark"><i data-lucide="clipboard-check" aria-hidden="true"></i></span>
+        <span>강의평가 Studio<small>교수자 관리</small></span>
+      </div>
+      <div class="grow"></div>
+      <button type="button" class="btn ghost sm hidden" id="logout-btn"><i data-lucide="log-out" aria-hidden="true"></i><span>로그아웃</span></button>
+    </div>
+  </header>
+
+  <main id="main" class="wrap" tabindex="-1">
+    <nav class="tabs hidden" id="tabs" role="tablist" aria-label="관리 메뉴" style="margin-bottom:20px"></nav>
+    <div id="view" role="tabpanel" aria-live="off">
+      <div class="skeleton" aria-hidden="true"></div>
+    </div>
+  </main>
+
+  <div id="sr-status" class="sr-only" role="status" aria-live="polite"></div>
+  <div id="print-area" aria-hidden="true"></div>
+
+  <footer class="footer">
+    <div class="owner" id="footer-owner"><?= professorName ?><? if (affiliation) { ?> · <?= affiliation ?><? } ?></div>
+    <div class="credit">Developed by 정종필 교수 · 청암대학교 간호학과</div>
+    <p class="disclaimer">강의평가 Studio는 학교 공식 강의평가를 대체하지 않는 교수자 자율형 형성평가·CQI(지속적 질 개선)용 설문 도구입니다.</p>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.460.0/dist/umd/lucide.min.js" defer onload="window.CES && CES.icons()"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js" defer></script>
+  <?!= include('Scripts'); ?>
+  <script>
+  (function () {
+    'use strict';
+    const { $, $$, esc, icon } = CES;
+    const view = document.getElementById('view');
+    const tabsEl = document.getElementById('tabs');
+    const SESSION_KEY = 'ces:admin';
+    const DOMAINS = ['A. 강의 설계', 'B. 교수 방법', 'C. 평가', 'D. 학습성과(CLO)', 'E. 디지털·AI 활용', 'F. 종합', '서술형'];
+    const TYPES = { likert5: '5점 리커트', single: '단일 선택', multi: '복수 선택', text: '서술형' };
+    const SEMS = ['1', '여름', '2', '겨울'];
+    const TABS = [
+      ['dashboard', 'layout-dashboard', '대시보드'],
+      ['courses', 'book-open', '교과목'],
+      ['items', 'list-checks', '문항'],
+      ['results', 'chart-column', '결과'],
+      ['settings', 'settings', '설정']
+    ];
+
+    const A = {
+      session: (CES.store.get(SESSION_KEY) || {}).s || '',
+      data: null,
+      tab: 'dashboard',
+      itemsCourse: '',
+      items: [],
+      itemsLocked: false,
+      itemsDirty: false,
+      resultsCourse: '',
+      results: null,
+      charts: []
+    };
+
+    /* ───── 서버 호출(세션 자동 첨부, 만료 시 로그인 화면) ───── */
+    async function api(fn, args, opts) {
+      const res = await CES.call(fn, [A.session].concat(args || []), opts);
+      if (!res.ok && res.code === 'AUTH') {
+        CES.toast('로그인이 만료되었습니다. 다시 로그인하세요.', 'error');
+        signOut(true);
+      }
+      return res;
+    }
+
+    function fail(res) {
+      if (res.code === 'AUTH') return;
+      CES.toast(CES.errorText(res), 'error');
+    }
+
+    /* ───── 공통 표시 도우미 ───── */
+    const courseById = (id) => (A.data ? A.data.courses.find((c) => c.course_id === id) : null);
+    const dt = (s) => (s ? s.replace('T', ' ').replace(/-/g, '.') : '');
+    const term = (c) => `${c.year}-${c.semester}학기`;
+    const termFull = (c) => [term(c), c.grade ? c.grade + '학년' : '', c.section ? c.section + '반' : ''].filter(Boolean).join(' · ');
+    const fmt = (n, d) => CES.fmt(n, d);
+
+    function statusBadge(c) {
+      if (c.status === '진행') return `<span class="badge open">${icon('circle-dot')}진행 중</span>`;
+      if (c.status === '준비') return `<span class="badge ready">${icon('clock')}시작 전</span>`;
+      return `<span class="badge closed">${icon('lock')}${c.manual_close ? '수동 마감' : '마감'}</span>`;
+    }
+
+    function estMinutes(items) {
+      let sec = 0;
+      items.forEach((it) => { sec += it.type === 'text' ? 35 : it.type === 'likert5' ? 7 : 10; });
+      return Math.max(1, Math.round(sec / 60));
+    }
+
+    function setView(html, focusHeading) {
+      destroyCharts();
+      view.innerHTML = html;
+      CES.icons();
+      if (focusHeading) {
+        const h = $('h1', view);
+        if (h) { h.setAttribute('tabindex', '-1'); h.focus({ preventScroll: true }); }
+      }
+    }
+
+    function destroyCharts() {
+      A.charts.forEach((c) => { try { c.destroy(); } catch (e) { /* 무시 */ } });
+      A.charts = [];
+    }
+
+    function cssVar(name) {
+      return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+
+    /* ───── 로그인 ───── */
+    function renderLogin(message, lockedSec) {
+      tabsEl.classList.add('hidden');
+      $('#logout-btn').classList.add('hidden');
+      setView(`
+        <div style="max-width:420px;margin:24px auto 0">
+          <form class="card pad-lg stack-lg" id="login-form" novalidate aria-labelledby="lt">
+            <div class="notice-icon">${icon('lock-keyhole')}</div>
+            <div class="center"><h1 id="lt">교수자 로그인</h1>
+              <p class="muted small" style="margin-top:6px">관리자 PIN을 입력하세요.</p></div>
+            <div class="field">
+              <label for="pin">관리자 PIN</label>
+              <input id="pin" class="input code" type="password" inputmode="numeric" autocomplete="current-password"
+                maxlength="12" aria-describedby="pin-hint${message ? ' pin-err' : ''}" ${message ? 'aria-invalid="true"' : ''} ${lockedSec ? 'disabled' : ''}>
+              <p class="hint" id="pin-hint">숫자 6~12자리 · 5회 틀리면 10분간 잠깁니다.</p>
+              ${message ? `<p class="error" id="pin-err" role="alert">${icon('circle-alert')} ${esc(message)}</p>` : ''}
+            </div>
+            <button type="submit" class="btn primary block" id="login-btn" ${lockedSec ? 'disabled' : ''}>로그인${icon('arrow-right')}</button>
+            <p class="tiny muted center">PIN을 잊었다면 스프레드시트 메뉴 [강의평가 Studio] ▸ ② 관리자 PIN 설정·재설정에서 다시 설정하세요.</p>
+          </form>
+        </div>`);
+      const pin = $('#pin');
+      if (!lockedSec) pin.focus();
+      if (lockedSec) {
+        let left = lockedSec;
+        const tick = setInterval(() => {
+          left--;
+          const err = $('#pin-err');
+          if (!err) { clearInterval(tick); return; }
+          if (left <= 0) { clearInterval(tick); renderLogin(); return; }
+          err.textContent = `PIN 입력이 잠겼습니다. ${Math.floor(left / 60)}분 ${left % 60}초 후 다시 시도하세요.`;
+        }, 1000);
+      }
+      $('#login-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const v = pin.value.trim();
+        if (!/^\d{6,12}$/.test(v)) { renderLogin('PIN은 숫자 6~12자리입니다.'); return; }
+        const restore = CES.busyButton($('#login-btn'), '확인 중…');
+        const res = await CES.call('adminLogin', [v]);
+        restore();
+        if (res.ok) {
+          A.session = res.session;
+          CES.store.set(SESSION_KEY, { s: res.session });
+          return boot();
+        }
+        if (res.code === 'WRONG') return renderLogin(`PIN이 올바르지 않습니다. (남은 시도 ${res.left}회)`);
+        if (res.code === 'LOCKED') return renderLogin(`PIN 입력이 잠겼습니다. ${Math.ceil(res.remainSec / 60)}분 후 다시 시도하세요.`, res.remainSec);
+        if (res.code === 'NO_PIN') return renderLogin('아직 PIN이 설정되지 않았습니다. 스프레드시트 메뉴 ② 관리자 PIN 설정·재설정을 먼저 실행하세요.');
+        if (res.code === 'SETUP_REQUIRED') return renderLogin('초기 설정이 필요합니다. 스프레드시트 메뉴 ① 초기 설정 실행을 먼저 하세요.');
+        renderLogin(CES.errorText(res));
+      });
+    }
+
+    async function signOut(expired) {
+      if (!expired && A.session) CES.call('adminLogout', [A.session], { silent: true });
+      A.session = '';
+      A.data = null;
+      CES.store.remove(SESSION_KEY);
+      renderLogin();
+    }
+
+    /* ───── 부트스트랩·탭 ───── */
+    async function boot(tab) {
+      if (!A.session) return renderLogin();
+      const res = await api('getAdminBootstrap');
+      if (!res.ok) {
+        if (res.code !== 'AUTH') {
+          setView(`<div class="card pad-lg center stack"><div class="notice-icon danger">${icon('cloud-off')}</div>
+            <h1>불러오지 못했습니다</h1><p>${esc(CES.errorText(res))}</p>
+            <div><button class="btn primary" type="button" data-act="retry-boot">${icon('rotate-cw')}다시 시도</button></div></div>`);
+        }
+        return;
+      }
+      A.data = res;
+      $('#logout-btn').classList.remove('hidden');
+      renderTabs();
+      go(tab || A.tab || 'dashboard');
+    }
+
+    async function refresh() {
+      const res = await api('getAdminBootstrap', [], { silent: true });
+      if (res.ok) A.data = res;
+      return res.ok;
+    }
+
+    function renderTabs() {
+      tabsEl.classList.remove('hidden');
+      tabsEl.innerHTML = TABS.map(([id, ic, label]) =>
+        `<button type="button" class="tab" role="tab" id="tab-${id}" aria-controls="view" data-tab="${id}"
+          aria-selected="${A.tab === id}" tabindex="${A.tab === id ? 0 : -1}">${icon(ic)}${label}</button>`).join('');
+      CES.icons();
+    }
+
+    async function go(tab) {
+      if (A.tab === 'items' && tab !== 'items' && A.itemsDirty) {
+        const ok = await CES.confirm('저장하지 않은 변경', '문항 편집 내용이 저장되지 않았습니다. 이동하면 변경 내용이 사라집니다.', '이동', true);
+        if (!ok) return;
+        A.itemsDirty = false;
+      }
+      A.tab = tab;
+      $$('.tab', tabsEl).forEach((b) => {
+        const on = b.dataset.tab === tab;
+        b.setAttribute('aria-selected', on);
+        b.tabIndex = on ? 0 : -1;
+      });
+      view.setAttribute('aria-labelledby', 'tab-' + tab);
+      ({ dashboard: renderDashboard, courses: renderCourses, items: renderItems, results: renderResults, settings: renderSettings })[tab]();
+    }
+
+    tabsEl.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-tab]');
+      if (b) go(b.dataset.tab);
+    });
+    tabsEl.addEventListener('keydown', (e) => {
+      if (!/^Arrow(Left|Right)$/.test(e.key)) return;
+      const tabs = $$('.tab', tabsEl);
+      const i = tabs.indexOf(document.activeElement);
+      const n = tabs[(i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
+      n.focus();
+      go(n.dataset.tab);
+    });
+
+    /* ───── 대시보드 ───── */
+    function renderDashboard() {
+      const cs = A.data.courses;
+      const open = cs.filter((c) => c.status === '진행');
+      const basis = open.length ? open : cs;
+      const resp = basis.reduce((a, c) => a + c.response_count, 0);
+      const enroll = basis.reduce((a, c) => a + c.enrollment, 0);
+      const rate = enroll ? Math.round(resp / enroll * 1000) / 10 : 0;
+      const withMean = cs.filter((c) => c.mean != null);
+      const wN = withMean.reduce((a, c) => a + c.response_count, 0);
+      const overall = wN ? withMean.reduce((a, c) => a + c.mean * c.response_count, 0) / wN : null;
+      const soon = open.filter((c) => c.hours_left != null && c.hours_left <= 72).sort((a, b) => a.hours_left - b.hours_left);
+
+      const openList = open.length ? `<ul class="feature-list" style="margin-top:16px">${open.slice(0, 6).map((c) => `
+          <li><div class="grow">
+            <div class="row-between"><button type="button" class="btn ghost sm" style="padding:0;min-height:32px;font-weight:700" data-results="${esc(c.course_id)}">${esc(c.course_name)}</button>
+              <span class="small num">${c.response_count}/${c.enrollment}명</span></div>
+            <div class="small muted">${esc(termFull(c))}</div>
+            <div class="meter" role="img" aria-label="응답률 ${c.response_rate}%"><span style="width:${Math.min(100, c.response_rate)}%"></span></div>
+          </div></li>`).join('')}</ul>` :
+        `<p class="muted small" style="margin-top:12px">진행 중인 교과목이 없습니다.</p>`;
+
+      setView(`
+        <h1 class="sr-only">대시보드</h1>
+        <div class="bento">
+          <section class="card span-2 row-2" aria-labelledby="d1">
+            <div class="card-title" id="d1">${icon('radio')}진행 중 교과목</div>
+            <div class="big-num" style="margin-top:12px">${open.length}<span class="unit">개</span></div>
+            ${openList}
+          </section>
+          <section class="card soft" aria-labelledby="d2">
+            <div class="card-title" id="d2">${icon('users')}응답률${open.length ? '' : ' (전체)'}</div>
+            <div class="big-num" style="margin-top:12px">${rate}<span class="unit">%</span></div>
+            <p class="small muted num" style="margin-top:8px">${resp} / ${enroll}명</p>
+          </section>
+          <section class="card" aria-labelledby="d3">
+            <div class="card-title" id="d3">${icon('gauge')}전체 평균</div>
+            <div class="big-num" style="margin-top:12px">${overall == null ? '—' : fmt(overall)}<span class="unit">/ 5</span></div>
+            <p class="small muted" style="margin-top:8px">${overall == null ? '공개 기준을 충족한 교과목이 없습니다' : '공개 기준 충족 교과목, 응답 수 가중'}</p>
+          </section>
+          <section class="card ${soon.length ? 'butter' : ''} span-2" aria-labelledby="d4">
+            <div class="card-title" id="d4" style="color:var(--ink)">${icon('alarm-clock')}마감 임박 (72시간 이내)</div>
+            ${soon.length ? `<ul class="feature-list" style="margin-top:12px">${soon.map((c) => `
+              <li><span class="badge hot"><span class="dot" aria-hidden="true"></span>${c.hours_left < 24 ? Math.max(0, Math.round(c.hours_left)) + '시간' : Math.round(c.hours_left / 24) + '일'} 남음</span>
+              <div class="grow"><strong>${esc(c.course_name)}</strong> <span class="small">${esc(termFull(c))}</span>
+              <div class="small num">응답 ${c.response_count}/${c.enrollment}명 · 마감 ${esc(dt(c.end_at))}</div></div></li>`).join('')}</ul>`
+              : '<p class="small muted" style="margin-top:12px">곧 마감되는 교과목이 없습니다.</p>'}
+          </section>
+          <section class="card span-2" aria-labelledby="d5">
+            <div class="card-title" id="d5">${icon('zap')}빠른 작업</div>
+            <div class="row" style="margin-top:12px">
+              <button type="button" class="btn primary sm" data-act="new-course">${icon('plus')}새 교과목</button>
+              <button type="button" class="btn sm" data-go="items">${icon('list-checks')}문항 편집</button>
+              <button type="button" class="btn sm" data-go="results">${icon('chart-column')}결과 보기</button>
+            </div>
+          </section>
+          <section class="card sky span-2" aria-labelledby="d6">
+            <div class="card-title" id="d6" style="color:var(--ink)">${icon('book-open')}전체 교과목</div>
+            <div class="row" style="margin-top:12px;gap:24px">
+              <div><div class="mid-num">${cs.length}</div><div class="small">등록</div></div>
+              <div><div class="mid-num">${cs.filter((c) => c.status === '준비').length}</div><div class="small">시작 전</div></div>
+              <div><div class="mid-num">${cs.filter((c) => c.status === '마감').length}</div><div class="small">마감</div></div>
+              <div><div class="mid-num">${cs.reduce((a, c) => a + c.response_count, 0)}</div><div class="small">누적 응답</div></div>
+            </div>
+          </section>
+        </div>`);
+    }
+
+    /* ───── 교과목 ───── */
+    function renderCourses() {
+      const cs = A.data.courses;
+      setView(`
+        <div class="row-between" style="margin-bottom:16px">
+          <h1>교과목</h1>
+          <button type="button" class="btn primary" data-act="new-course">${icon('plus')}새 교과목</button>
+        </div>
+        ${cs.length ? `<div class="bento" style="grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr))">${cs.map(courseCard).join('')}</div>`
+          : `<div class="card empty">${icon('book-open')}<p>아직 교과목이 없습니다. [새 교과목]으로 시작하세요.</p></div>`}`, true);
+    }
+
+    function courseCard(c) {
+      const id = esc(c.course_id);
+      const access = c.access_mode === 'token'
+        ? `${icon('ticket')} 일회용 토큰 <span class="num">${c.tokens_used}/${c.tokens_total}</span> 사용`
+        : c.access_code ? `${icon('key-round')} 접속코드 <strong class="num">${esc(c.access_code)}</strong>` : `${icon('link')} 링크만으로 참여`;
+      return `
+        <article class="card stack" aria-labelledby="cn-${id}">
+          <div class="row-between"><div class="meta">${statusBadge(c)}<span class="badge">${esc(term(c))}</span></div>
+            ${c.result_open_date ? `<span class="badge warn" title="결과공개일">${icon('calendar-clock')}${esc(c.result_open_date)}</span>` : ''}</div>
+          <div><h2 id="cn-${id}">${esc(c.course_name)}</h2>
+            <p class="small muted">${esc([c.grade ? c.grade + '학년' : '', c.section ? c.section + '반' : '', '수강 ' + c.enrollment + '명', c.item_count + '문항'].filter(Boolean).join(' · '))}</p></div>
+          <p class="small num muted">${icon('calendar')} ${esc(dt(c.start_at))} ~ ${esc(dt(c.end_at))}</p>
+          <div>
+            <div class="row-between small"><span>응답</span><span class="num"><strong>${c.response_count}</strong> / ${c.enrollment}명 (${c.response_rate}%)</span></div>
+            <div class="meter" role="img" aria-label="응답률 ${c.response_rate}%"><span style="width:${Math.min(100, c.response_rate)}%"></span></div>
+          </div>
+          <p class="small">${access}</p>
+          <div class="row">
+            <button type="button" class="btn sm primary" data-act="qr" data-id="${id}">${icon('qr-code')}링크·QR</button>
+            ${c.access_mode === 'token' ? `<button type="button" class="btn sm" data-act="tokens" data-id="${id}">${icon('ticket')}토큰</button>` : ''}
+            <button type="button" class="btn sm" data-items="${id}">${icon('list-checks')}문항</button>
+            <button type="button" class="btn sm" data-results="${id}">${icon('chart-column')}결과</button>
+            <button type="button" class="btn sm" data-act="edit-course" data-id="${id}">${icon('pencil')}편집</button>
+            <button type="button" class="btn sm" data-act="dup-course" data-id="${id}">${icon('copy-plus')}복제</button>
+            ${c.response_count === 0 ? `<button type="button" class="btn sm ghost" data-act="del-course" data-id="${id}" aria-label="${esc(c.course_name)} 삭제">${icon('trash-2')}</button>` : ''}
+          </div>
+        </article>`;
+    }
+
+    function pad(n) { return String(n).padStart(2, '0'); }
+    function localDT(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+
+    function courseFormHtml(c, isEdit) {
+      const now = new Date();
+      const start = new Date(now); start.setMinutes(0, 0, 0); start.setHours(start.getHours() + 1);
+      const end = new Date(now); end.setDate(end.getDate() + 7); end.setHours(23, 59, 0, 0);
+      c = Object.assign({
+        course_name: '', year: now.getFullYear(), semester: now.getMonth() < 7 ? '1' : '2', grade: '', section: 'A',
+        enrollment: 40, start_at: localDT(start), end_at: localDT(end), access_mode: 'code', access_code: randCode(), result_open_date: ''
+      }, c || {});
+      const sel = (v, x) => (String(v) === String(x) ? ' selected' : '');
+      return `
+        <form id="course-form" class="form-grid two" novalidate>
+          <div class="field full"><label for="f-name">교과목명 <span class="req" aria-hidden="true">*</span></label>
+            <input class="input" id="f-name" name="course_name" maxlength="100" required value="${esc(c.course_name)}" autocomplete="off"></div>
+          <div class="field"><label for="f-year">학년도</label><input class="input num" id="f-year" name="year" type="number" min="2000" max="2100" value="${esc(c.year)}"></div>
+          <div class="field"><label for="f-sem">학기</label><select class="select" id="f-sem" name="semester">${SEMS.map((s) => `<option value="${s}"${sel(c.semester, s)}>${s}학기</option>`).join('')}</select></div>
+          <div class="field"><label for="f-grade">학년</label><select class="select" id="f-grade" name="grade"><option value="">선택 안 함</option>${[1, 2, 3, 4].map((g) => `<option value="${g}"${sel(c.grade, g)}>${g}학년</option>`).join('')}</select></div>
+          <div class="field"><label for="f-sec">분반</label><input class="input" id="f-sec" name="section" maxlength="20" value="${esc(c.section)}"></div>
+          <div class="field"><label for="f-enr">수강인원</label><input class="input num" id="f-enr" name="enrollment" type="number" min="1" max="1000" value="${esc(c.enrollment)}"></div>
+          <div class="field"><label for="f-open">결과공개일 <span class="muted small">(선택)</span></label>
+            <input class="input" id="f-open" name="result_open_date" type="date" value="${esc(c.result_open_date)}" aria-describedby="f-open-h">
+            <p class="hint" id="f-open-h">이 날짜 전에는 결과를 잠급니다(성적 처리 전 열람 방지).</p></div>
+          <div class="field"><label for="f-start">응답 시작일시</label><input class="input" id="f-start" name="start_at" type="datetime-local" value="${esc(c.start_at)}"></div>
+          <div class="field"><label for="f-end">응답 종료일시</label><input class="input" id="f-end" name="end_at" type="datetime-local" value="${esc(c.end_at)}"></div>
+          <fieldset class="field full" style="border:0;padding:0;margin:0">
+            <legend class="field-label">참여 방식</legend>
+            <label class="check"><input type="radio" name="access_mode" value="code"${c.access_mode !== 'token' ? ' checked' : ''}> 접속코드 — 수업 중 코드를 알려 주는 방식(간편)</label>
+            <label class="check"><input type="radio" name="access_mode" value="token"${c.access_mode === 'token' ? ' checked' : ''}> 일회용 토큰 — 1인 1회 응답 보장(종이 토큰 배부)</label>
+          </fieldset>
+          <div class="field full" id="code-field">
+            <label for="f-code">접속코드</label>
+            <div class="row"><input class="input code grow" id="f-code" name="access_code" maxlength="12" value="${esc(c.access_code)}" style="flex:1" aria-describedby="f-code-h">
+              <button type="button" class="btn sm" data-act="gen-code">${icon('refresh-cw')}자동 생성</button></div>
+            <p class="hint" id="f-code-h">영문·숫자 12자 이내. 비우면 링크만으로 참여할 수 있습니다.</p>
+          </div>
+          ${isEdit ? `<label class="check full"><input type="checkbox" name="manual_close"${c.manual_close ? ' checked' : ''}> 지금 수동으로 마감(기간과 관계없이 응답 차단)</label>` : ''}
+          <p class="error full hidden" id="course-err" role="alert"></p>
+        </form>`;
+    }
+
+    function randCode() {
+      const al = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+      const b = new Uint8Array(6);
+      crypto.getRandomValues(b);
+      return Array.from(b, (x) => al[x % al.length]).join('');
+    }
+
+    function readForm(form) {
+      const fd = new FormData(form);
+      const o = {};
+      fd.forEach((v, k) => { o[k] = v; });
+      o.manual_close = !!form.querySelector('[name="manual_close"]:checked');
+      return o;
+    }
+
+    function bindCourseForm(m) {
+      const form = $('#course-form', m.el);
+      const sync = () => {
+        const token = form.querySelector('[name="access_mode"]:checked').value === 'token';
+        $('#code-field', form).classList.toggle('hidden', token);
+      };
+      form.addEventListener('change', sync);
+      sync();
+      form.addEventListener('click', (e) => {
+        if (e.target.closest('[data-act="gen-code"]')) $('#f-code', form).value = randCode();
+      });
+      return form;
+    }
+
+    function showFormError(m, res) {
+      const err = $('#course-err', m.el);
+      err.textContent = res.message || CES.errorText(res);
+      err.classList.remove('hidden');
+      if (res.field) {
+        const f = m.el.querySelector(`[name="${res.field}"]`);
+        if (f) { f.setAttribute('aria-invalid', 'true'); f.focus(); }
+      }
+    }
+
+    function openCourseForm(existing) {
+      const m = CES.modal({
+        title: existing ? '교과목 편집' : '새 교과목',
+        wide: true,
+        html: courseFormHtml(existing, !!existing) + (existing ? '' : '<p class="small muted" style="margin-top:12px">공통 기본 문항이 자동으로 복사됩니다. CLO 문항은 [문항] 탭에서 추가하세요.</p>'),
+        footer: `<button type="button" class="btn" data-close>취소</button><button type="button" class="btn primary" data-save>${icon('check')}저장</button>`
+      });
+      const form = bindCourseForm(m);
+      $('[data-save]', m.el).addEventListener('click', async (e) => {
+        const data = readForm(form);
+        if (existing) data.course_id = existing.course_id;
+        const restore = CES.busyButton(e.currentTarget, '저장 중…');
+        const res = await api('saveCourse', [data]);
+        restore();
+        if (!res.ok) return res.code === 'VALIDATION' ? showFormError(m, res) : fail(res);
+        m.close();
+        CES.toast(existing ? '교과목을 수정했습니다.' : '교과목을 만들었습니다.');
+        await refresh();
+        go(A.tab === 'dashboard' ? 'courses' : A.tab);
+      });
+    }
+
+    function openDuplicate(c) {
+      const now = new Date();
+      const start = new Date(now); start.setMinutes(0, 0, 0); start.setHours(start.getHours() + 1);
+      const end = new Date(now); end.setDate(end.getDate() + 7); end.setHours(23, 59, 0, 0);
+      const nextSem = c.semester === '1' ? { y: c.year, s: '2' } : { y: Number(c.year) + 1, s: '1' };
+      const m = CES.modal({
+        title: '새 학기로 복제',
+        html: `<p class="small muted" style="margin-bottom:14px"><strong>${esc(c.course_name)}</strong> (${esc(termFull(c))})의 문항·참여 방식을 복사합니다. 응답과 토큰은 복사하지 않습니다.</p>
+          <form id="dup-form" class="form-grid two" novalidate>
+            <div class="field"><label for="d-year">학년도</label><input class="input num" id="d-year" name="year" type="number" value="${nextSem.y}"></div>
+            <div class="field"><label for="d-sem">학기</label><select class="select" id="d-sem" name="semester">${SEMS.map((s) => `<option value="${s}"${s === nextSem.s ? ' selected' : ''}>${s}학기</option>`).join('')}</select></div>
+            <div class="field"><label for="d-sec">분반</label><input class="input" id="d-sec" name="section" value="${esc(c.section)}" maxlength="20"></div>
+            <div class="field"><label for="d-open">결과공개일 <span class="muted small">(선택)</span></label><input class="input" id="d-open" name="result_open_date" type="date"></div>
+            <div class="field"><label for="d-start">응답 시작일시</label><input class="input" id="d-start" name="start_at" type="datetime-local" value="${localDT(start)}"></div>
+            <div class="field"><label for="d-end">응답 종료일시</label><input class="input" id="d-end" name="end_at" type="datetime-local" value="${localDT(end)}"></div>
+            <p class="error full hidden" id="course-err" role="alert"></p>
+          </form>`,
+        footer: `<button type="button" class="btn" data-close>취소</button><button type="button" class="btn primary" data-save>${icon('copy-plus')}복제</button>`
+      });
+      $('[data-save]', m.el).addEventListener('click', async (e) => {
+        const data = readForm($('#dup-form', m.el));
+        const restore = CES.busyButton(e.currentTarget, '복제 중…');
+        const res = await api('duplicateCourse', [c.course_id, data]);
+        restore();
+        if (!res.ok) return res.code === 'VALIDATION' ? showFormError(m, res) : fail(res);
+        m.close();
+        CES.toast('새 학기 교과목을 만들었습니다. 접속코드는 새로 생성되었습니다.');
+        await refresh();
+        go('courses');
+      });
+    }
+
+    async function deleteCourse(c) {
+      const ok = await CES.confirm('교과목 삭제', `"${c.course_name}" (${termFull(c)})과 문항·토큰을 삭제합니다. 되돌릴 수 없습니다.`, '삭제', true);
+      if (!ok) return;
+      const res = await api('deleteCourse', [c.course_id]);
+      if (!res.ok) return res.code === 'HAS_RESPONSES' ? CES.toast('응답이 있는 교과목은 삭제할 수 없습니다.', 'error') : fail(res);
+      CES.toast('삭제했습니다.');
+      await refresh();
+      go('courses');
+    }
+
+    /* ───── 링크·QR ───── */
+    function openQr(c) {
+      if (!c.link) {
+        CES.modal({ title: '링크·QR', html: `<div class="callout">${icon('triangle-alert')}<p class="small">웹 앱 주소를 확인할 수 없습니다. Apps Script에서 [배포] ▸ [새 배포] ▸ 웹 앱으로 먼저 배포하세요.</p></div>` });
+        return;
+      }
+      let svg = '';
+      try { svg = CES.QR.toSvg(c.link, { label: c.course_name + ' 응답 링크 QR 코드' }); } catch (e) { svg = '<p class="small">QR을 만들 수 없습니다.</p>'; }
+      const m = CES.modal({
+        title: '응답 링크·QR',
+        html: `<div class="stack-lg">
+            <p class="small muted">${esc(c.course_name)} · ${esc(termFull(c))}</p>
+            <div class="qr-box">${svg}</div>
+            ${c.access_mode === 'code' && c.access_code ? `<div class="center"><div class="small muted">접속코드</div><div class="mid-num" style="letter-spacing:.12em">${esc(c.access_code)}</div></div>` : ''}
+            ${c.access_mode === 'token' ? `<div class="callout info">${icon('ticket')}<p class="small">토큰 방식입니다. 학생은 이 링크에서 종이 토큰을 입력합니다. 토큰 시트의 QR은 토큰이 미리 입력된 링크입니다.</p></div>` : ''}
+            <div class="linkbox"><code>${esc(c.link)}</code><button type="button" class="btn sm" data-copy>${icon('copy')}복사</button></div>
+          </div>`,
+        footer: `<button type="button" class="btn" data-svg>${icon('download')}QR 저장(SVG)</button>
+          <button type="button" class="btn primary" data-present>${icon('presentation')}수업 화면에 띄우기</button>`
+      });
+      $('[data-copy]', m.el).addEventListener('click', () => CES.copy(c.link));
+      $('[data-svg]', m.el).addEventListener('click', () => CES.download(`QR_${c.course_name}_${term(c)}.svg`.replace(/\s+/g, '_'), svg, 'image/svg+xml'));
+      $('[data-present]', m.el).addEventListener('click', () => { m.close(); present(c, svg); });
+    }
+
+    function present(c, svg) {
+      const el = document.createElement('div');
+      el.className = 'present';
+      el.setAttribute('role', 'dialog');
+      el.setAttribute('aria-modal', 'true');
+      el.setAttribute('aria-label', '수업 화면용 QR');
+      el.innerHTML = `<h1>${esc(c.course_name)} 강의평가</h1><div class="qr-box">${svg}</div>
+        ${c.access_mode === 'code' && c.access_code ? `<div><div class="muted">접속코드</div><div class="code-big">${esc(c.access_code)}</div></div>` : ''}
+        <p class="muted">휴대폰 카메라로 QR을 스캔하세요 · 익명 · 약 3분</p>
+        <button type="button" class="btn" data-x>${icon('x')}닫기 (Esc)</button>`;
+      document.body.appendChild(el);
+      CES.icons();
+      const close = () => { el.remove(); document.removeEventListener('keydown', onKey); };
+      const onKey = (e) => { if (e.key === 'Escape') close(); };
+      document.addEventListener('keydown', onKey);
+      $('[data-x]', el).addEventListener('click', close);
+      $('[data-x]', el).focus();
+    }
+
+    /* ───── 토큰 생성·인쇄 ───── */
+    function openTokens(c) {
+      const m = CES.modal({
+        title: '일회용 토큰 생성',
+        html: `<div class="stack">
+            <p class="small muted">${esc(c.course_name)} · ${esc(termFull(c))} · 발급 ${c.tokens_total}개 (사용 ${c.tokens_used}개)</p>
+            <div class="field"><label for="tk-n">생성할 토큰 수</label>
+              <input class="input num" id="tk-n" type="number" min="1" max="300" value="${Math.max(1, c.enrollment)}" aria-describedby="tk-h">
+              <p class="hint" id="tk-h">1~300개. 수강인원보다 2~3개 여유 있게 만들면 분실에 대비할 수 있습니다.</p></div>
+            <div class="callout">${icon('shield-alert')}<p class="small">토큰 원문은 <strong>이 화면에서 한 번만</strong> 보여 줍니다. 서버에는 해시만 저장되므로 창을 닫기 전에 인쇄하거나 내려받으세요. 토큰은 학생 명단 순서가 아닌 <strong>무작위로 섞어</strong> 나눠 주세요.</p></div>
+          </div>`,
+        footer: `<button type="button" class="btn" data-close>취소</button><button type="button" class="btn primary" data-gen>${icon('ticket')}생성</button>`
+      });
+      $('[data-gen]', m.el).addEventListener('click', async (e) => {
+        const n = Number($('#tk-n', m.el).value);
+        if (!(n >= 1 && n <= 300)) { CES.toast('토큰 수는 1~300개입니다.', 'error'); return; }
+        const restore = CES.busyButton(e.currentTarget, '생성 중…');
+        const res = await api('generateTokens', [c.course_id, n]);
+        restore();
+        if (!res.ok) return fail(res);
+        m.close();
+        showTokenSheet(c, res.tokens, res.course.link || c.link);
+        refresh().then(() => { if (A.tab === 'courses') renderCourses(); });
+      });
+    }
+
+    function slipsHtml(c, tokens, link) {
+      return `<div class="slips">${tokens.map((t) => {
+        const url = link ? link + '&t=' + t.replace('-', '') : '';
+        let qr = '';
+        try { qr = url ? CES.QR.toSvg(url, { quiet: 1 }) : ''; } catch (e) { qr = ''; }
+        return `<div class="slip">${qr ? `<div class="qr">${qr}</div>` : ''}<div>
+          <div class="c"><strong>강의평가 일회용 토큰</strong><br>${esc(c.course_name)} (${esc(term(c))}${c.section ? ' ' + esc(c.section) + '반' : ''})</div>
+          <div class="t">${esc(t)}</div>
+          <div class="g">QR 스캔 또는 링크 접속 후 입력 · 1회용 · 익명</div></div></div>`;
+      }).join('')}</div>`;
+    }
+
+    function showTokenSheet(c, tokens, link) {
+      const sheet = slipsHtml(c, tokens, link);
+      const m = CES.modal({
+        title: `토큰 ${tokens.length}개 생성됨`,
+        wide: true,
+        persistent: true,
+        onRequestClose: (api) => confirmClose(api),
+        html: `<div class="stack">
+            <div class="callout" role="alert">${icon('triangle-alert')}<p class="small"><strong>지금 인쇄하거나 내려받으세요.</strong> 이 창을 닫으면 토큰 원문을 다시 볼 수 없습니다.</p></div>
+            <div style="max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:16px;padding:12px;background:#fff">${sheet}</div>
+          </div>`,
+        footer: `<button type="button" class="btn" data-csv>${icon('file-spreadsheet')}CSV</button>
+          <button type="button" class="btn" data-html>${icon('file-down')}인쇄용 파일(HTML)</button>
+          <button type="button" class="btn primary" data-print>${icon('printer')}A4 인쇄</button>
+          <button type="button" class="btn ghost" data-done>닫기</button>`
+      });
+      $('[data-print]', m.el).addEventListener('click', () => printSheet(sheet));
+      $('[data-csv]', m.el).addEventListener('click', () => {
+        const rows = [['번호', '토큰', '토큰 입력 링크']].concat(tokens.map((t, i) => [i + 1, t, link ? link + '&t=' + t.replace('-', '') : '']));
+        CES.download(`토큰_${c.course_name}_${term(c)}.csv`.replace(/\s+/g, '_'), rows.map((r) => r.join(',')).join('\r\n'), 'text/csv');
+      });
+      $('[data-html]', m.el).addEventListener('click', () => {
+        const css = `body{font-family:"Pretendard Variable",Pretendard,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;margin:0}
+          @page{size:A4;margin:10mm}.slips{display:grid;grid-template-columns:repeat(3,1fr)}
+          .slip{border:1px dashed #9a9a9a;padding:4mm;height:33mm;display:flex;gap:3mm;align-items:center;break-inside:avoid}
+          .slip .qr{width:24mm;height:24mm;flex:none}.slip .qr svg{width:100%;height:100%}
+          .t{font-size:15pt;font-weight:700;letter-spacing:.06em}.c{font-size:7.5pt;line-height:1.3}.g{font-size:6.5pt;color:#444;margin-top:1mm}`;
+        CES.download(`토큰_${c.course_name}_${term(c)}.html`.replace(/\s+/g, '_'),
+          `<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><title>강의평가 토큰</title><style>${css}</style></head><body>${sheet}<script>window.onload=function(){window.print()}<\/script></body></html>`, 'text/html');
+      });
+      $('[data-done]', m.el).addEventListener('click', () => confirmClose(m));
+    }
+
+    async function confirmClose(m) {
+      const ok = await CES.confirm('토큰 창 닫기', '인쇄 또는 내려받기를 마쳤나요? 닫으면 토큰 원문을 다시 볼 수 없습니다.', '닫기', true);
+      if (ok) m.close();
+    }
+
+    function printSheet(html) {
+      const area = $('#print-area');
+      area.innerHTML = html;
+      document.body.classList.add('printing');
+      const cleanup = () => { document.body.classList.remove('printing'); area.innerHTML = ''; window.removeEventListener('afterprint', cleanup); };
+      window.addEventListener('afterprint', cleanup);
+      try { window.print(); } catch (e) { CES.toast('이 환경에서는 인쇄가 차단되었습니다. [인쇄용 파일]을 내려받아 인쇄하세요.', 'error'); }
+      setTimeout(() => { if (document.body.classList.contains('printing')) cleanup(); }, 60000);
+    }
+
+    /* ───── 문항 편집 ───── */
+    function courseOptions(selected, includeTemplate) {
+      const cs = A.data.courses;
+      return (includeTemplate ? `<option value="TEMPLATE"${selected === 'TEMPLATE' ? ' selected' : ''}>공통 기본 문항 은행(TEMPLATE)</option>` : '') +
+        cs.map((c) => `<option value="${esc(c.course_id)}"${selected === c.course_id ? ' selected' : ''}>${esc(c.course_name)} · ${esc(termFull(c))}</option>`).join('');
+    }
+
+    async function renderItems() {
+      const cs = A.data.courses;
+      if (!A.itemsCourse || (A.itemsCourse !== 'TEMPLATE' && !courseById(A.itemsCourse))) {
+        const open = cs.find((c) => c.status !== '마감' && c.response_count === 0) || cs[0];
+        A.itemsCourse = open ? open.course_id : 'TEMPLATE';
+      }
+      setView(`
+        <div class="row-between" style="margin-bottom:16px">
+          <h1>문항 편집</h1>
+          <div class="field" style="min-width:min(100%,360px)"><label class="sr-only" for="items-course">교과목 선택</label>
+            <select class="select" id="items-course">${courseOptions(A.itemsCourse, true)}</select></div>
+        </div>
+        <div id="items-body"><div class="skeleton" aria-hidden="true"></div></div>`, true);
+      $('#items-course').addEventListener('change', async (e) => {
+        if (A.itemsDirty) {
+          const ok = await CES.confirm('저장하지 않은 변경', '변경 내용을 버리고 다른 교과목을 열까요?', '버리고 열기', true);
+          if (!ok) { e.target.value = A.itemsCourse; return; }
+        }
+        A.itemsCourse = e.target.value;
+        A.itemsDirty = false;
+        loadItems();
+      });
+      loadItems();
+    }
+
+    async function loadItems() {
+      const res = await api('getItemsAdmin', [A.itemsCourse]);
+      if (!res.ok) { fail(res); return; }
+      A.items = res.items.map((it) => Object.assign({}, it, { options: it.options || [] }));
+      A.itemsLocked = res.locked;
+      A.itemsDirty = false;
+      drawItems();
+    }
+
+    function drawItems() {
+      const body = $('#items-body');
+      if (!body) return;
+      const locked = A.itemsLocked;
+      const isTemplate = A.itemsCourse === 'TEMPLATE';
+      const min = estMinutes(A.items);
+      body.innerHTML = `
+        ${locked ? `<div class="callout" style="margin-bottom:16px">${icon('lock')}<p class="small"><strong>응답이 이미 수집되어 문항을 수정할 수 없습니다.</strong> 문항이 바뀌면 기존 응답과 의미가 달라지기 때문입니다. 다음 학기에는 [교과목 ▸ 복제] 후 수정하세요.</p></div>` : ''}
+        ${isTemplate ? `<div class="callout info" style="margin-bottom:16px">${icon('info')}<p class="small">공통 기본 문항 은행입니다. 여기서 수정한 내용은 <strong>앞으로 새로 만드는 교과목</strong>에 복사됩니다(기존 교과목은 바뀌지 않음).</p></div>` : ''}
+        ${locked ? '' : `<div class="row" style="margin-bottom:16px">
+          ${isTemplate ? '' : `<button type="button" class="btn sm" data-act="load-template">${icon('library')}기본 문항 불러오기</button>`}
+          <button type="button" class="btn sm" data-act="add-item">${icon('plus')}문항 추가</button>
+          <button type="button" class="btn sm" data-act="clo">${icon('target')}CLO 일괄 입력</button>
+          <div class="grow"></div>
+          <button type="button" class="btn primary sm" data-act="save-items" id="save-items">${icon('save')}저장${A.itemsDirty ? ' •' : ''}</button>
+        </div>`}
+        <div class="row-between small" style="margin-bottom:8px">
+          <span><strong class="num">${A.items.length}</strong>문항 · 예상 <strong class="num">${min}</strong>분</span>
+          ${min > 3 ? `<span class="badge warn">${icon('timer')}3분 목표를 넘습니다</span>` : `<span class="badge open">${icon('timer')}3분 이내</span>`}
+        </div>
+        <datalist id="domain-list">${DOMAINS.map((d) => `<option value="${esc(d)}">`).join('')}</datalist>
+        <div id="item-list">${A.items.map((it, i) => itemRow(it, i, locked)).join('') || `<div class="card empty">${icon('list')}<p>문항이 없습니다.</p></div>`}</div>`;
+      CES.icons();
+    }
+
+    function itemRow(it, i, locked) {
+      const dis = locked ? ' disabled' : '';
+      const choice = it.type === 'single' || it.type === 'multi';
+      return `
+        <div class="item-row" data-idx="${i}">
+          <div class="stack" style="margin:0">
+            ${locked ? '' : `<button type="button" class="drag-handle" aria-label="${i + 1}번 문항 끌어서 순서 변경" data-handle>${icon('grip-vertical')}</button>`}
+            <div class="item-index" aria-hidden="true">${i + 1}</div>
+          </div>
+          <div class="item-fields">
+            <div class="line">
+              <div class="field"><label class="sr-only" for="dom-${i}">${i + 1}번 영역</label>
+                <input class="input" id="dom-${i}" list="domain-list" data-f="domain" value="${esc(it.domain)}" maxlength="40" placeholder="영역"${dis}></div>
+              <div class="field"><label class="sr-only" for="txt-${i}">${i + 1}번 문항 내용</label>
+                <textarea class="textarea" id="txt-${i}" data-f="text" rows="2" maxlength="300" style="min-height:48px" placeholder="문항 내용"${dis}>${esc(it.text)}</textarea></div>
+              <div class="field"><label class="sr-only" for="typ-${i}">${i + 1}번 유형</label>
+                <select class="select" id="typ-${i}" data-f="type"${dis}>${Object.keys(TYPES).map((t) => `<option value="${t}"${it.type === t ? ' selected' : ''}>${TYPES[t]}</option>`).join('')}</select></div>
+            </div>
+            ${choice ? `<div class="field"><label for="opt-${i}" class="small">선택지 (한 줄에 하나, 2~10개)</label>
+              <textarea class="textarea" id="opt-${i}" data-f="options" rows="3" style="min-height:80px"${dis}>${esc((it.options || []).join('\n'))}</textarea></div>` : ''}
+            <div class="item-tools">
+              <label class="check small"><input type="checkbox" data-f="required"${it.required ? ' checked' : ''}${dis}> 필수</label>
+              ${it.type === 'likert5' ? `<label class="check small"><input type="checkbox" data-f="reverse"${it.reverse ? ' checked' : ''}${dis}> 역문항(점수 역환산)</label>` : ''}
+              <div class="grow"></div>
+              ${locked ? '' : `
+              <button type="button" class="btn ghost sm icon" data-move="-1" aria-label="${i + 1}번 문항 위로"${i === 0 ? ' disabled' : ''}>${icon('arrow-up')}</button>
+              <button type="button" class="btn ghost sm icon" data-move="1" aria-label="${i + 1}번 문항 아래로"${i === A.items.length - 1 ? ' disabled' : ''}>${icon('arrow-down')}</button>
+              <button type="button" class="btn ghost sm icon" data-del aria-label="${i + 1}번 문항 삭제">${icon('trash-2')}</button>`}
+            </div>
+          </div>
+        </div>`;
+    }
+
+    function markDirty() {
+      if (!A.itemsDirty) {
+        A.itemsDirty = true;
+        const b = $('#save-items');
+        if (b && !/•/.test(b.textContent)) b.insertAdjacentHTML('beforeend', ' •');
+      }
+    }
+
+    function moveItem(from, to, focusSel) {
+      if (to < 0 || to >= A.items.length || from === to) return;
+      const [x] = A.items.splice(from, 1);
+      A.items.splice(to, 0, x);
+      markDirty();
+      drawItems();
+      CES.announce(`${from + 1}번 문항을 ${to + 1}번으로 옮겼습니다.`);
+      if (focusSel) { const el = $(`.item-row[data-idx="${to}"] ${focusSel}`); if (el && !el.disabled) el.focus(); }
+    }
+
+    function cloSentence(line) {
+      let s = line.trim().replace(/^[-*•\d.)\s]+/, '').replace(/[.。]\s*$/, '');
+      if (!s) return '';
+      if (/되었다$/.test(s)) return (s.startsWith('나는') ? s : '나는 ' + s) + '.';
+      s = s.replace(/(할 수 있다|할 수 있음|한다|하기|함)$/, '');
+      if (!s.startsWith('나는')) s = '나는 ' + s;
+      return s + (/[을를]$/.test(s) ? ' 할 수 있게 되었다.' : '할 수 있게 되었다.');
+    }
+
+    function openClo() {
+      const m = CES.modal({
+        title: 'CLO 문항 일괄 입력',
+        wide: true,
+        html: `<div class="stack">
+            <p class="small muted">교과목 학습성과(CLO)를 한 줄에 하나씩 입력하세요. "나는 ~할 수 있게 되었다." 형식의 자기평가 문항으로 바뀌어 영역 D에 추가됩니다.</p>
+            <div class="field"><label for="clo-in">CLO 목록</label>
+              <textarea class="textarea" id="clo-in" rows="6" placeholder="간호정보시스템의 구조와 기능을 설명&#10;임상의사결정지원시스템의 원리를 이해하고 적용"></textarea></div>
+            <div><div class="field-label">미리보기 (추가 후에도 수정할 수 있습니다)</div><ol id="clo-prev" class="small" style="padding-left:20px;margin:8px 0 0"></ol></div>
+          </div>`,
+        footer: `<button type="button" class="btn" data-close>취소</button><button type="button" class="btn primary" data-add>${icon('plus')}추가</button>`
+      });
+      const input = $('#clo-in', m.el), prev = $('#clo-prev', m.el);
+      const lines = () => input.value.split('\n').map(cloSentence).filter(Boolean);
+      input.addEventListener('input', () => { prev.innerHTML = lines().map((s) => `<li>${esc(s)}</li>`).join(''); });
+      $('[data-add]', m.el).addEventListener('click', () => {
+        const ls = lines();
+        if (!ls.length) { CES.toast('CLO를 1개 이상 입력하세요.', 'error'); return; }
+        let at = A.items.findIndex((it) => /^[E-Z]\./.test(it.domain) || it.domain === '서술형');
+        if (at < 0) at = A.items.length;
+        A.items.splice(at, 0, ...ls.map((t) => ({ domain: DOMAINS[3], text: t, type: 'likert5', required: true, reverse: false, options: [] })));
+        markDirty();
+        m.close();
+        drawItems();
+        CES.toast(`CLO 문항 ${ls.length}개를 추가했습니다. [저장]을 눌러 반영하세요.`);
+      });
+    }
+
+    async function loadTemplate() {
+      const res = await api('getItemsAdmin', ['TEMPLATE']);
+      if (!res.ok) return fail(res);
+      const tpl = res.items.map((it) => Object.assign({}, it, { item_id: '' }));
+      const m = CES.modal({
+        title: '기본 문항 불러오기',
+        html: `<p>공통 기본 문항 ${tpl.length}개를 불러옵니다. 현재 문항을 어떻게 할까요?</p>`,
+        footer: `<button type="button" class="btn" data-close>취소</button>
+          <button type="button" class="btn" data-mode="append">${icon('list-plus')}뒤에 추가</button>
+          <button type="button" class="btn primary" data-mode="replace">${icon('replace')}모두 교체</button>`
+      });
+      m.el.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-mode]');
+        if (!b) return;
+        A.items = b.dataset.mode === 'replace' ? tpl : A.items.concat(tpl);
+        markDirty();
+        m.close();
+        drawItems();
+        CES.toast('불러왔습니다. [저장]을 눌러 반영하세요.');
+      });
+    }
+
+    async function saveItems(btn) {
+      const empty = A.items.findIndex((it) => !String(it.text).trim() || !String(it.domain).trim());
+      if (empty >= 0) {
+        CES.toast(`${empty + 1}번 문항의 영역과 내용을 입력하세요.`, 'error');
+        const el = $(`#txt-${empty}`); if (el) el.focus();
+        return;
+      }
+      const restore = CES.busyButton(btn, '저장 중…');
+      const res = await api('saveItems', [A.itemsCourse, A.items]);
+      restore();
+      if (!res.ok) {
+        if (res.code === 'LOCKED_ITEMS') { CES.toast('응답이 수집되어 문항을 저장할 수 없습니다.', 'error'); return loadItems(); }
+        if (res.code === 'VALIDATION' && res.index != null) { const el = $(`#txt-${res.index}`); if (el) el.focus(); }
+        return fail(res);
+      }
+      A.items = res.items;
+      A.itemsDirty = false;
+      drawItems();
+      CES.toast('문항을 저장했습니다.');
+      refresh();
+    }
+
+    view.addEventListener('input', (e) => {
+      const row = e.target.closest('.item-row');
+      if (!row) return;
+      const it = A.items[Number(row.dataset.idx)];
+      const f = e.target.dataset.f;
+      if (!it || !f) return;
+      if (f === 'required' || f === 'reverse') it[f] = e.target.checked;
+      else if (f === 'options') it.options = e.target.value.split('\n').map((s) => s.trim()).filter(Boolean);
+      else if (f !== 'type') it[f] = e.target.value;
+      markDirty();
+    });
+    view.addEventListener('change', (e) => {
+      const row = e.target.closest('.item-row');
+      if (!row || e.target.dataset.f !== 'type') return;
+      const it = A.items[Number(row.dataset.idx)];
+      it.type = e.target.value;
+      if ((it.type === 'single' || it.type === 'multi') && (!it.options || it.options.length < 2)) it.options = ['예', '아니요'];
+      if (it.type !== 'likert5') it.reverse = false;
+      markDirty();
+      drawItems();
+      const sel = $(`#typ-${row.dataset.idx}`); if (sel) sel.focus();
+    });
+
+    // 드래그 정렬(HTML5 DnD, 손잡이로만 시작) — 키보드·터치는 ↑↓ 버튼 사용
+    let dragFrom = null;
+    view.addEventListener('pointerdown', (e) => {
+      const h = e.target.closest('[data-handle]');
+      if (h) h.closest('.item-row').draggable = true;
+    });
+    view.addEventListener('dragstart', (e) => {
+      const row = e.target.closest && e.target.closest('.item-row');
+      if (!row) return;
+      dragFrom = Number(row.dataset.idx);
+      row.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', String(dragFrom)); } catch (err) { /* 무시 */ }
+    });
+    view.addEventListener('dragover', (e) => {
+      const row = e.target.closest('.item-row');
+      if (dragFrom == null || !row) return;
+      e.preventDefault();
+      const r = row.getBoundingClientRect();
+      const after = e.clientY > r.top + r.height / 2;
+      $$('.item-row').forEach((x) => x.classList.remove('drop-before', 'drop-after'));
+      row.classList.add(after ? 'drop-after' : 'drop-before');
+    });
+    view.addEventListener('drop', (e) => {
+      const row = e.target.closest('.item-row');
+      if (dragFrom == null || !row) return;
+      e.preventDefault();
+      let to = Number(row.dataset.idx);
+      if (row.classList.contains('drop-after')) to++;
+      if (to > dragFrom) to--;
+      const from = dragFrom;
+      dragFrom = null;
+      moveItem(from, to);
+    });
+    view.addEventListener('dragend', () => {
+      dragFrom = null;
+      $$('.item-row').forEach((x) => { x.draggable = false; x.classList.remove('dragging', 'drop-before', 'drop-after'); });
+    });
+
+    /* ───── 결과 ───── */
+    async function renderResults() {
+      const cs = A.data.courses;
+      if (!cs.length) {
+        setView(`<h1 style="margin-bottom:16px">결과 분석</h1><div class="card empty">${icon('chart-column')}<p>교과목이 없습니다.</p></div>`, true);
+        return;
+      }
+      if (!courseById(A.resultsCourse)) {
+        const best = cs.filter((c) => c.response_count > 0).sort((a, b) => b.response_count - a.response_count)[0] || cs[0];
+        A.resultsCourse = best.course_id;
+      }
+      setView(`
+        <div class="row-between" style="margin-bottom:16px">
+          <h1>결과 분석</h1>
+          <div class="field" style="min-width:min(100%,360px)"><label class="sr-only" for="res-course">교과목 선택</label>
+            <select class="select" id="res-course">${courseOptions(A.resultsCourse, false)}</select></div>
+        </div>
+        <div id="res-body"><div class="bento"><div class="skeleton span-2"></div><div class="skeleton span-2"></div></div></div>`, true);
+      $('#res-course').addEventListener('change', (e) => { A.resultsCourse = e.target.value; loadResults(); });
+      loadResults();
+    }
+
+    async function loadResults() {
+      const res = await api('getResults', [A.resultsCourse]);
+      if (!res.ok) { fail(res); return; }
+      A.results = res;
+      destroyCharts();
+      const body = $('#res-body');
+      if (!body) return;
+      body.innerHTML = res.locked ? lockedHtml(res) : resultsHtml(res);
+      CES.icons();
+      if (!res.locked) drawCharts(res);
+    }
+
+    function lockedHtml(r) {
+      const c = r.course;
+      if (r.reason === 'MIN_RESPONSES') {
+        const pct = Math.min(100, Math.round(r.n / r.min_responses * 100));
+        return `<section class="card pad-lg center stack-lg" style="max-width:640px;margin:0 auto">
+          <div class="notice-icon warn">${icon('lock')}</div>
+          <div><h2>응답이 ${r.min_responses}명 이상 모이면 결과가 열립니다</h2>
+            <p class="muted small" style="margin-top:8px">학생 익명성 보호를 위해 최소 공개 응답 수 미만의 결과는 표시하지 않습니다(분반·학기 비교와 서술형 포함).</p></div>
+          <div><div class="big-num">${r.n}<span class="unit">/ ${r.min_responses}명</span></div>
+            <div class="progress" style="margin-top:12px" role="progressbar" aria-label="최소 응답 수 대비" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><span style="width:${pct}%"></span></div></div>
+          <p class="small muted">${esc(c.course_name)} · ${esc(termFull(c))} · 마감 ${esc(dt(c.end_at))}</p>
+        </section>`;
+      }
+      return `<section class="card pad-lg center stack-lg" style="max-width:640px;margin:0 auto">
+          <div class="notice-icon">${icon('calendar-clock')}</div>
+          <div><h2>${esc(r.open_date)}부터 결과를 볼 수 있습니다</h2>
+            <p class="muted small" style="margin-top:8px">성적 처리 전 열람을 막기 위해 결과공개일을 설정했습니다. [교과목 ▸ 편집]에서 바꿀 수 있습니다.</p></div>
+          <p class="small">현재 응답 <strong class="num">${r.n}</strong>명</p>
+        </section>`;
+    }
+
+    function distBar(s, labels) {
+      const total = s.dist.reduce((a, b) => a + b, 0) || 1;
+      return `<div class="dist" role="img" aria-label="${s.dist.map((n, i) => `${i + 1}점 ${n}명`).join(', ')}">${s.dist.map((n, i) => n
+        ? `<span class="d${i + 1}" style="flex:${n}" title="${i + 1}점 ${esc(labels[i])}: ${n}명 (${Math.round(n / total * 100)}%)"></span>` : '').join('')}</div>`;
+    }
+
+    function resultsHtml(r) {
+      const c = r.course, st = r.stats;
+      const doms = st.domains.slice().sort((a, b) => b.mean - a.mean);
+      const best = doms[0], worst = doms[doms.length - 1];
+      const likert = st.items.filter((s) => s.type === 'likert5');
+      const choices = st.items.filter((s) => s.type === 'single' || s.type === 'multi');
+      const legend = `<div class="legend" aria-hidden="true">${r.likertLabels.map((l, i) => `<span><i style="background:var(--lk${i + 1})"></i>${i + 1} ${esc(l)}</span>`).join('')}</div>`;
+      const sem = r.semester_compare, sec = r.section_compare;
+
+      return `<div class="bento">
+        <section class="card" aria-labelledby="k1"><div class="card-title" id="k1">${icon('users')}응답 수</div>
+          <div class="big-num" style="margin-top:12px">${r.n}<span class="unit">명</span></div>
+          <p class="small muted num" style="margin-top:8px">수강 ${c.enrollment}명 · 응답률 ${c.response_rate}%</p></section>
+        <section class="card soft" aria-labelledby="k2"><div class="card-title" id="k2">${icon('gauge')}전체 평균</div>
+          <div class="big-num" style="margin-top:12px">${fmt(st.overall)}<span class="unit">/ 5</span></div>
+          <p class="small" style="margin-top:8px">${esc(interpret(st.overall))}${likert.some((s) => s.reverse) ? ' · 역문항 환산' : ''}</p></section>
+        <section class="card span-2" aria-labelledby="k3"><div class="card-title" id="k3">${icon('arrow-up-down')}영역 최고·최저</div>
+          ${best ? `<div class="row" style="margin-top:12px;gap:24px">
+            <div><span class="badge open">최고</span><div class="mid-num" style="margin-top:6px">${fmt(best.mean)}</div><div class="small">${esc(best.domain)}</div></div>
+            <div><span class="badge hot"><span class="dot" aria-hidden="true"></span>최저</span><div class="mid-num" style="margin-top:6px">${fmt(worst.mean)}</div><div class="small">${esc(worst.domain)}</div></div>
+          </div>` : '<p class="small muted">리커트 문항이 없습니다.</p>'}</section>
+
+        <section class="card span-2 row-2" aria-labelledby="k4"><div class="card-title" id="k4">${icon('radar')}영역별 평균</div>
+          <div class="chart-box" style="margin-top:8px"><canvas id="radar" role="img" aria-label="영역별 평균 레이더 차트. 아래 표에 같은 값이 있습니다."></canvas></div>
+          <div class="table-wrap"><table class="data"><caption class="sr-only">영역별 평균과 표준편차</caption>
+            <thead><tr><th scope="col">영역</th><th scope="col" class="num">문항</th><th scope="col" class="num">평균</th><th scope="col" class="num">SD</th><th scope="col">해석</th></tr></thead>
+            <tbody>${st.domains.map((d) => `<tr><th scope="row" style="font-weight:600">${esc(d.domain)}</th><td class="num">${d.item_count}</td><td class="num"><strong>${fmt(d.mean)}</strong></td><td class="num">${fmt(d.sd)}</td><td class="small">${esc(interpret(d.mean))}</td></tr>`).join('')}</tbody></table></div>
+        </section>
+
+        <section class="card span-2" aria-labelledby="k5"><div class="row-between"><div class="card-title" id="k5">${icon('history')}학기 간 비교</div><span class="small muted">같은 교과목명·분반</span></div>
+          ${sem.groups.length >= 2 ? `<div class="chart-box" style="min-height:220px;margin-top:8px"><canvas id="semChart" role="img" aria-label="학기별 전체 평균 추이. 아래 표에 같은 값이 있습니다."></canvas></div>
+            ${compareTable(sem.groups, st.domains)}` : `<p class="small muted" style="margin-top:12px">비교할 이전 학기 자료가 없습니다.</p>`}
+          ${sem.excluded ? `<p class="tiny muted">응답 수가 공개 기준 미만이거나 공개일 전인 ${sem.excluded}개 학기는 제외했습니다.</p>` : ''}
+        </section>
+        <section class="card span-2" aria-labelledby="k6"><div class="row-between"><div class="card-title" id="k6">${icon('columns-3')}분반 간 비교</div><span class="small muted">같은 학년도·학기</span></div>
+          ${sec.groups.length >= 2 ? `<div class="chart-box" style="min-height:220px;margin-top:8px"><canvas id="secChart" role="img" aria-label="분반별 전체 평균 막대 차트. 아래 표에 같은 값이 있습니다."></canvas></div>
+            ${compareTable(sec.groups, st.domains)}` : `<p class="small muted" style="margin-top:12px">비교할 다른 분반이 없습니다.</p>`}
+          ${sec.excluded ? `<p class="tiny muted">응답 수가 공개 기준 미만인 ${sec.excluded}개 분반은 제외했습니다.</p>` : ''}
+        </section>
+
+        <section class="card span-4" aria-labelledby="k7"><div class="row-between"><div class="card-title" id="k7">${icon('list-ordered')}문항별 결과</div>${legend}</div>
+          <div class="table-wrap" style="margin-top:8px"><table class="data"><caption class="sr-only">문항별 응답 수, 평균, 표준편차, 분포</caption>
+            <thead><tr><th scope="col" class="num">#</th><th scope="col">영역</th><th scope="col">문항</th><th scope="col" class="num">n</th><th scope="col" class="num">평균</th><th scope="col" class="num">SD</th><th scope="col" style="min-width:140px">분포 (1→5)</th></tr></thead>
+            <tbody>${likert.map((s, i) => `<tr><td class="num">${i + 1}</td><td class="small">${esc(s.domain)}</td>
+              <td>${esc(s.text)}${s.reverse ? ' <span class="badge">역문항</span>' : ''}</td><td class="num">${s.n}</td><td class="num"><strong>${fmt(s.mean)}</strong></td><td class="num">${fmt(s.sd)}</td>
+              <td>${distBar(s, r.likertLabels)}<div class="tiny muted num" style="margin-top:2px">${s.dist.join(' · ')}</div></td></tr>`).join('')}</tbody></table></div>
+        </section>
+
+        ${choices.map((s) => `<section class="card span-2" aria-label="${esc(s.text)}"><div class="card-title">${icon('list')}${esc(s.domain)}</div>
+          <h3 style="margin:8px 0 12px">${esc(s.text)}</h3><div class="stack">${s.options.map((o) => {
+            const p = s.n ? Math.round(o.count / s.n * 100) : 0;
+            return `<div><div class="row-between small"><span>${esc(o.label)}</span><span class="num">${o.count}명 (${p}%)</span></div>
+              <div class="hbar"><div class="track"><div class="fill" style="width:${p}%"></div></div></div></div>`;
+          }).join('')}</div><p class="tiny muted" style="margin-top:8px">응답 ${s.n}명${s.type === 'multi' ? ' · 복수 선택' : ''}</p></section>`).join('')}
+
+        <section class="card span-4" aria-labelledby="k8"><div class="row-between"><div class="card-title" id="k8">${icon('message-square-quote')}서술형 응답</div>
+          <span class="small muted">무작위 순서로 표시(응답자 추적 방지)</span></div>
+          <div class="stack-lg" style="margin-top:12px">${r.texts.map((t) => `<div><h3>${esc(t.text)} <span class="small muted num">${t.answers.length}건</span></h3>
+            ${t.answers.length ? quoteList(t.answers) : '<p class="small muted">응답 없음</p>'}</div>`).join('') || '<p class="small muted">서술형 문항이 없습니다.</p>'}</div>
+        </section>
+
+        <section class="card span-4" aria-labelledby="k9"><div class="row-between"><div class="card-title" id="k9">${icon('clipboard-list')}CQI 요약표</div>
+          <div class="row">
+            <button type="button" class="btn sm" data-export="exportCsv">${icon('file-spreadsheet')}원자료 CSV</button>
+            <button type="button" class="btn sm" data-export="exportCqi">${icon('table')}CQI 요약표</button>
+            <button type="button" class="btn sm primary" data-export="exportText">${icon('sparkles')}서술형 텍스트(AI 요약용)</button>
+          </div></div>
+          <div class="bento" style="margin-top:12px">
+            <div class="card span-2" style="box-shadow:none"><h3>${icon('thumbs-up')} 강점</h3><ol class="small" style="padding-left:20px;margin:8px 0 0">
+              ${r.cqi.strengths.map((s) => `<li>${esc(s.text)} <span class="num muted">(${fmt(s.mean)})</span></li>`).join('') || '<li>—</li>'}</ol></div>
+            <div class="card butter span-2"><h3>${icon('wrench')} 개선점</h3><ol class="small" style="padding-left:20px;margin:8px 0 0">
+              ${r.cqi.improvements.map((s) => `<li>${esc(s.text)} <span class="num">(${fmt(s.mean)})</span></li>`).join('') || '<li>—</li>'}</ol></div>
+          </div>
+          <p class="tiny muted" style="margin-top:12px">강점·개선점은 문항 평균 상위·하위 3개입니다. 서술형 텍스트는 AI에 넣기 전에 개인 식별 정보가 없는지 확인하세요.</p>
+        </section>
+      </div>`;
+    }
+
+    function quoteList(answers) {
+      const li = (a) => `<li>${esc(a)}</li>`;
+      const head = answers.slice(0, 8), rest = answers.slice(8);
+      return `<ul class="quote-list" style="margin-top:8px">${head.map(li).join('')}</ul>` +
+        (rest.length ? `<details style="margin-top:8px"><summary class="btn ghost sm" style="display:inline-flex">나머지 ${rest.length}건 더 보기</summary>
+          <ul class="quote-list" style="margin-top:8px">${rest.map(li).join('')}</ul></details>` : '');
+    }
+
+    function compareTable(groups, domains) {
+      return `<div class="table-wrap" style="margin-top:8px"><table class="data"><caption class="sr-only">비교 표</caption>
+        <thead><tr><th scope="col">구분</th><th scope="col" class="num">n</th><th scope="col" class="num">전체</th>${domains.map((d) => `<th scope="col" class="num" title="${esc(d.domain)}">${esc(d.domain.split('.')[0])}</th>`).join('')}</tr></thead>
+        <tbody>${groups.map((g) => `<tr${g.current ? ' style="background:var(--primary-soft)"' : ''}><th scope="row" style="font-weight:600">${esc(g.label)}${g.current ? ' <span class="sr-only">(현재)</span>' : ''}</th>
+          <td class="num">${g.n}</td><td class="num"><strong>${fmt(g.overall)}</strong></td>
+          ${domains.map((d) => { const x = g.domains.find((y) => y.domain === d.domain); return `<td class="num">${x ? fmt(x.mean) : '—'}</td>`; }).join('')}</tr>`).join('')}</tbody></table></div>`;
+    }
+
+    function interpret(m) {
+      if (m == null) return '';
+      if (m >= 4.5) return '매우 우수';
+      if (m >= 4.0) return '우수';
+      if (m >= 3.5) return '보통 이상';
+      if (m >= 3.0) return '보통';
+      return '개선 필요';
+    }
+
+    function drawCharts(r) {
+      if (!window.Chart) {
+        $$('.chart-box', view).forEach((b) => { b.innerHTML = '<p class="small muted">차트 라이브러리를 불러오지 못해 표로만 표시합니다.</p>'; b.style.minHeight = '0'; });
+        return;
+      }
+      const ink = cssVar('--ink'), muted = cssVar('--muted'), line = cssVar('--line'), primary = cssVar('--primary'), surface = cssVar('--surface'), gray = cssVar('--chart-muted');
+      Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+      Chart.defaults.color = muted;
+      const anim = CES.reducedMotion() ? false : { duration: 500 };
+      const tooltip = { backgroundColor: ink, titleColor: surface, bodyColor: surface, padding: 10, cornerRadius: 10, displayColors: true };
+
+      const doms = r.stats.domains;
+      const radarEl = $('#radar');
+      if (radarEl && doms.length >= 3) {
+        const gs = r.semester_compare.groups;
+        const cur = gs.findIndex((g) => g.current);
+        const prev = cur > 0 ? gs[cur - 1] : null; // 직전 학기만 겹쳐 표시
+        const sets = [{
+          label: '이번 학기', data: doms.map((d) => d.mean), borderColor: primary, backgroundColor: primary + '22',
+          borderWidth: 2, pointRadius: 4, pointBackgroundColor: primary, pointBorderColor: surface, pointBorderWidth: 2
+        }];
+        if (prev) {
+          sets.push({
+            label: prev.label, data: doms.map((d) => { const x = prev.domains.find((y) => y.domain === d.domain); return x ? x.mean : null; }),
+            borderColor: gray, backgroundColor: 'transparent', borderDash: [5, 4], borderWidth: 2, pointRadius: 4,
+            pointBackgroundColor: gray, pointBorderColor: surface, pointBorderWidth: 2
+          });
+        }
+        A.charts.push(new Chart(radarEl, {
+          type: 'radar',
+          data: { labels: doms.map((d) => d.domain), datasets: sets },
+          options: {
+            maintainAspectRatio: false, animation: anim,
+            scales: { r: { min: 1, max: 5, ticks: { stepSize: 1, backdropColor: 'transparent', color: muted }, grid: { color: line }, angleLines: { color: line }, pointLabels: { color: ink, font: { size: 12, weight: 600 } } } },
+            plugins: { legend: { display: sets.length > 1, labels: { color: ink, usePointStyle: true } }, tooltip: tooltip }
+          }
+        }));
+      } else if (radarEl) {
+        radarEl.parentElement.innerHTML = '<p class="small muted">레이더 차트는 영역이 3개 이상일 때 표시됩니다.</p>';
+      }
+
+      const lineOpts = (min) => ({
+        maintainAspectRatio: false, animation: anim,
+        scales: { y: { min: min, max: 5, ticks: { stepSize: 0.5 }, grid: { color: line } }, x: { grid: { display: false }, ticks: { color: ink } } },
+        plugins: { legend: { display: false }, tooltip: tooltip }
+      });
+      const semEl = $('#semChart');
+      if (semEl) {
+        const g = r.semester_compare.groups;
+        A.charts.push(new Chart(semEl, {
+          type: 'line',
+          data: { labels: g.map((x) => x.label), datasets: [{ label: '전체 평균', data: g.map((x) => x.overall), borderColor: primary, backgroundColor: primary, borderWidth: 2, pointRadius: g.map((x) => (x.current ? 6 : 4)), pointBorderColor: surface, pointBorderWidth: 2, tension: 0.25 }] },
+          options: lineOpts(1)
+        }));
+      }
+      const secEl = $('#secChart');
+      if (secEl) {
+        const g = r.section_compare.groups;
+        A.charts.push(new Chart(secEl, {
+          type: 'bar',
+          data: { labels: g.map((x) => x.label), datasets: [{ label: '전체 평균', data: g.map((x) => x.overall), backgroundColor: g.map((x) => (x.current ? primary : gray)), borderRadius: 4, borderSkipped: 'bottom', maxBarThickness: 48 }] },
+          options: lineOpts(1)
+        }));
+      }
+    }
+
+    async function doExport(fn, btn) {
+      const restore = CES.busyButton(btn, '준비 중…');
+      const res = await api(fn, [A.resultsCourse]);
+      restore();
+      if (!res.ok) return fail(res);
+      CES.download(res.filename, res.content, fn === 'exportText' ? 'text/plain' : 'text/csv');
+    }
+
+    /* ───── 설정 ───── */
+    function renderSettings() {
+      const s = A.data.settings;
+      const url = A.data.webAppUrl;
+      setView(`
+        <h1 style="margin-bottom:16px">설정</h1>
+        <div class="bento">
+          <section class="card span-2" aria-labelledby="s1"><h2 id="s1" style="margin-bottom:16px">기본 정보</h2>
+            <form id="set-form" class="form-grid" novalidate>
+              <div class="field"><label for="s-name">교수명</label><input class="input" id="s-name" name="professor_name" maxlength="40" value="${esc(s.professor_name)}"></div>
+              <div class="field"><label for="s-aff">소속(학교/학과)</label><input class="input" id="s-aff" name="affiliation" maxlength="80" value="${esc(s.affiliation)}"></div>
+              <div class="field"><label for="s-min">최소 공개 응답 수</label>
+                <input class="input num" id="s-min" name="min_responses" type="number" min="3" max="50" value="${s.min_responses}" aria-describedby="s-min-h">
+                <p class="hint" id="s-min-h">응답이 이 수보다 적으면 결과·비교·서술형을 숨깁니다(3~50, 권장 5 이상).</p></div>
+              <div><button type="submit" class="btn primary">${icon('save')}저장</button></div>
+            </form></section>
+          <section class="card span-2" aria-labelledby="s2"><h2 id="s2" style="margin-bottom:16px">PIN 변경</h2>
+            <form id="pin-form" class="form-grid" novalidate>
+              <div class="field"><label for="p-cur">현재 PIN</label><input class="input" id="p-cur" type="password" inputmode="numeric" autocomplete="current-password" maxlength="12"></div>
+              <div class="field"><label for="p-new">새 PIN (숫자 6~12자리)</label><input class="input" id="p-new" type="password" inputmode="numeric" autocomplete="new-password" maxlength="12"></div>
+              <div class="field"><label for="p-new2">새 PIN 확인</label><input class="input" id="p-new2" type="password" inputmode="numeric" autocomplete="new-password" maxlength="12"></div>
+              <div><button type="submit" class="btn">${icon('key-round')}PIN 변경</button></div>
+              <p class="tiny muted">변경하면 다른 기기의 로그인도 모두 해제됩니다.</p>
+            </form></section>
+          <section class="card sky span-4" aria-labelledby="s3"><h2 id="s3" style="margin-bottom:12px">웹 앱 주소</h2>
+            ${url ? `<div class="stack"><div class="small">교수 관리자 화면(즐겨찾기 권장)</div>
+              <div class="linkbox"><code>${esc(url)}?page=admin</code><button type="button" class="btn sm" data-copy-url="${esc(url)}?page=admin">${icon('copy')}복사</button></div>
+              <p class="small">학생 응답 링크는 [교과목] 탭의 [링크·QR]에서 교과목별로 확인하세요.</p></div>`
+              : `<p class="small">아직 배포되지 않았습니다.</p>`}
+            <p class="tiny muted" style="margin-top:12px">버전 ${esc(A.data.version)}</p>
+          </section>
+        </div>`, true);
+      $('#set-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const data = readForm(e.target);
+        const btn = e.target.querySelector('[type="submit"]');
+        const restore = CES.busyButton(btn, '저장 중…');
+        const res = await api('saveSettings', [data]);
+        restore();
+        if (!res.ok) {
+          if (res.field === 'min_responses') return CES.toast('최소 공개 응답 수는 3~50입니다.', 'error');
+          if (res.field === 'professor_name') return CES.toast('교수명을 입력하세요.', 'error');
+          return fail(res);
+        }
+        Object.assign(A.data.settings, { professor_name: data.professor_name.trim(), affiliation: data.affiliation.trim(), min_responses: Number(data.min_responses) });
+        $('#footer-owner').textContent = [A.data.settings.professor_name, A.data.settings.affiliation].filter(Boolean).join(' · ');
+        CES.toast('설정을 저장했습니다.');
+        refresh();
+      });
+      $('#pin-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const cur = $('#p-cur').value, n1 = $('#p-new').value, n2 = $('#p-new2').value;
+        if (!/^\d{6,12}$/.test(n1)) return CES.toast('새 PIN은 숫자 6~12자리입니다.', 'error');
+        if (n1 !== n2) return CES.toast('새 PIN 확인이 일치하지 않습니다.', 'error');
+        const btn = e.target.querySelector('[type="submit"]');
+        const restore = CES.busyButton(btn, '변경 중…');
+        const res = await api('changePin', [cur, n1]);
+        restore();
+        if (!res.ok) return res.code === 'WRONG' ? CES.toast('현재 PIN이 올바르지 않습니다.', 'error') : fail(res);
+        CES.toast('PIN을 변경했습니다. 다시 로그인하세요.');
+        signOut(true);
+      });
+    }
+
+    /* ───── 전역 클릭 위임 ───── */
+    view.addEventListener('click', async (e) => {
+      const t = e.target.closest('button');
+      if (!t) return;
+      if (t.dataset.go) return go(t.dataset.go);
+      if (t.dataset.results) { A.resultsCourse = t.dataset.results; return go('results'); }
+      if (t.dataset.items) { A.itemsCourse = t.dataset.items; return go('items'); }
+      if (t.dataset.export) return doExport(t.dataset.export, t);
+      if (t.dataset.copyUrl) return CES.copy(t.dataset.copyUrl);
+      const row = t.closest('.item-row');
+      if (row && t.dataset.move) return moveItem(Number(row.dataset.idx), Number(row.dataset.idx) + Number(t.dataset.move), `[data-move="${t.dataset.move}"]`);
+      if (row && t.hasAttribute('data-del')) {
+        const i = Number(row.dataset.idx);
+        A.items.splice(i, 1);
+        markDirty();
+        drawItems();
+        CES.toast(`${i + 1}번 문항을 삭제했습니다. [저장]을 눌러 반영하세요.`);
+        return;
+      }
+      const c = t.dataset.id ? courseById(t.dataset.id) : null;
+      switch (t.dataset.act) {
+        case 'retry-boot': return boot();
+        case 'new-course': return openCourseForm(null);
+        case 'edit-course': return openCourseForm(c);
+        case 'dup-course': return openDuplicate(c);
+        case 'del-course': return deleteCourse(c);
+        case 'qr': return openQr(c);
+        case 'tokens': return openTokens(c);
+        case 'add-item':
+          A.items.push({ domain: A.items.length ? A.items[A.items.length - 1].domain : DOMAINS[0], text: '', type: 'likert5', required: true, reverse: false, options: [] });
+          markDirty();
+          drawItems();
+          { const el = $(`#txt-${A.items.length - 1}`); if (el) { el.focus(); el.scrollIntoView({ block: 'center' }); } }
+          return;
+        case 'clo': return openClo();
+        case 'load-template': return loadTemplate();
+        case 'save-items': return saveItems(t);
+        default: return;
+      }
+    });
+
+    $('#logout-btn').addEventListener('click', () => signOut(false));
+    window.addEventListener('beforeunload', (e) => {
+      if (A.itemsDirty) { e.preventDefault(); e.returnValue = ''; }
+    });
+
+    if (A.session) boot(); else renderLogin();
+  })();
+  </script>
+</body>
+</html>
