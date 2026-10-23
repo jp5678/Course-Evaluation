@@ -42,7 +42,7 @@ function fullAnswers(items, likert = 4) {
   items.forEach((it) => {
     if (it.type === 'likert5') a[it.item_id] = likert;
     else if (it.type === 'text') a[it.item_id] = '좋았습니다';
-    else if (it.type === 'single') a[it.item_id] = it.options[0];
+    else if (it.type === 'single' || it.type === 'select') a[it.item_id] = it.options[0];
     else if (it.type === 'multi') a[it.item_id] = [it.options[0]];
   });
   return a;
@@ -57,6 +57,7 @@ function createCourse(server, session, overrides = {}) {
   const now = Date.now();
   const data = Object.assign({
     course_name: '테스트 교과목', year: 2026, semester: '2', grade: 3, section: 'A', enrollment: 40,
+    department: '간호학과', delivery_mode: '대면',
     start_at: iso(new Date(now - 86400000)), end_at: iso(new Date(now + 86400000 * 7)),
     access_mode: 'code', access_code: 'ABC123', result_open_date: ''
   }, overrides);

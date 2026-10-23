@@ -10,6 +10,7 @@
 </head>
 <body class="page-student" data-course="<?= courseId ?>" data-token="<?= tokenPrefill ?>">
   <a class="skip-link" href="#main">본문 바로가기</a>
+  <div class="deco" aria-hidden="true"><span class="s1"></span><span class="s2"></span><span class="s3"></span><span class="s4"></span></div>
 
   <header class="topbar">
     <div class="topbar-inner">
@@ -43,6 +44,17 @@
     var $ = CES.$, $$ = CES.$$, esc = CES.esc, icon = CES.icon;
     var app = document.getElementById('app');
     var SHORT = ['전혀 아니다', '아니다', '보통', '그렇다', '매우 그렇다'];
+    var EMO = ['😞', '🙁', '😐', '🙂', '😄'];
+    // 영역 첫 글자 → 아이콘·색(배경 톤)
+    var DOMAIN_LOOK = {
+      A: ['compass', 'sky'], B: ['presentation', 'primary'], C: ['clipboard-check', 'butter'], D: ['target', 'accent'],
+      E: ['building-2', 'sky'], F: ['cpu', 'primary'], G: ['heart', 'accent'], H: ['monitor-play', 'butter']
+    };
+    function domainTag(domain) {
+      var look = DOMAIN_LOOK[String(domain).charAt(0)] || (/서술/.test(domain) ? ['message-circle', 'butter'] : ['user-round', 'plain']);
+      return '<span class="domain-tag tone-' + look[1] + '"><span class="ic">' + icon(look[0]) + '</span>' + esc(domain) + '</span>';
+    }
+    var CHEERS = [[0.5, '벌써 절반 왔어요! 조금만 더 힘내요 💪'], [0.8, '거의 다 왔어요! 🙌']];
 
     var S = {
       courseId: document.body.getAttribute('data-course') || '',
@@ -56,7 +68,9 @@
       step: 0,
       mode: '',
       nonce: '',
-      submitting: false
+      submitting: false,
+      dir: 1,
+      cheered: {}
     };
     var DRAFT_KEY = 'ces:draft:' + S.courseId;
     var DONE_KEY = 'ces:done:' + S.courseId;
@@ -103,6 +117,7 @@
       var parts = [c.year + '학년도 ' + c.semester + '학기'];
       if (c.grade) parts.push(c.grade + '학년');
       if (c.section) parts.push(c.section + '반');
+      if (c.delivery_mode && c.delivery_mode !== '대면') parts.push(c.delivery_mode + ' 수업');
       return parts.map(function (p) { return '<span class="badge">' + esc(p) + '</span>'; }).join('');
     }
 
@@ -135,13 +150,16 @@
       var c = S.course;
       var done = CES.store.get(DONE_KEY, window.localStorage);
       render(
-        '<section class="card pad-lg stack-lg" aria-labelledby="ct">' +
+        '<section class="card pad-lg stack-lg rise" aria-labelledby="ct">' +
         '<div class="meta">' + courseMeta(c) + '<span class="badge open">' + icon('circle-dot') + '응답 진행 중</span></div>' +
-        '<div><p class="muted small">수업 설문</p><h1 id="ct">' + esc(c.course_name) + '</h1></div>' +
-        '<div class="bento" style="grid-template-columns:1fr 1fr">' +
-        '<div class="card soft"><div class="card-title">' + icon('list-checks') + '문항</div><div class="mid-num">' + c.item_count + '<span class="small muted"> 개</span></div></div>' +
-        '<div class="card sky"><div class="card-title">' + icon('timer') + '예상 시간</div><div class="mid-num">' + c.est_minutes + '<span class="small muted"> 분</span></div></div>' +
+        '<div><p class="muted small">' + esc(c.department ? c.department + ' · ' : '') + '우리 수업 이야기</p><h1 id="ct">' + esc(c.course_name) + '</h1>' +
+        '<p class="muted small" style="margin-top:6px">여러분의 솔직한 한마디가 다음 수업을 바꿉니다.</p></div>' +
+        '<div class="stickers" aria-hidden="true">' +
+        '<div class="sticker" style="--i:0"><span class="emo">🙈</span>완전 익명</div>' +
+        '<div class="sticker" style="--i:1"><span class="emo">⚡</span>약 ' + c.est_minutes + '분</div>' +
+        '<div class="sticker" style="--i:2"><span class="emo">💬</span>' + c.item_count + '문항</div>' +
         '</div>' +
+        '<p class="sr-only">익명 설문, ' + c.item_count + '문항, 약 ' + c.est_minutes + '분 소요</p>' +
         (c.end_label ? '<p class="small muted">' + icon('calendar') + ' 마감: <span class="num">' + esc(c.end_label) + '</span></p>' : '') +
         (done && c.access_mode !== 'token' ? '<div class="callout">' + icon('info') + '<p class="small">이 기기에서 이미 제출한 기록이 있습니다. 한 사람은 한 번만 응답해 주세요.</p></div>' : '') +
         '<button type="button" class="btn primary block" data-act="to-auth">' + '시작하기' + icon('arrow-right') + '</button>' +
@@ -239,10 +257,10 @@
         ['shield-check', '성적과 무관합니다', '공식 강의평가를 대체하지 않는 수업 개선(CQI)용 설문입니다.']
       ];
       render(
-        '<section class="card pad-lg stack-lg" aria-labelledby="ct2">' +
+        '<section class="card pad-lg stack-lg rise" aria-labelledby="ct2">' +
         '<div><p class="muted small">시작하기 전에</p><h1 id="ct2">익명으로 응답합니다</h1></div>' +
-        '<ul class="feature-list">' + rows.map(function (r) {
-          return '<li><span class="ico">' + icon(r[0]) + '</span><div><strong>' + esc(r[1]) + '</strong><p class="small muted">' + esc(r[2]) + '</p></div></li>';
+        '<ul class="feature-list">' + rows.map(function (r, i) {
+          return '<li class="rise" style="--i:' + (i + 1) + '"><span class="ico">' + icon(r[0]) + '</span><div><strong>' + esc(r[1]) + '</strong><p class="small muted">' + esc(r[2]) + '</p></div></li>';
         }).join('') + '</ul>' +
         '<div class="callout info">' + icon('smartphone') +
         '<p class="small">휴대폰에서는 한 화면에 한 문항씩 나오며, 점수를 고르면 다음 문항으로 자동 이동합니다. 키보드 숫자 <span class="kbd">1</span>~<span class="kbd">5</span>로도 고를 수 있습니다. 응답 중 내용은 이 브라우저 탭에 임시 저장됩니다.</p></div>' +
@@ -280,6 +298,7 @@
       var v = S.answers[it.item_id];
       if (it.type === 'multi') return Array.isArray(v) && v.length > 0;
       if (it.type === 'text') return typeof v === 'string' && v.trim() !== '';
+      if (it.type === 'select') return typeof v === 'string' && v !== '';
       return v != null && v !== '';
     }
 
@@ -294,7 +313,7 @@
     function questionHtml(it) {
       var qid = 'q-' + it.item_id;
       var req = it.required ? '<span class="req" aria-hidden="true">*</span><span class="sr-only">(필수)</span>' : '<span class="small muted"> (선택)</span>';
-      var head = '<div class="q-domain">' + esc(it.domain) + '</div><h2 class="q-text" id="' + qid + '" tabindex="-1">' + esc(it.text) + req + '</h2>';
+      var head = domainTag(it.domain) + '<h2 class="q-text" id="' + qid + '" tabindex="-1">' + esc(it.text) + req + '</h2>';
       var body = '';
       var v = S.answers[it.item_id];
       if (it.type === 'likert5') {
@@ -302,11 +321,17 @@
         body = '<div class="likert" role="radiogroup" aria-labelledby="' + qid + '" aria-required="' + it.required + '" data-kind="likert">' +
           [1, 2, 3, 4, 5].map(function (n, i) {
             var on = Number(v) === n;
-            return '<button type="button" class="chip" role="radio" aria-checked="' + on + '" tabindex="' + (i === focusIdx ? 0 : -1) + '"' +
-              ' data-val="' + n + '" aria-label="' + n + '점, ' + esc(S.labels[i]) + '"><span class="n" aria-hidden="true">' + n + '</span>' +
+            return '<button type="button" class="chip has-emo" role="radio" aria-checked="' + on + '" tabindex="' + (i === focusIdx ? 0 : -1) + '"' +
+              ' data-val="' + n + '" aria-label="' + n + '점, ' + esc(S.labels[i]) + '"><span class="emo" aria-hidden="true">' + EMO[i] + '</span><span class="n" aria-hidden="true">' + n + '</span>' +
               '<span class="l" aria-hidden="true">' + SHORT[i] + '</span></button>';
           }).join('') + '</div>' +
           '<div class="likert-scale" aria-hidden="true"><span>' + esc(S.labels[0]) + '</span><span>' + esc(S.labels[4]) + '</span></div>';
+      } else if (it.type === 'select') {
+        body = '<label class="sr-only" for="s-' + it.item_id + '">' + esc(it.text) + '</label>' +
+          '<select class="select lg" id="s-' + it.item_id + '" data-select="' + esc(it.item_id) + '">' +
+          '<option value="">' + (it.required ? '선택하세요' : '선택하지 않음') + '</option>' +
+          it.options.map(function (o) { return '<option value="' + esc(o) + '"' + (v === o ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') +
+          '</select>' + (it.required ? '' : '<p class="hint small muted" style="margin-top:8px">응답하지 않아도 됩니다. 응답자가 적은 집단은 결과에서 자동으로 숨겨집니다.</p>');
       } else if (it.type === 'single' || it.type === 'multi') {
         var multi = it.type === 'multi';
         var sel = multi ? (Array.isArray(v) ? v : []) : [v];
@@ -333,14 +358,21 @@
       var pct = Math.round((S.step + 1) / (total + 1) * 100);
       var label = S.mode === 'mobile' ? '문항' : '영역';
       var isLast = S.step === total - 1;
+      var prevPct = Math.round(S.step / (total + 1) * 100);
+      var cheer = '';
+      CHEERS.forEach(function (c) {
+        if (!cheer && (S.step + 1) / total >= c[0] && !S.cheered[c[0]] && S.dir > 0) { S.cheered[c[0]] = true; cheer = c[1]; }
+      });
       render(
         '<div class="survey-head">' +
         '<div class="row-between small" style="margin-bottom:8px"><span class="muted">' + esc(S.course.course_name) + '</span>' +
         '<span class="num"><strong>' + (S.step + 1) + '</strong> / ' + total + ' ' + label + '</span></div>' +
-        '<div class="progress" role="progressbar" aria-label="설문 진행률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct + '"' +
-        ' aria-valuetext="' + total + '개 ' + label + ' 중 ' + (S.step + 1) + '번째"><span style="width:' + Math.round(S.step / (total + 1) * 100) + '%"></span></div>' +
+        '<div class="progress-wrap"><div class="progress" role="progressbar" aria-label="설문 진행률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct + '"' +
+        ' aria-valuetext="' + total + '개 ' + label + ' 중 ' + (S.step + 1) + '번째"><span style="width:' + prevPct + '%"></span></div>' +
+        '<span class="progress-marker" aria-hidden="true" style="left:' + prevPct + '%">' + (pct >= 80 ? '🏁' : '✏️') + '</span></div>' +
         '</div>' +
-        '<div id="questions">' + group.map(questionHtml).join('') + '</div>' +
+        (cheer ? '<p class="cheer" role="status">' + esc(cheer) + '</p>' : '') +
+        '<div id="questions" class="' + (S.dir > 0 ? 'slide-in-r' : 'slide-in-l') + '">' + group.map(questionHtml).join('') + '</div>' +
         '<div class="nav-bar">' +
         '<button type="button" class="btn" data-act="prev">' + icon('arrow-left') + (S.step === 0 ? '안내' : '이전') + '</button>' +
         '<button type="button" class="btn primary" data-act="next">' + (isLast ? '검토하기' : '다음') + icon(isLast ? 'list-checks' : 'arrow-right') + '</button>' +
@@ -352,6 +384,8 @@
       requestAnimationFrame(function () {
         var bar = $('.progress > span');
         if (bar) bar.style.width = pct + '%';
+        var mk = $('.progress-marker');
+        if (mk) mk.style.left = pct + '%';
       });
       CES.announce(total + '개 ' + label + ' 중 ' + (S.step + 1) + '번째. ' + group[0].domain);
     }
@@ -408,7 +442,7 @@
         }
       });
       if (firstBad) {
-        var focusEl = $('[aria-checked="true"], .chip, .option, textarea', firstBad) || firstBad;
+        var focusEl = $('[aria-checked="true"], .chip, .option, textarea, select', firstBad) || firstBad;
         firstBad.scrollIntoView({ block: 'center', behavior: CES.reducedMotion() ? 'auto' : 'smooth' });
         focusEl.focus({ preventScroll: true });
         return false;
@@ -418,6 +452,7 @@
 
     function next() {
       if (!validateStep()) return;
+      S.dir = 1;
       if (S.step < S.steps.length - 1) {
         S.step++;
         saveDraft();
@@ -431,6 +466,7 @@
 
     function prev() {
       if (S.step === 0) { renderConsent(); return; }
+      S.dir = -1;
       S.step--;
       saveDraft();
       renderSurvey();
@@ -460,8 +496,8 @@
         '<div class="stack">' +
         '<div><h1 id="rv">응답을 확인해 주세요</h1><p class="muted small" style="margin-top:4px">수정하려면 문항 옆의 [수정]을 누르세요.</p></div>' +
         (missing.length ? '<div class="callout" role="alert">' + icon('circle-alert') + '<p class="small"><strong>필수 문항 ' + missing.length + '개</strong>에 응답하지 않았습니다.</p></div>' : '') +
-        groups.map(function (g) {
-          return '<section class="card"><h2 class="small" style="color:var(--primary-ink)">' + esc(g.domain) + '</h2><ul class="review-list">' +
+        groups.map(function (g, gi) {
+          return '<section class="card rise" style="--i:' + gi + '">' + domainTag(g.domain) + '<ul class="review-list">' +
             g.items.map(function (it) {
               var a = answerLabel(it);
               var miss = it.required && a == null;
@@ -529,14 +565,17 @@
     /* ───── 6. 감사 ───── */
     function renderThanks() {
       render(
-        '<section class="card pad-lg center stack-lg" aria-labelledby="th">' +
-        '<div class="notice-icon">' + icon('party-popper') + '</div>' +
-        '<div><h1 id="th">응답이 제출되었습니다</h1><p class="muted" style="margin-top:8px">소중한 의견 감사합니다.<br>다음 수업을 더 좋게 만드는 데 사용하겠습니다.</p></div>' +
+        '<section class="card pad-lg center stack-lg rise" aria-labelledby="th">' +
+        '<svg class="check-draw" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="45"/><path d="M30 52 l14 14 l27 -30"/></svg>' +
+        '<div><h1 id="th">응답이 제출되었습니다</h1><p class="muted" style="margin-top:8px">소중한 의견 감사합니다 🙏<br>여러분의 목소리로 다음 수업이 더 좋아집니다.</p></div>' +
+        '<div class="stickers" aria-hidden="true"><div class="sticker" style="--i:0"><span class="emo">📚</span>더 나은 수업</div>' +
+        '<div class="sticker" style="--i:1"><span class="emo">🩺</span>좋은 간호사</div><div class="sticker" style="--i:2"><span class="emo">💜</span>고마워요</div></div>' +
         '<div class="callout info" style="text-align:left">' + icon('shield-check') + '<p class="small">응답은 익명으로 저장되었습니다. 이제 이 창을 닫으셔도 됩니다.</p></div>' +
         '</section>'
       );
       CES.announce('응답이 제출되었습니다. 감사합니다.');
       setTimeout(CES.confetti, 150);
+      setTimeout(CES.confetti, 900);
     }
 
     /* ───── 이벤트 ───── */
@@ -575,6 +614,15 @@
         saveDraft();
         updateCount();
       }
+    });
+
+    app.addEventListener('change', function (e) {
+      var sel = e.target.closest('select[data-select]');
+      if (!sel) return;
+      S.answers[sel.getAttribute('data-select')] = sel.value;
+      clearError(sel.closest('.q-card'));
+      saveDraft();
+      updateCount();
     });
 
     app.addEventListener('input', function (e) {

@@ -21,7 +21,8 @@ function scenario(name) {
   const { env, server } = H.makeServer({ pin: '123456', url: URL_BASE });
   const s = H.login(server, '123456');
   const demo = H.demoCourse(server);
-  const meta = { courseId: demo.course_id, accessCode: demo.access_code };
+  const online = server.getCourses_().find((c) => c.delivery_mode !== '대면');
+  const meta = { courseId: demo.course_id, accessCode: demo.access_code, onlineCourseId: online.course_id, onlineCode: online.access_code };
   const now = Date.now();
 
   if (name === 'future') {

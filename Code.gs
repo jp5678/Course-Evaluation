@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.0.0',
+  VERSION: '1.1.0',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -35,15 +35,18 @@ var APP = {
   SUBMIT_DEDUP_SEC: 3600,
   MIN_RESPONSES_FLOOR: 3,
   SEMESTERS: ['1', '여름', '2', '겨울'],
-  ITEM_TYPES: ['likert5', 'single', 'multi', 'text'],
+  GRADES: [1, 2, 3, 4],
+  SECTIONS: ['A', 'B', 'C', 'D', 'E', 'F'],
+  DELIVERY: ['대면', '비대면', '혼합'],
+  ITEM_TYPES: ['likert5', 'single', 'multi', 'select', 'text'],
   STATUS: { READY: '준비', OPEN: '진행', CLOSED: '마감' }
 };
 
 var HEADERS = {
   Settings: ['key', 'value', 'description'],
   Courses: ['course_id', 'course_name', 'year', 'semester', 'grade', 'section', 'enrollment',
-    'start_at', 'end_at', 'access_mode', 'access_code', 'status', 'result_open_date'],
-  Items: ['item_id', 'course_id', 'domain', 'text', 'type', 'required', 'order', 'reverse', 'options'],
+    'start_at', 'end_at', 'access_mode', 'access_code', 'status', 'result_open_date', 'department', 'delivery_mode'],
+  Items: ['item_id', 'course_id', 'domain', 'text', 'type', 'required', 'order', 'reverse', 'options', 'scope'],
   Tokens: ['course_id', 'token_hash', 'used'],
   Responses: ['response_id', 'course_id', 'submitted_date']
 };
@@ -80,7 +83,7 @@ function getCourseForStudent(courseId) {
   return safe_(function () {
     var course = findCourse_(sanitizeId_(courseId));
     if (!course) return { ok: false, code: 'NOT_FOUND' };
-    var items = getItems_(course.course_id);
+    var items = itemsForCourse_(course);
     return {
       ok: true,
       state: effectiveStatus_(course, new Date()),
@@ -103,7 +106,7 @@ function verifyAccess(courseId, credential) {
     }
     return {
       ok: true,
-      items: getItems_(course.course_id).map(publicItem_),
+      items: itemsForCourse_(course).map(publicItem_),
       likertLabels: LIKERT_LABELS
     };
   });
@@ -121,7 +124,7 @@ function submitResponse(courseId, credential, answers, nonce) {
     var state = effectiveStatus_(course, new Date());
     if (state !== APP.STATUS.OPEN) return { ok: false, code: stateCode_(state) };
 
-    var items = getItems_(course.course_id);
+    var items = itemsForCourse_(course);
     var clean = sanitizeAnswers_(items, answers);
     if (!clean.ok) return clean;
 
@@ -220,11 +223,15 @@ function getAdminBootstrap(session) {
 
     var list = courses.map(function (c) {
       var rows = respByCourse[c.course_id] || [];
+      var its = filterScope_(itemsByCourse[c.course_id] || [], c);
       var lock = resultLock_(c, rows.length, minN, now);
       var summary = courseSummary_(c, rows.length, now, url);
       summary.locked_reason = lock;
-      summary.mean = lock ? null : overallMean_(itemsByCourse[c.course_id] || [], rows);
-      summary.item_count = (itemsByCourse[c.course_id] || []).length;
+      var st = lock || !rows.length ? null : computeStats_(its, rows);
+      summary.mean = st ? st.overall : null;
+      summary.pos_pct = st ? st.overall_pos_pct : null;
+      summary.domains = st ? st.domains.map(function (d) { return { domain: d.domain, mean: d.mean, pos_pct: d.pos_pct }; }) : [];
+      summary.item_count = its.length;
       summary.tokens_total = (tokenStats[c.course_id] || {}).total || 0;
       summary.tokens_used = (tokenStats[c.course_id] || {}).used || 0;
       return summary;
@@ -239,7 +246,8 @@ function getAdminBootstrap(session) {
       settings: {
         professor_name: String(settings.professor_name || ''),
         affiliation: String(settings.affiliation || ''),
-        min_responses: minN
+        min_responses: minN,
+        departments: departments_(settings)
       },
       courses: list,
       webAppUrl: url,
@@ -269,9 +277,10 @@ function saveCourse(session, data) {
       var row = courseToRow_(c);
       if (existing) {
         table.sheet.getRange(existing._row, 1, 1, row.length).setValues([row]);
+        if (c.delivery_mode !== '대면') addOnlineItems_(c.course_id);
       } else {
         table.sheet.getRange(table.sheet.getLastRow() + 1, 1, 1, row.length).setValues([row]);
-        if (data.copy_template !== false) copyItems_(APP.TEMPLATE_ID, c.course_id);
+        if (data.copy_template !== false) copyItems_(APP.TEMPLATE_ID, c.course_id, c.delivery_mode === '대면');
       }
       return { ok: true, course_id: c.course_id };
     });
@@ -286,6 +295,7 @@ function duplicateCourse(session, sourceId, data) {
     var merged = {
       course_name: src.course_name, grade: src.grade, enrollment: src.enrollment,
       access_mode: src.access_mode, access_code: randomString_(6, APP.TOKEN_ALPHABET),
+      department: src.department, delivery_mode: data.delivery_mode || src.delivery_mode,
       year: data.year, semester: data.semester, section: data.section != null ? data.section : src.section,
       start_at: data.start_at, end_at: data.end_at, result_open_date: data.result_open_date || ''
     };
@@ -298,7 +308,8 @@ function duplicateCourse(session, sourceId, data) {
       c.status = statusByDates_(c, new Date());
       var row = courseToRow_(c);
       table.sheet.getRange(table.sheet.getLastRow() + 1, 1, 1, row.length).setValues([row]);
-      copyItems_(src.course_id, c.course_id);
+      copyItems_(src.course_id, c.course_id, false);
+      if (c.delivery_mode !== '대면') addOnlineItems_(c.course_id);
       return { ok: true, course_id: c.course_id };
     });
   });
@@ -409,6 +420,12 @@ function getResults(session, courseId) {
     if (ctx.locked) return lockedResult_(ctx);
 
     var stats = computeStats_(ctx.items, ctx.rows);
+    // 드롭다운(성별 등) 분포는 집단이 작으면 인원수 자체를 숨깁니다.
+    stats.items.forEach(function (st) {
+      if (st.type !== 'select') return;
+      var it = ctx.items.filter(function (x) { return x.item_id === st.item_id; })[0];
+      if (!selectGroups_(it, ctx.rows, ctx.minN).safe) { delete st.options; st.n = null; st.suppressed = true; }
+    });
     return {
       ok: true,
       locked: false,
@@ -418,7 +435,9 @@ function getResults(session, courseId) {
       stats: stats,
       semester_compare: compareGroups_(ctx, 'semester'),
       section_compare: compareGroups_(ctx, 'section'),
+      groups: groupCompare_(ctx.items, ctx.rows, ctx.minN),
       texts: textAnswers_(ctx.items, ctx.rows),
+      wordcloud: wordCloudData_(ctx.items, ctx.rows),
       cqi: cqiSummary_(stats),
       likertLabels: LIKERT_LABELS
     };
@@ -431,16 +450,19 @@ function exportCsv(session, courseId) {
     var ctx = resultContext_(courseId);
     if (!ctx.ok) return ctx;
     if (ctx.locked) return lockedResult_(ctx);
-    var header = ['번호', '제출일'].concat(ctx.items.map(function (it, i) {
+    // 소규모 집단이 생기는 드롭다운(성별 등) 열은 응답자 특정 위험이 있어 제외합니다.
+    var cols = ctx.items.filter(function (it) { return it.type !== 'select' || selectGroups_(it, ctx.rows, ctx.minN).safe; });
+    var omitted = ctx.items.length - cols.length;
+    var header = ['번호', '제출일'].concat(cols.map(function (it, i) {
       return (i + 1) + '. [' + it.domain + '] ' + it.text + (it.reverse ? ' (역문항·원점수)' : '');
     }));
     var lines = [header];
     shuffle_(ctx.rows.slice()).forEach(function (r, i) {
-      lines.push([i + 1, dateOnly_(r.submitted_date)].concat(ctx.items.map(function (it) {
+      lines.push([i + 1, dateOnly_(r.submitted_date)].concat(cols.map(function (it) {
         return r[it.item_id] == null ? '' : r[it.item_id];
       })));
     });
-    return { ok: true, filename: exportName_(ctx.course, '원자료') + '.csv', content: toCsv_(lines) };
+    return { ok: true, filename: exportName_(ctx.course, '원자료') + '.csv', content: toCsv_(lines), omitted: omitted };
   });
 }
 
@@ -455,14 +477,14 @@ function exportCqi(session, courseId) {
     var c = ctx.summary;
     var lines = [
       ['CQI 요약표', c.course_name],
-      ['학년도·학기', c.year + '학년도 ' + c.semester + '학기', '학년', c.grade, '분반', c.section],
+      ['학년도·학기', c.year + '학년도 ' + c.semester + '학기', '학과', c.department, '학년', c.grade, '분반', c.section, '수업 방식', c.delivery_mode],
       ['응답 수', ctx.rows.length, '수강인원', c.enrollment, '응답률(%)', c.response_rate],
       ['전체 평균(5점)', stats.overall == null ? '' : stats.overall],
       [],
-      ['영역', '문항 수', '평균', '표준편차', '해석']
+      ['영역', '문항 수', '평균', '표준편차', '긍정 응답률(%)', '해석']
     ];
     stats.domains.forEach(function (d) {
-      lines.push([d.domain, d.item_count, d.mean, d.sd, interpretMean_(d.mean)]);
+      lines.push([d.domain, d.item_count, d.mean, d.sd, d.pos_pct, interpretMean_(d.mean)]);
     });
     lines.push([]);
     lines.push(['구분', '영역', '문항', '평균', '표준편차']);
@@ -507,10 +529,15 @@ function saveSettings(session, data) {
     var minN = Math.floor(Number(data.min_responses));
     if (!name) return { ok: false, code: 'VALIDATION', field: 'professor_name' };
     if (!(minN >= APP.MIN_RESPONSES_FLOOR && minN <= 50)) return { ok: false, code: 'VALIDATION', field: 'min_responses' };
+    var depts = (Array.isArray(data.departments) ? data.departments : String(data.departments || '').split(/\n|,/))
+      .map(function (d) { return cleanText_(d, 40); }).filter(String);
+    depts = depts.filter(function (d, i) { return depts.indexOf(d) === i; }).slice(0, 30);
+    if (!depts.length) return { ok: false, code: 'VALIDATION', field: 'departments' };
     withLock_(function () {
       setSetting_('professor_name', name);
       setSetting_('affiliation', aff);
       setSetting_('min_responses', minN);
+      setSetting_('departments', depts.join('\n'));
     });
     return { ok: true };
   });
@@ -529,7 +556,7 @@ function resultContext_(courseId) {
     ok: true,
     course: course,
     summary: courseSummary_(course, rows.length, now, webAppUrl_()),
-    items: getItems_(course.course_id),
+    items: itemsForCourse_(course),
     rows: rows,
     minN: minN,
     now: now,
@@ -578,9 +605,11 @@ function computeStats_(items, rows) {
       base.mean = round2_(mean_(scores));
       base.sd = round2_(sd_(scores));
       base.dist = dist;
+      base.sdist = it.reverse ? dist.slice().reverse() : dist.slice(); // 점수 기준 분포(역문항 환산)
+      polarity_(base, base.sdist);
       return base;
     }
-    if (it.type === 'single' || it.type === 'multi') {
+    if (it.type === 'single' || it.type === 'multi' || it.type === 'select') {
       var counts = {};
       it.options.forEach(function (o) { counts[o] = 0; });
       var answered = 0;
@@ -608,11 +637,119 @@ function computeStats_(items, rows) {
   });
   var domains = order.map(function (d) {
     var means = byDomain[d].map(function (s) { return s.mean; });
-    return { domain: d, item_count: means.length, mean: round2_(mean_(means)), sd: round2_(domainSd_(byDomain[d], items, rows)) };
+    var dist = [0, 0, 0, 0, 0];
+    byDomain[d].forEach(function (s) { s.sdist.forEach(function (n, i) { dist[i] += n; }); });
+    return polarity_({ domain: d, item_count: means.length, mean: round2_(mean_(means)), sd: round2_(domainSd_(byDomain[d], items, rows)), dist: dist }, dist);
   });
-  var allMeans = itemStats.filter(function (s) { return s.type === 'likert5' && s.mean != null; })
-    .map(function (s) { return s.mean; });
-  return { items: itemStats, domains: domains, overall: round2_(mean_(allMeans)) };
+  var likert = itemStats.filter(function (s) { return s.type === 'likert5' && s.mean != null; });
+  var allMeans = likert.map(function (s) { return s.mean; });
+  var pick = function (re) {
+    var s = likert.filter(function (x) { return re.test(x.text); })[0];
+    return s ? { text: s.text, mean: s.mean, pos_pct: s.pos_pct, n: s.n } : null;
+  };
+  var total = [0, 0, 0, 0, 0];
+  likert.forEach(function (s) { s.sdist.forEach(function (n, i) { total[i] += n; }); });
+  return {
+    items: itemStats,
+    domains: domains,
+    overall: round2_(mean_(allMeans)),
+    overall_pos_pct: polarity_({}, total).pos_pct,
+    kpis: { satisfaction: pick(/만족/), recommend: pick(/추천/) }
+  };
+}
+
+/** 점수 분포로 긍정(4·5)·중립(3)·부정(1·2) 비율(%)을 붙입니다. */
+function polarity_(obj, sdist) {
+  var n = sdist.reduce(function (a, b) { return a + b; }, 0);
+  var pct = function (x) { return n ? Math.round(x / n * 1000) / 10 : null; };
+  obj.pos_pct = pct(sdist[3] + sdist[4]);
+  obj.neu_pct = pct(sdist[2]);
+  obj.neg_pct = pct(sdist[0] + sdist[1]);
+  return obj;
+}
+
+/**
+ * 드롭다운 문항(성별 등)의 집단 구성. 미응답 포함 어느 집단이든 1명 이상 minN명 미만이면 safe=false.
+ * (작은 집단은 전체 평균과의 차이로 개인 응답이 역산될 수 있으므로 모두 숨깁니다.)
+ */
+function selectGroups_(item, rows, minN) {
+  var groups = {}, none = [];
+  item.options.forEach(function (o) { groups[o] = []; });
+  rows.forEach(function (r) {
+    var v = String(r[item.item_id] == null ? '' : r[item.item_id]);
+    if (groups.hasOwnProperty(v)) groups[v].push(r); else none.push(r);
+  });
+  var sizes = Object.keys(groups).map(function (k) { return groups[k].length; }).concat([none.length]);
+  var nonEmpty = item.options.filter(function (o) { return groups[o].length > 0; }).length;
+  var safe = nonEmpty >= 2 && sizes.every(function (n) { return n === 0 || n >= minN; });
+  return { safe: safe, groups: groups, unanswered: none.length };
+}
+
+/** 드롭다운 문항별 집단 비교(예: 성별). 익명성 기준을 넘지 못하면 수치 없이 사유만 반환합니다. */
+function groupCompare_(items, rows, minN) {
+  var likertItems = items.filter(function (it) { return it.type === 'likert5'; });
+  return items.filter(function (it) { return it.type === 'select'; }).map(function (it) {
+    var g = selectGroups_(it, rows, minN);
+    if (!g.safe) return { item_id: it.item_id, text: it.text, suppressed: true, min_responses: minN };
+    return {
+      item_id: it.item_id, text: it.text, suppressed: false,
+      groups: it.options.filter(function (o) { return g.groups[o].length; }).map(function (o) {
+        var st = computeStats_(likertItems, g.groups[o]);
+        return { label: o, n: g.groups[o].length, overall: st.overall, pos_pct: st.overall_pos_pct, domains: st.domains.map(function (d) { return { domain: d.domain, mean: d.mean }; }) };
+      })
+    };
+  });
+}
+
+/* ───────────────────────────── 워드 클라우드 ───────────────────────────── */
+
+var KO_PARTICLES = ['에서는', '에게서', '으로는', '으로도', '이라서', '이라도', '이라는', '라서', '에서', '에게', '한테', '으로', '까지', '부터', '처럼', '보다', '이나', '이랑', '에는', '에도', '와는', '과는', '이라', '이고',
+  '은', '는', '이', '가', '을', '를', '에', '의', '도', '로', '와', '과', '만', '랑', '라', '나'];
+// 서술어 어미(2글자 이상 + '다'). '요·고·면·게' 같은 1글자 어미는 '필요·최고·비대면' 같은 명사와 겹쳐 제외합니다.
+var KO_PREDICATE = /(습니다|니다|어요|아요|해요|여요|네요|군요|세요|어서|아서|해서|지만|는데|면서|으면|다면|도록|었고|았고|했고|하게|하는|되는|있는|없는|좋은|같은|싶은|었던|았던|했던|겠고|다)$/;
+// 조사처럼 보이는 글자로 끝나는 명사(잘리면 안 되는 단어)
+var KO_KEEP = ['와이파이', '난이도', '이해도', '만족도', '참여도', '집중도', '정도', '속도', '태도', '제도', '시도', '강도', '빈도', '진도',
+  '평가', '휴가', '과제', '결과', '효과', '교과', '성과', '학과', '자료', '이론', '진로', '강의', '토의', '회의', '논의', '정의', '동의',
+  '모의', '주의', '아이', '디스플레이', '지도', '도구', '문제', '주제', '실제', '경제', '체계', '관계', '단계', '기기',
+  '비대면', '대면', '화면', '측면', '보고서', '계획서', '강의계획서', '설명서', '참고', '최고'];
+var KO_STOP = ['수업', '강의', '교수님', '교수', '학생', '정말', '너무', '조금', '많이', '매우', '진짜', '그냥', '그리고', '하지만', '그래서', '이번', '다음', '학기',
+  '부분', '생각', '느낌', '경우', '정도', '때문', '자주', '올려', '늘려', '해주', '주세요', '있으면', '있었으면', '했으면',
+  '다른', '많아', '많이', '많은', '알려', '겹치', '고르지', '주가', '있어', '없어', '같이', '함께', '위주', '대해', '더욱', '계속', '빨리', '좋겠', '어려', '쉬웠', '쉽게', '다뤄', '따라', '만들', '들어', '이것', '그것', '저것', '우리', '저희', '제가', '모든', '항상', '가장', '좀더', '보다', '없음', '없다', '있음', '해서', '대한', '관련', '통해', '위해', '여러', '것들', '좋았', '같아요'];
+
+/** 한국어 응답에서 명사 위주의 단어 빈도를 셉니다(형태소 분석기 없이 조사 제거·서술어 제외 휴리스틱). */
+function wordFreq_(texts, limit) {
+  var counts = {};
+  texts.forEach(function (t) {
+    String(t).replace(/wi-?fi/gi, '와이파이').replace(/e-?mr/gi, 'EMR')
+      .replace(/[^0-9A-Za-z가-힣\s]/g, ' ').split(/\s+/).forEach(function (raw) {
+      if (!raw) return;
+      var w = raw;
+      if (/[가-힣]/.test(w)) {
+        if (w.length >= 3 && /한$/.test(w)) return; // 필요한·부족한 등 관형형
+        if (KO_KEEP.indexOf(w) < 0 && (KO_PREDICATE.test(w) || (w.length >= 3 && /([요히고할면]|[겨져워려와]서)$/.test(w)))) return; // 서술어·부사 제외
+        for (var i = 0; i < KO_PARTICLES.length && KO_KEEP.indexOf(w) < 0; i++) {
+          var p = KO_PARTICLES[i];
+          if (w.length - p.length >= 2 && w.slice(-p.length) === p) { w = w.slice(0, -p.length); break; }
+        }
+      }
+      if (/^[A-Za-z0-9]+$/.test(w)) w = w.toUpperCase();
+      if (w.length < 2 || /^\d+$/.test(w) || KO_STOP.indexOf(w) >= 0) return;
+      counts[w] = (counts[w] || 0) + 1;
+    });
+  });
+  return Object.keys(counts).map(function (w) { return { w: w, n: counts[w] }; })
+    .sort(function (a, b) { return (b.n - a.n) || a.w.localeCompare(b.w); })
+    .slice(0, limit || 50);
+}
+
+function wordCloudData_(items, rows) {
+  var all = [], byItem = {};
+  items.filter(function (it) { return it.type === 'text'; }).forEach(function (it) {
+    var texts = rows.map(function (r) { return String(r[it.item_id] == null ? '' : r[it.item_id]).trim(); }).filter(String);
+    all = all.concat(texts);
+    byItem[it.item_id] = wordFreq_(texts, 40);
+  });
+  return { all: wordFreq_(all, 50), items: byItem };
 }
 
 /** 영역 표준편차: 응답자별 영역 평균 점수의 표준편차. */
@@ -650,7 +787,7 @@ function compareGroups_(ctx, kind) {
   all.forEach(function (c) {
     var rows = respBy[c.course_id] || [];
     if (resultLock_(c, rows.length, ctx.minN, ctx.now)) { excluded++; return; }
-    var st = computeStats_(itemsBy[c.course_id] || [], rows);
+    var st = computeStats_(filterScope_(itemsBy[c.course_id] || [], c), rows);
     groups.push({
       course_id: c.course_id,
       label: kind === 'section' ? (c.section + '반') : (c.year + '-' + c.semester + (c.section ? ' ' + c.section + '반' : '')),
@@ -729,7 +866,7 @@ function sanitizeAnswers_(items, answers) {
     if (it.type === 'likert5') {
       var n = Number(raw);
       if (raw !== '' && raw != null && n >= 1 && n <= 5 && Math.floor(n) === n) v = n;
-    } else if (it.type === 'single') {
+    } else if (it.type === 'single' || it.type === 'select') {
       if (typeof raw === 'string' && it.options.indexOf(raw) >= 0) v = asTextCell_(raw);
     } else if (it.type === 'multi') {
       if (Array.isArray(raw)) {
@@ -817,13 +954,16 @@ function normalizeCourse_(r) {
     access_code: String(r.access_code || ''),
     status: String(r.status || APP.STATUS.READY),
     result_open_date: toDate_(r.result_open_date),
+    department: String(r.department || ''),
+    delivery_mode: APP.DELIVERY.indexOf(String(r.delivery_mode)) >= 0 ? String(r.delivery_mode) : '대면',
     _row: r._row
   };
 }
 
 function courseToRow_(c) {
   return [c.course_id, guardFormula_(c.course_name), c.year, asTextCell_(c.semester), c.grade, asTextCell_(c.section),
-    c.enrollment, c.start_at, c.end_at, c.access_mode, asTextCell_(c.access_code), c.status, c.result_open_date || ''];
+    c.enrollment, c.start_at, c.end_at, c.access_mode, asTextCell_(c.access_code), c.status, c.result_open_date || '',
+    guardFormula_(c.department || ''), c.delivery_mode || '대면'];
 }
 
 function validateCourse_(d) {
@@ -834,9 +974,14 @@ function validateCourse_(d) {
   if (!(year >= 2000 && year <= 2100)) return err('year', '학년도를 확인하세요.');
   var sem = String(d.semester || '');
   if (APP.SEMESTERS.indexOf(sem) < 0) return err('semester', '학기를 선택하세요.');
-  var grade = d.grade === '' || d.grade == null ? '' : Math.floor(Number(d.grade));
-  if (grade !== '' && !(grade >= 1 && grade <= 6)) return err('grade', '학년은 1~6입니다.');
-  var section = cleanText_(d.section, 20);
+  var grade = Math.floor(Number(d.grade));
+  if (APP.GRADES.indexOf(grade) < 0) return err('grade', '학년(1~4)을 선택하세요.');
+  var section = String(d.section == null ? '' : d.section).trim().toUpperCase();
+  if (APP.SECTIONS.indexOf(section) < 0) return err('section', '반(A~F)을 선택하세요.');
+  var department = cleanText_(d.department, 40);
+  if (!department) return err('department', '학과를 선택하세요.');
+  var delivery = String(d.delivery_mode || '대면');
+  if (APP.DELIVERY.indexOf(delivery) < 0) return err('delivery_mode', '수업 방식을 선택하세요.');
   var enroll = Math.floor(Number(d.enrollment));
   if (!(enroll >= 1 && enroll <= 1000)) return err('enrollment', '수강인원은 1~1000명입니다.');
   var start = parseDT_(d.start_at), end = parseDT_(d.end_at);
@@ -855,7 +1000,8 @@ function validateCourse_(d) {
     ok: true,
     course: {
       course_name: name, year: year, semester: sem, grade: grade, section: section, enrollment: enroll,
-      start_at: start, end_at: end, access_mode: mode, access_code: code, result_open_date: open
+      start_at: start, end_at: end, access_mode: mode, access_code: code, result_open_date: open,
+      department: department, delivery_mode: delivery
     }
   };
 }
@@ -897,6 +1043,8 @@ function courseSummary_(c, n, now, url) {
     result_open_date: c.result_open_date ? fmtD_(c.result_open_date) : '',
     response_count: n,
     response_rate: c.enrollment ? Math.round(n / c.enrollment * 1000) / 10 : 0,
+    department: c.department,
+    delivery_mode: c.delivery_mode,
     hours_left: status === APP.STATUS.OPEN && hoursLeft != null ? Math.round(hoursLeft * 10) / 10 : null,
     link: url ? url + '?c=' + encodeURIComponent(c.course_id) : ''
   };
@@ -908,6 +1056,8 @@ function publicCourse_(c, items, settings) {
   return {
     course_id: c.course_id,
     course_name: c.course_name,
+    department: c.department,
+    delivery_mode: c.delivery_mode,
     year: c.year,
     semester: c.semester,
     grade: c.grade,
@@ -944,8 +1094,24 @@ function normalizeItem_(r) {
     required: toBool_(r.required),
     order: Number(r.order) || 0,
     reverse: type === 'likert5' && toBool_(r.reverse),
-    options: String(r.options || '').split('|').map(function (s) { return s.trim(); }).filter(String)
+    options: String(r.options || '').split('|').map(function (s) { return s.trim(); }).filter(String),
+    scope: String(r.scope || '') === 'online' ? 'online' : ''
   };
+}
+
+/** 대면 수업이면 온라인 전용 문항(scope=online)을 제외합니다. */
+function filterScope_(items, course) {
+  if (!course || course.delivery_mode !== '대면') return items;
+  return items.filter(function (it) { return it.scope !== 'online'; });
+}
+
+function itemsForCourse_(course) {
+  return filterScope_(getItems_(course.course_id), course);
+}
+
+function departments_(settings) {
+  var list = String(settings.departments || '간호학과').split(/\n|,/).map(function (s) { return s.trim(); }).filter(String);
+  return list.length ? list : ['간호학과'];
 }
 
 function publicItem_(it) {
@@ -957,7 +1123,7 @@ function publicItem_(it) {
 
 function itemToRow_(it) {
   return [it.item_id, it.course_id, guardFormula_(it.domain), guardFormula_(it.text), it.type,
-    !!it.required, it.order, !!it.reverse, guardFormula_(it.options.join(' | '))];
+    !!it.required, it.order, !!it.reverse, guardFormula_(it.options.join(' | ')), it.scope === 'online' ? 'online' : ''];
 }
 
 function validateItem_(d, idx) {
@@ -970,7 +1136,7 @@ function validateItem_(d, idx) {
   var text = cleanText_(d.text, APP.ITEM_TEXT_MAX).replace(/\n+/g, ' ');
   if (!text) return err('문항 내용을 입력하세요.');
   var options = [];
-  if (type === 'single' || type === 'multi') {
+  if (type === 'single' || type === 'multi' || type === 'select') {
     var raw = Array.isArray(d.options) ? d.options : String(d.options || '').split(/\n|\|/);
     var seen = {};
     raw.forEach(function (o) {
@@ -983,16 +1149,17 @@ function validateItem_(d, idx) {
     ok: true,
     item: {
       domain: domain, text: text, type: type, required: !!d.required,
-      reverse: type === 'likert5' && !!d.reverse, options: options
+      reverse: type === 'likert5' && !!d.reverse, options: options,
+      scope: d.scope === 'online' ? 'online' : ''
     }
   };
 }
 
-function copyItems_(fromId, toId) {
+function copyItems_(fromId, toId, skipOnline) {
   var all = readTable_(APP.SHEETS.ITEMS);
   var taken = {};
   all.rows.forEach(function (r) { taken[String(r.item_id)] = true; });
-  var src = getItems_(fromId);
+  var src = getItems_(fromId).filter(function (it) { return !(skipOnline && it.scope === 'online'); });
   if (!src.length) return 0;
   var rows = src.map(function (it, i) {
     var copy = JSON.parse(JSON.stringify(it));
@@ -1004,6 +1171,35 @@ function copyItems_(fromId, toId) {
   });
   all.sheet.getRange(all.sheet.getLastRow() + 1, 1, rows.length, HEADERS.Items.length).setValues(rows);
   return rows.length;
+}
+
+/**
+ * 비대면·혼합으로 바뀐 교과목에 온라인 문항이 하나도 없으면, 공통 문항 은행의 온라인 문항을
+ * 서술형 앞에 넣습니다. 응답이 이미 있으면 설문이 중간에 바뀌므로 넣지 않습니다.
+ */
+function addOnlineItems_(courseId) {
+  var items = getItems_(courseId);
+  if (items.some(function (it) { return it.scope === 'online'; })) return 0;
+  if (readResponses_(courseId).length > 0) return 0;
+  var online = getItems_(APP.TEMPLATE_ID).filter(function (it) { return it.scope === 'online'; });
+  if (!online.length) return 0;
+  var at = items.findIndex ? items.findIndex(function (it) { return it.type === 'text' || it.type === 'select'; }) : -1;
+  if (at < 0) at = items.length;
+  var merged = items.slice(0, at).concat(online.map(function (it) { var c = JSON.parse(JSON.stringify(it)); c.item_id = ''; return c; }), items.slice(at));
+  var all = readTable_(APP.SHEETS.ITEMS);
+  var taken = {};
+  all.rows.forEach(function (r) { taken[String(r.item_id)] = true; });
+  var rows = merged.map(function (it, i) {
+    var c = JSON.parse(JSON.stringify(it));
+    if (!c.item_id) { c.item_id = newItemId_(taken); taken[c.item_id] = true; }
+    c.course_id = courseId;
+    c.order = i + 1;
+    return itemToRow_(c);
+  });
+  var kept = all.rows.filter(function (r) { return String(r.course_id) !== courseId; })
+    .map(function (r) { return HEADERS.Items.map(function (h) { return r[h] == null ? '' : r[h]; }); });
+  rewriteBody_(all.sheet, HEADERS.Items.length, kept.concat(rows));
+  return online.length;
 }
 
 function getTokenStats_() {

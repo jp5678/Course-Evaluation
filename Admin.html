@@ -48,9 +48,12 @@
     const view = document.getElementById('view');
     const tabsEl = document.getElementById('tabs');
     const SESSION_KEY = 'ces:admin';
-    const DOMAINS = ['A. 강의 설계', 'B. 교수 방법', 'C. 평가', 'D. 학습성과(CLO)', 'E. 디지털·AI 활용', 'F. 종합', '서술형'];
-    const TYPES = { likert5: '5점 리커트', single: '단일 선택', multi: '복수 선택', text: '서술형' };
+    const DOMAINS = ['A. 강의 설계', 'B. 교수학습방법', 'C. 평가 및 과제', 'D. 학습성과(CLO)', 'E. 학습 환경', 'F. 디지털·AI 활용', 'G. 종합', 'H. 온라인(비대면) 강의', '서술형', '응답자 정보'];
+    const TYPES = { likert5: '5점 리커트', single: '단일 선택', multi: '복수 선택', select: '드롭다운', text: '서술형' };
     const SEMS = ['1', '여름', '2', '겨울'];
+    const GRADES = [1, 2, 3, 4];
+    const SECTIONS = ['A', 'B', 'C', 'D', 'E', 'F'];
+    const DELIVERY = ['대면', '비대면', '혼합'];
     const TABS = [
       ['dashboard', 'layout-dashboard', '대시보드'],
       ['courses', 'book-open', '교과목'],
@@ -69,7 +72,9 @@
       itemsDirty: false,
       resultsCourse: '',
       results: null,
-      charts: []
+      charts: [],
+      wcKey: 'all',
+      wcWord: null
     };
 
     /* ───── 서버 호출(세션 자동 첨부, 만료 시 로그인 화면) ───── */
@@ -91,7 +96,9 @@
     const courseById = (id) => (A.data ? A.data.courses.find((c) => c.course_id === id) : null);
     const dt = (s) => (s ? s.replace('T', ' ').replace(/-/g, '.') : '');
     const term = (c) => `${c.year}-${c.semester}학기`;
-    const termFull = (c) => [term(c), c.grade ? c.grade + '학년' : '', c.section ? c.section + '반' : ''].filter(Boolean).join(' · ');
+    const termFull = (c) => [term(c), c.grade ? c.grade + '학년' : '', c.section ? c.section + '반' : '', c.delivery_mode && c.delivery_mode !== '대면' ? c.delivery_mode : ''].filter(Boolean).join(' · ');
+    const selectHtml = (name, id, list, value, fmtLabel) => `<select class="select" id="${id}" name="${name}">${list.map((v) =>
+      `<option value="${esc(v)}"${String(v) === String(value) ? ' selected' : ''}>${esc(fmtLabel ? fmtLabel(v) : v)}</option>`).join('')}</select>`;
     const fmt = (n, d) => CES.fmt(n, d);
 
     function statusBadge(c) {
@@ -258,61 +265,73 @@
       const withMean = cs.filter((c) => c.mean != null);
       const wN = withMean.reduce((a, c) => a + c.response_count, 0);
       const overall = wN ? withMean.reduce((a, c) => a + c.mean * c.response_count, 0) / wN : null;
+      const pos = wN ? withMean.reduce((a, c) => a + (c.pos_pct || 0) * c.response_count, 0) / wN : null;
       const soon = open.filter((c) => c.hours_left != null && c.hours_left <= 72).sort((a, b) => a.hours_left - b.hours_left);
-
-      const openList = open.length ? `<ul class="feature-list" style="margin-top:16px">${open.slice(0, 6).map((c) => `
-          <li><div class="grow">
-            <div class="row-between"><button type="button" class="btn ghost sm" style="padding:0;min-height:32px;font-weight:700" data-results="${esc(c.course_id)}">${esc(c.course_name)}</button>
-              <span class="small num">${c.response_count}/${c.enrollment}명</span></div>
-            <div class="small muted">${esc(termFull(c))}</div>
-            <div class="meter" role="img" aria-label="응답률 ${c.response_rate}%"><span style="width:${Math.min(100, c.response_rate)}%"></span></div>
-          </div></li>`).join('')}</ul>` :
-        `<p class="muted small" style="margin-top:12px">진행 중인 교과목이 없습니다.</p>`;
 
       setView(`
         <h1 class="sr-only">대시보드</h1>
         <div class="bento">
-          <section class="card span-2 row-2" aria-labelledby="d1">
+          <section class="card soft rise" style="--i:0" aria-labelledby="d1">
             <div class="card-title" id="d1">${icon('radio')}진행 중 교과목</div>
-            <div class="big-num" style="margin-top:12px">${open.length}<span class="unit">개</span></div>
-            ${openList}
+            <div class="big-num" style="margin-top:12px">${CES.count(open.length, 0)}<span class="unit">개</span></div>
+            <p class="small muted" style="margin-top:8px">전체 ${cs.length}개 · 누적 응답 <span class="num">${cs.reduce((a, c) => a + c.response_count, 0)}</span>건</p>
           </section>
-          <section class="card soft" aria-labelledby="d2">
+          <section class="card rise kpi-ring" style="--i:1" aria-labelledby="d2">
             <div class="card-title" id="d2">${icon('users')}응답률${open.length ? '' : ' (전체)'}</div>
-            <div class="big-num" style="margin-top:12px">${rate}<span class="unit">%</span></div>
-            <p class="small muted num" style="margin-top:8px">${resp} / ${enroll}명</p>
+            ${CES.ring(rate / 100, CES.count(rate, 1) + '<small style="font-size:.5em">%</small>', `${resp}/${enroll}명`, { label: `응답률 ${rate}%` })}
           </section>
-          <section class="card" aria-labelledby="d3">
+          <section class="card rise kpi-ring" style="--i:2" aria-labelledby="d3">
             <div class="card-title" id="d3">${icon('gauge')}전체 평균</div>
-            <div class="big-num" style="margin-top:12px">${overall == null ? '—' : fmt(overall)}<span class="unit">/ 5</span></div>
-            <p class="small muted" style="margin-top:8px">${overall == null ? '공개 기준을 충족한 교과목이 없습니다' : '공개 기준 충족 교과목, 응답 수 가중'}</p>
+            ${CES.ring(overall == null ? 0 : (overall - 1) / 4, overall == null ? '—' : CES.count(overall, 2), '5점 만점', { label: `전체 평균 ${overall == null ? '없음' : fmt(overall)}`, tone: 'ink' })}
+            <p class="sub">${overall == null ? '공개 기준을 충족한 교과목 없음' : '공개 기준 충족 교과목 · 응답 수 가중'}</p>
           </section>
-          <section class="card ${soon.length ? 'butter' : ''} span-2" aria-labelledby="d4">
-            <div class="card-title" id="d4" style="color:var(--ink)">${icon('alarm-clock')}마감 임박 (72시간 이내)</div>
+          <section class="card rise kpi-ring" style="--i:3" aria-labelledby="d4">
+            <div class="card-title" id="d4">${icon('smile')}긍정 응답률</div>
+            ${CES.ring(pos == null ? 0 : pos / 100, pos == null ? '—' : CES.count(pos, 0) + '<small style="font-size:.5em">%</small>', '4·5점 비율', { label: `긍정 응답률 ${pos == null ? '없음' : Math.round(pos) + '%'}` })}
+          </section>
+
+          <section class="card span-4 rise" style="--i:4" aria-labelledby="d5">
+            <div class="row-between"><div class="card-title" id="d5">${icon('layout-grid')}교과목 한눈에</div><span class="small muted">카드를 누르면 결과로 이동</span></div>
+            ${cs.length ? `<div class="bento" style="grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));margin-top:12px">${cs.map(pulseCard).join('')}</div>`
+              : `<div class="empty">${icon('book-open')}<p>교과목이 없습니다.</p></div>`}
+          </section>
+
+          <section class="card ${soon.length ? 'butter' : ''} span-2 rise" style="--i:5" aria-labelledby="d6">
+            <div class="card-title" id="d6" style="color:var(--ink)">${icon('alarm-clock')}마감 임박 (72시간 이내)</div>
             ${soon.length ? `<ul class="feature-list" style="margin-top:12px">${soon.map((c) => `
               <li><span class="badge hot"><span class="dot" aria-hidden="true"></span>${c.hours_left < 24 ? Math.max(0, Math.round(c.hours_left)) + '시간' : Math.round(c.hours_left / 24) + '일'} 남음</span>
               <div class="grow"><strong>${esc(c.course_name)}</strong> <span class="small">${esc(termFull(c))}</span>
               <div class="small num">응답 ${c.response_count}/${c.enrollment}명 · 마감 ${esc(dt(c.end_at))}</div></div></li>`).join('')}</ul>`
               : '<p class="small muted" style="margin-top:12px">곧 마감되는 교과목이 없습니다.</p>'}
           </section>
-          <section class="card span-2" aria-labelledby="d5">
-            <div class="card-title" id="d5">${icon('zap')}빠른 작업</div>
+          <section class="card span-2 rise" style="--i:6" aria-labelledby="d7">
+            <div class="card-title" id="d7">${icon('zap')}빠른 작업</div>
             <div class="row" style="margin-top:12px">
               <button type="button" class="btn primary sm" data-act="new-course">${icon('plus')}새 교과목</button>
               <button type="button" class="btn sm" data-go="items">${icon('list-checks')}문항 편집</button>
               <button type="button" class="btn sm" data-go="results">${icon('chart-column')}결과 보기</button>
             </div>
           </section>
-          <section class="card sky span-2" aria-labelledby="d6">
-            <div class="card-title" id="d6" style="color:var(--ink)">${icon('book-open')}전체 교과목</div>
-            <div class="row" style="margin-top:12px;gap:24px">
-              <div><div class="mid-num">${cs.length}</div><div class="small">등록</div></div>
-              <div><div class="mid-num">${cs.filter((c) => c.status === '준비').length}</div><div class="small">시작 전</div></div>
-              <div><div class="mid-num">${cs.filter((c) => c.status === '마감').length}</div><div class="small">마감</div></div>
-              <div><div class="mid-num">${cs.reduce((a, c) => a + c.response_count, 0)}</div><div class="small">누적 응답</div></div>
-            </div>
-          </section>
         </div>`);
+      CES.animateIn(view);
+    }
+
+    function pulseCard(c) {
+      const doms = (c.domains || []);
+      const lock = c.locked_reason === 'MIN_RESPONSES' ? `응답 ${c.response_count}/${A.data.settings.min_responses}명 — 결과 잠김`
+        : c.locked_reason === 'BEFORE_OPEN_DATE' ? `${esc(c.result_open_date)} 공개 예정` : '';
+      return `<button type="button" class="card interactive course-pulse" style="text-align:left;box-shadow:none" data-results="${esc(c.course_id)}"
+          aria-label="${esc(c.course_name)} ${esc(termFull(c))} 결과 보기">
+        ${CES.ring(c.response_rate / 100, Math.round(c.response_rate) + '%', '응답률', { small: true, label: `응답률 ${c.response_rate}%` })}
+        <span style="min-width:0;display:block">
+          <span class="meta" style="margin-bottom:4px;display:flex">${statusBadge(c)}</span>
+          <strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.course_name)}</strong>
+          <span class="tiny muted" style="display:block">${esc(termFull(c))}</span>
+          ${c.mean != null ? `<span class="row" style="gap:6px;margin-top:4px;display:flex"><span class="mid-num" style="font-size:1.5rem">${fmt(c.mean)}</span><span class="tiny muted">/ 5 · 긍정 ${Math.round(c.pos_pct)}%</span></span>` : `<span class="tiny muted" style="margin-top:6px;display:block">${icon('lock')} ${lock}</span>`}
+        </span>
+        ${doms.length ? `<span class="sparkbars" style="grid-column:1/-1;display:grid">${doms.map((d) => `<span class="sb" style="display:grid" title="${esc(d.domain)} ${fmt(d.mean)}"><span aria-hidden="true">${esc(d.domain.charAt(0))}</span><span class="sr-only">${esc(d.domain)} ${fmt(d.mean)}점</span>
+          <span class="t"><i data-w="${Math.max(0, (d.mean - 1) / 4 * 100)}%"></i></span><b>${fmt(d.mean, 1)}</b></span>`).join('')}</span>` : ''}
+      </button>`;
     }
 
     /* ───── 교과목 ───── */
@@ -337,7 +356,7 @@
           <div class="row-between"><div class="meta">${statusBadge(c)}<span class="badge">${esc(term(c))}</span></div>
             ${c.result_open_date ? `<span class="badge warn" title="결과공개일">${icon('calendar-clock')}${esc(c.result_open_date)}</span>` : ''}</div>
           <div><h2 id="cn-${id}">${esc(c.course_name)}</h2>
-            <p class="small muted">${esc([c.grade ? c.grade + '학년' : '', c.section ? c.section + '반' : '', '수강 ' + c.enrollment + '명', c.item_count + '문항'].filter(Boolean).join(' · '))}</p></div>
+            <p class="small muted">${esc([c.department, c.grade ? c.grade + '학년' : '', c.section ? c.section + '반' : '', c.delivery_mode, '수강 ' + c.enrollment + '명', c.item_count + '문항'].filter(Boolean).join(' · '))}</p></div>
           <p class="small num muted">${icon('calendar')} ${esc(dt(c.start_at))} ~ ${esc(dt(c.end_at))}</p>
           <div>
             <div class="row-between small"><span>응답</span><span class="num"><strong>${c.response_count}</strong> / ${c.enrollment}명 (${c.response_rate}%)</span></div>
@@ -363,10 +382,13 @@
       const now = new Date();
       const start = new Date(now); start.setMinutes(0, 0, 0); start.setHours(start.getHours() + 1);
       const end = new Date(now); end.setDate(end.getDate() + 7); end.setHours(23, 59, 0, 0);
+      const depts = A.data.settings.departments || ['간호학과'];
       c = Object.assign({
-        course_name: '', year: now.getFullYear(), semester: now.getMonth() < 7 ? '1' : '2', grade: '', section: 'A',
+        course_name: '', year: now.getMonth() < 2 ? now.getFullYear() - 1 : now.getFullYear(), semester: now.getMonth() >= 2 && now.getMonth() <= 7 ? '1' : '2',
+        grade: 1, section: 'A', department: depts[0], delivery_mode: '대면',
         enrollment: 40, start_at: localDT(start), end_at: localDT(end), access_mode: 'code', access_code: randCode(), result_open_date: ''
       }, c || {});
+      const deptList = depts.indexOf(c.department) < 0 && c.department ? depts.concat([c.department]) : depts;
       const sel = (v, x) => (String(v) === String(x) ? ' selected' : '');
       return `
         <form id="course-form" class="form-grid two" novalidate>
@@ -374,8 +396,11 @@
             <input class="input" id="f-name" name="course_name" maxlength="100" required value="${esc(c.course_name)}" autocomplete="off"></div>
           <div class="field"><label for="f-year">학년도</label><input class="input num" id="f-year" name="year" type="number" min="2000" max="2100" value="${esc(c.year)}"></div>
           <div class="field"><label for="f-sem">학기</label><select class="select" id="f-sem" name="semester">${SEMS.map((s) => `<option value="${s}"${sel(c.semester, s)}>${s}학기</option>`).join('')}</select></div>
-          <div class="field"><label for="f-grade">학년</label><select class="select" id="f-grade" name="grade"><option value="">선택 안 함</option>${[1, 2, 3, 4].map((g) => `<option value="${g}"${sel(c.grade, g)}>${g}학년</option>`).join('')}</select></div>
-          <div class="field"><label for="f-sec">분반</label><input class="input" id="f-sec" name="section" maxlength="20" value="${esc(c.section)}"></div>
+          <div class="field"><label for="f-dept">학과</label>${selectHtml('department', 'f-dept', deptList, c.department)}</div>
+          <div class="field"><label for="f-mode">수업 방식</label>${selectHtml('delivery_mode', 'f-mode', DELIVERY, c.delivery_mode)}
+            <p class="hint">비대면·혼합이면 온라인 강의 문항(H 영역)이 함께 표시됩니다.</p></div>
+          <div class="field"><label for="f-grade">학년</label>${selectHtml('grade', 'f-grade', GRADES, c.grade, (g) => g + '학년')}</div>
+          <div class="field"><label for="f-sec">반</label>${selectHtml('section', 'f-sec', SECTIONS, c.section, (x) => x + '반')}</div>
           <div class="field"><label for="f-enr">수강인원</label><input class="input num" id="f-enr" name="enrollment" type="number" min="1" max="1000" value="${esc(c.enrollment)}"></div>
           <div class="field"><label for="f-open">결과공개일 <span class="muted small">(선택)</span></label>
             <input class="input" id="f-open" name="result_open_date" type="date" value="${esc(c.result_open_date)}" aria-describedby="f-open-h">
@@ -470,7 +495,8 @@
           <form id="dup-form" class="form-grid two" novalidate>
             <div class="field"><label for="d-year">학년도</label><input class="input num" id="d-year" name="year" type="number" value="${nextSem.y}"></div>
             <div class="field"><label for="d-sem">학기</label><select class="select" id="d-sem" name="semester">${SEMS.map((s) => `<option value="${s}"${s === nextSem.s ? ' selected' : ''}>${s}학기</option>`).join('')}</select></div>
-            <div class="field"><label for="d-sec">분반</label><input class="input" id="d-sec" name="section" value="${esc(c.section)}" maxlength="20"></div>
+            <div class="field"><label for="d-sec">반</label>${selectHtml('section', 'd-sec', SECTIONS, c.section, (x) => x + '반')}</div>
+            <div class="field"><label for="d-mode">수업 방식</label>${selectHtml('delivery_mode', 'd-mode', DELIVERY, c.delivery_mode)}</div>
             <div class="field"><label for="d-open">결과공개일 <span class="muted small">(선택)</span></label><input class="input" id="d-open" name="result_open_date" type="date"></div>
             <div class="field"><label for="d-start">응답 시작일시</label><input class="input" id="d-start" name="start_at" type="datetime-local" value="${localDT(start)}"></div>
             <div class="field"><label for="d-end">응답 종료일시</label><input class="input" id="d-end" name="end_at" type="datetime-local" value="${localDT(end)}"></div>
@@ -699,7 +725,7 @@
 
     function itemRow(it, i, locked) {
       const dis = locked ? ' disabled' : '';
-      const choice = it.type === 'single' || it.type === 'multi';
+      const choice = it.type === 'single' || it.type === 'multi' || it.type === 'select';
       return `
         <div class="item-row" data-idx="${i}">
           <div class="stack" style="margin:0">
@@ -720,6 +746,7 @@
             <div class="item-tools">
               <label class="check small"><input type="checkbox" data-f="required"${it.required ? ' checked' : ''}${dis}> 필수</label>
               ${it.type === 'likert5' ? `<label class="check small"><input type="checkbox" data-f="reverse"${it.reverse ? ' checked' : ''}${dis}> 역문항(점수 역환산)</label>` : ''}
+              <label class="check small"><input type="checkbox" data-f="scope"${it.scope === 'online' ? ' checked' : ''}${dis}> 비대면·혼합 수업에서만</label>
               <div class="grow"></div>
               ${locked ? '' : `
               <button type="button" class="btn ghost sm icon" data-move="-1" aria-label="${i + 1}번 문항 위로"${i === 0 ? ' disabled' : ''}>${icon('arrow-up')}</button>
@@ -775,7 +802,7 @@
       $('[data-add]', m.el).addEventListener('click', () => {
         const ls = lines();
         if (!ls.length) { CES.toast('CLO를 1개 이상 입력하세요.', 'error'); return; }
-        let at = A.items.findIndex((it) => /^[E-Z]\./.test(it.domain) || it.domain === '서술형');
+        let at = A.items.findIndex((it) => /^[E-Z]\./.test(it.domain) || it.domain === '서술형' || it.type === 'select');
         if (at < 0) at = A.items.length;
         A.items.splice(at, 0, ...ls.map((t) => ({ domain: DOMAINS[3], text: t, type: 'likert5', required: true, reverse: false, options: [] })));
         markDirty();
@@ -836,6 +863,7 @@
       const f = e.target.dataset.f;
       if (!it || !f) return;
       if (f === 'required' || f === 'reverse') it[f] = e.target.checked;
+      else if (f === 'scope') it.scope = e.target.checked ? 'online' : '';
       else if (f === 'options') it.options = e.target.value.split('\n').map((s) => s.trim()).filter(Boolean);
       else if (f !== 'type') it[f] = e.target.value;
       markDirty();
@@ -845,7 +873,7 @@
       if (!row || e.target.dataset.f !== 'type') return;
       const it = A.items[Number(row.dataset.idx)];
       it.type = e.target.value;
-      if ((it.type === 'single' || it.type === 'multi') && (!it.options || it.options.length < 2)) it.options = ['예', '아니요'];
+      if ((it.type === 'single' || it.type === 'multi' || it.type === 'select') && (!it.options || it.options.length < 2)) it.options = ['예', '아니요'];
       if (it.type !== 'likert5') it.reverse = false;
       markDirty();
       drawItems();
@@ -909,7 +937,7 @@
             <select class="select" id="res-course">${courseOptions(A.resultsCourse, false)}</select></div>
         </div>
         <div id="res-body"><div class="bento"><div class="skeleton span-2"></div><div class="skeleton span-2"></div></div></div>`, true);
-      $('#res-course').addEventListener('change', (e) => { A.resultsCourse = e.target.value; loadResults(); });
+      $('#res-course').addEventListener('change', (e) => { A.resultsCourse = e.target.value; A.wcWord = null; A.wcKey = 'all'; loadResults(); });
       loadResults();
     }
 
@@ -922,7 +950,12 @@
       if (!body) return;
       body.innerHTML = res.locked ? lockedHtml(res) : resultsHtml(res);
       CES.icons();
-      if (!res.locked) drawCharts(res);
+      if (!res.locked) {
+        if (A.wcKey !== 'all' && !res.texts.some((t) => t.item_id === A.wcKey)) A.wcKey = 'all';
+        drawCharts(res);
+        drawWordCloud();
+        CES.animateIn(body);
+      }
     }
 
     function lockedHtml(r) {
@@ -958,22 +991,72 @@
       const best = doms[0], worst = doms[doms.length - 1];
       const likert = st.items.filter((s) => s.type === 'likert5');
       const choices = st.items.filter((s) => s.type === 'single' || s.type === 'multi');
+      void best; void worst;
       const legend = `<div class="legend" aria-hidden="true">${r.likertLabels.map((l, i) => `<span><i style="background:var(--lk${i + 1})"></i>${i + 1} ${esc(l)}</span>`).join('')}</div>`;
       const sem = r.semester_compare, sec = r.section_compare;
 
-      return `<div class="bento">
-        <section class="card" aria-labelledby="k1"><div class="card-title" id="k1">${icon('users')}응답 수</div>
-          <div class="big-num" style="margin-top:12px">${r.n}<span class="unit">명</span></div>
-          <p class="small muted num" style="margin-top:8px">수강 ${c.enrollment}명 · 응답률 ${c.response_rate}%</p></section>
-        <section class="card soft" aria-labelledby="k2"><div class="card-title" id="k2">${icon('gauge')}전체 평균</div>
-          <div class="big-num" style="margin-top:12px">${fmt(st.overall)}<span class="unit">/ 5</span></div>
-          <p class="small" style="margin-top:8px">${esc(interpret(st.overall))}${likert.some((s) => s.reverse) ? ' · 역문항 환산' : ''}</p></section>
-        <section class="card span-2" aria-labelledby="k3"><div class="card-title" id="k3">${icon('arrow-up-down')}영역 최고·최저</div>
-          ${best ? `<div class="row" style="margin-top:12px;gap:24px">
-            <div><span class="badge open">최고</span><div class="mid-num" style="margin-top:6px">${fmt(best.mean)}</div><div class="small">${esc(best.domain)}</div></div>
-            <div><span class="badge hot"><span class="dot" aria-hidden="true"></span>최저</span><div class="mid-num" style="margin-top:6px">${fmt(worst.mean)}</div><div class="small">${esc(worst.domain)}</div></div>
-          </div>` : '<p class="small muted">리커트 문항이 없습니다.</p>'}</section>
+      const k = st.kpis || {};
+      const sorted = st.domains.slice().sort((x, y) => y.mean - x.mean);
+      const textItems = r.texts.filter((t) => t.answers.length);
+      const kpiRing = (i, ic, title, frac, center, cap, sub, label, tone) => `
+        <section class="card kpi-ring rise" style="--i:${i}" aria-label="${esc(title)}">
+          <div class="card-title">${icon(ic)}${esc(title)}</div>
+          ${CES.ring(frac, center, cap, { label: label, tone: tone })}
+          <p class="sub">${sub}</p>
+        </section>`;
+      const pctRing = (i, ic, title, kp, fallback) => kp
+        ? kpiRing(i, ic, title, kp.pos_pct / 100, CES.count(kp.pos_pct, 0) + '<small style="font-size:.5em">%</small>', '긍정(4·5점)',
+          `평균 ${fmt(kp.mean)} · ${esc(kp.text)}`, `${title} 긍정 응답 ${kp.pos_pct}%, 평균 ${fmt(kp.mean)}`)
+        : kpiRing(i, ic, title, 0, '—', '', fallback, title + ' 문항 없음');
 
+      return `<div class="section-head"><h2>${icon('sparkles')} 한눈에 보기</h2></div>
+      <div class="bento">
+        ${kpiRing(0, 'users', '응답률', c.response_rate / 100, CES.count(c.response_rate, 0) + '<small style="font-size:.5em">%</small>', `${r.n}/${c.enrollment}명`,
+          `${esc(c.course_name)} · ${esc(termFull(c))}`, `응답률 ${c.response_rate}%, ${r.n}명 응답`)}
+        ${kpiRing(1, 'gauge', '전체 평균', (st.overall - 1) / 4, CES.count(st.overall, 2), '5점 만점',
+          `${esc(interpret(st.overall))} · 긍정 ${st.overall_pos_pct}%`, `전체 평균 ${fmt(st.overall)}점`, 'ink')}
+        ${pctRing(2, 'smile', '전반적 만족도', k.satisfaction, '만족도 문항이 없습니다')}
+        ${pctRing(3, 'thumbs-up', '추천 의향', k.recommend, '추천 문항이 없습니다')}
+
+        <section class="card span-2 rise" style="--i:4" aria-labelledby="h1">
+          <div class="row-between"><div class="card-title" id="h1">${icon('chart-bar-decreasing')}영역별 평균</div>
+            <span class="tiny muted">세로선 = 전체 평균 ${fmt(st.overall)}</span></div>
+          <div class="hbars" style="margin-top:14px">${sorted.map((d) => `
+            <div class="r"><span class="lab" title="${esc(d.domain)}">${esc(d.domain)}</span>
+              <div class="track" role="img" aria-label="${esc(d.domain)} 평균 ${fmt(d.mean)}점">
+                <div class="fill${d.mean < 3.5 ? ' low' : ''}" data-w="${((d.mean - 1) / 4 * 100).toFixed(1)}%"></div>
+                <span class="ref" style="left:${((st.overall - 1) / 4 * 100).toFixed(1)}%" aria-hidden="true"></span></div>
+              <span class="val">${fmt(d.mean)}</span></div>`).join('')}</div>
+          <p class="tiny muted" style="margin-top:10px">${icon('info')} 3.5 미만 영역은 코랄색으로 표시해 개선이 필요함을 알려 줍니다.</p>
+        </section>
+        <section class="card span-2 rise" style="--i:5" aria-labelledby="h2">
+          <div class="row-between"><div class="card-title" id="h2">${icon('chart-bar-stacked')}영역별 응답 분포</div>
+            <div class="legend" aria-hidden="true"><span><i style="background:var(--lk1)"></i>부정</span><span><i style="background:var(--lk3)"></i>보통</span><span><i style="background:var(--lk5)"></i>긍정</span></div></div>
+          <div class="hbars" style="margin-top:14px">${st.domains.map((d) => `
+            <div class="r"><span class="lab" title="${esc(d.domain)}">${esc(d.domain)}</span>
+              <div class="dist" role="img" aria-label="${esc(d.domain)}: 부정 ${d.neg_pct}%, 보통 ${d.neu_pct}%, 긍정 ${d.pos_pct}%">${d.dist.map((n, i) => n
+                ? `<span class="d${i + 1}" data-grow="${n}" style="flex:0 1 0" title="${i + 1}점 ${n}건"></span>` : '').join('')}</div>
+              <span class="val">${Math.round(d.pos_pct)}%</span></div>`).join('')}</div>
+          <p class="tiny muted" style="margin-top:10px">오른쪽 숫자는 긍정(4·5점) 응답 비율입니다. 역문항은 환산 점수 기준입니다.</p>
+        </section>
+
+        <section class="card span-4 rise" style="--i:6" aria-labelledby="h3">
+          <div class="row-between"><div class="card-title" id="h3">${icon('cloud')}서술형 워드 클라우드</div>
+            ${textItems.length ? `<div class="seg" role="group" aria-label="워드 클라우드 대상 문항">
+              <button type="button" data-wc="all" aria-pressed="${A.wcKey === 'all'}">전체</button>
+              ${textItems.map((t, i) => `<button type="button" data-wc="${esc(t.item_id)}" aria-pressed="${A.wcKey === t.item_id}" title="${esc(t.text)}">${esc(shortQ(t.text, i))}</button>`).join('')}
+            </div>` : ''}</div>
+          ${textItems.length ? `<div class="wc-box" id="wc" style="margin-top:8px"></div>
+            <div id="wc-hits" aria-live="polite"></div>
+            <p class="tiny muted">${icon('mouse-pointer-click')} 단어를 누르면 그 단어가 들어간 응답만 아래에 모아 보여 줍니다. 단어 크기는 언급 횟수입니다(형태소 분석기 없이 조사·서술어를 걸러 낸 근사치).</p>`
+            : '<p class="small muted" style="margin-top:12px">서술형 응답이 없습니다.</p>'}
+        </section>
+
+        ${(r.groups || []).map((g) => groupCard(g, st)).join('')}
+      </div>
+
+      <div class="section-head"><h2>${icon('microscope')} 상세 분석</h2></div>
+      <div class="bento">
         <section class="card span-2 row-2" aria-labelledby="k4"><div class="card-title" id="k4">${icon('radar')}영역별 평균</div>
           <div class="chart-box" style="margin-top:8px"><canvas id="radar" role="img" aria-label="영역별 평균 레이더 차트. 아래 표에 같은 값이 있습니다."></canvas></div>
           <div class="table-wrap"><table class="data"><caption class="sr-only">영역별 평균과 표준편차</caption>
@@ -1036,6 +1119,53 @@
       return `<ul class="quote-list" style="margin-top:8px">${head.map(li).join('')}</ul>` +
         (rest.length ? `<details style="margin-top:8px"><summary class="btn ghost sm" style="display:inline-flex">나머지 ${rest.length}건 더 보기</summary>
           <ul class="quote-list" style="margin-top:8px">${rest.map(li).join('')}</ul></details>` : '');
+    }
+
+    function shortQ(text, i) {
+      if (/도움/.test(text)) return '도움이 된 점';
+      if (/개선/.test(text)) return '개선할 점';
+      if (/바라/.test(text)) return '바라는 점';
+      return '문항 ' + (i + 1);
+    }
+
+    /** 드롭다운(성별 등) 집단 비교 카드. 소규모 집단이 있으면 수치 없이 사유만 표시합니다. */
+    function groupCard(g, st) {
+      if (g.suppressed) {
+        return `<section class="card span-2 rise" style="--i:7" aria-label="${esc(g.text)} 비교">
+          <div class="card-title">${icon('users-round')}${esc(g.text.replace(/\s*\(.*\)$/, ''))}별 비교</div>
+          <div class="callout info" style="margin-top:12px">${icon('shield-check')}<p class="small">어느 한 집단이라도 응답이 ${g.min_responses}명 미만이면 개인 응답이 드러날 수 있어
+          <strong>집단별 수치와 인원을 표시하지 않습니다.</strong> (원자료 CSV에서도 이 열은 제외됩니다.)</p></div></section>`;
+      }
+      return `<section class="card span-2 rise" style="--i:7" aria-label="${esc(g.text)} 비교">
+        <div class="card-title">${icon('users-round')}${esc(g.text.replace(/\s*\(.*\)$/, ''))}별 비교</div>
+        <div class="row" style="gap:28px;margin-top:12px;justify-content:center">${g.groups.map((x) => `<div class="kpi-ring">
+          ${CES.ring((x.overall - 1) / 4, fmt(x.overall), `${esc(x.label)} · ${x.n}명`, { small: false, label: `${x.label} 평균 ${fmt(x.overall)}점, ${x.n}명` })}
+          <span class="sub">긍정 ${Math.round(x.pos_pct)}%</span></div>`).join('')}</div>
+        ${compareTable(g.groups.map((x) => Object.assign({ label: x.label, n: x.n, overall: x.overall, domains: x.domains }, {})), st.domains)}
+      </section>`;
+    }
+
+    function drawWordCloud() {
+      const r = A.results;
+      const host = $('#wc');
+      if (!r || !host) return;
+      const words = A.wcKey === 'all' ? r.wordcloud.all : (r.wordcloud.items[A.wcKey] || []);
+      const pool = A.wcKey === 'all' ? r.texts.flatMap((t) => t.answers.map((a) => ({ q: t.text, a }))) :
+        (r.texts.find((t) => t.item_id === A.wcKey) || { answers: [] }).answers.map((a) => ({ q: '', a }));
+      const hits = $('#wc-hits');
+      const showHits = (w) => {
+        if (!w) { hits.innerHTML = ''; return; }
+        const re = new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'); // g 플래그 금지: test()가 lastIndex를 이어 써서 일부 응답을 놓침
+        const found = pool.filter((x) => re.test(x.a.replace(/wi-?fi/gi, '와이파이')));
+        hits.innerHTML = `<div class="row-between" style="margin:8px 0"><strong>‘${esc(w)}’이(가) 들어간 응답 <span class="num">${found.length}</span>건</strong>
+          <button type="button" class="btn ghost sm" data-wc-clear>${icon('x')}선택 해제</button></div>
+          <ul class="quote-list">${found.slice(0, 30).map((x) => `<li>${esc(x.a).replace(new RegExp(esc(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), (m) => `<mark>${m}</mark>`)}${x.q ? `<div class="tiny muted" style="margin-top:4px">${esc(x.q)}</div>` : ''}</li>`).join('')}</ul>`;
+        CES.icons();
+      };
+      const keep = A.wcWord;
+      A.wc = CES.wordCloud(host, words, { label: '서술형 응답 워드 클라우드', onSelect: (w) => { A.wcWord = w; showHits(w); } });
+      // 창 크기 변경으로 다시 그릴 때 선택한 단어 유지
+      if (!(keep && A.wc && A.wc.select(keep))) { A.wcWord = null; showHits(null); }
     }
 
     function compareTable(groups, domains) {
@@ -1127,6 +1257,7 @@
       restore();
       if (!res.ok) return fail(res);
       CES.download(res.filename, res.content, fn === 'exportText' ? 'text/plain' : 'text/csv');
+      if (res.omitted) CES.toast(`익명성 보호를 위해 소규모 집단이 있는 드롭다운 문항 ${res.omitted}개 열을 제외했습니다.`);
     }
 
     /* ───── 설정 ───── */
@@ -1140,6 +1271,9 @@
             <form id="set-form" class="form-grid" novalidate>
               <div class="field"><label for="s-name">교수명</label><input class="input" id="s-name" name="professor_name" maxlength="40" value="${esc(s.professor_name)}"></div>
               <div class="field"><label for="s-aff">소속(학교/학과)</label><input class="input" id="s-aff" name="affiliation" maxlength="80" value="${esc(s.affiliation)}"></div>
+              <div class="field"><label for="s-dept">학과 목록 (교과목 설정의 드롭다운)</label>
+                <textarea class="textarea" id="s-dept" name="departments" rows="3" style="min-height:90px" aria-describedby="s-dept-h">${esc((s.departments || []).join('\n'))}</textarea>
+                <p class="hint" id="s-dept-h">한 줄에 하나씩 입력하세요. 예: 간호학과</p></div>
               <div class="field"><label for="s-min">최소 공개 응답 수</label>
                 <input class="input num" id="s-min" name="min_responses" type="number" min="3" max="50" value="${s.min_responses}" aria-describedby="s-min-h">
                 <p class="hint" id="s-min-h">응답이 이 수보다 적으면 결과·비교·서술형을 숨깁니다(3~50, 권장 5 이상).</p></div>
@@ -1171,9 +1305,11 @@
         if (!res.ok) {
           if (res.field === 'min_responses') return CES.toast('최소 공개 응답 수는 3~50입니다.', 'error');
           if (res.field === 'professor_name') return CES.toast('교수명을 입력하세요.', 'error');
+          if (res.field === 'departments') return CES.toast('학과를 1개 이상 입력하세요.', 'error');
           return fail(res);
         }
-        Object.assign(A.data.settings, { professor_name: data.professor_name.trim(), affiliation: data.affiliation.trim(), min_responses: Number(data.min_responses) });
+        Object.assign(A.data.settings, { professor_name: data.professor_name.trim(), affiliation: data.affiliation.trim(), min_responses: Number(data.min_responses),
+          departments: data.departments.split('\n').map((x) => x.trim()).filter(Boolean) });
         $('#footer-owner').textContent = [A.data.settings.professor_name, A.data.settings.affiliation].filter(Boolean).join(' · ');
         CES.toast('설정을 저장했습니다.');
         refresh();
@@ -1201,6 +1337,13 @@
       if (t.dataset.results) { A.resultsCourse = t.dataset.results; return go('results'); }
       if (t.dataset.items) { A.itemsCourse = t.dataset.items; return go('items'); }
       if (t.dataset.export) return doExport(t.dataset.export, t);
+      if (t.dataset.wc) {
+        A.wcKey = t.dataset.wc;
+        A.wcWord = null;
+        $$('[data-wc]', view).forEach((b) => b.setAttribute('aria-pressed', b.dataset.wc === A.wcKey));
+        return drawWordCloud();
+      }
+      if (t.hasAttribute('data-wc-clear')) { if (A.wc) A.wc.clear(); A.wcWord = null; $('#wc-hits').innerHTML = ''; return; }
       if (t.dataset.copyUrl) return CES.copy(t.dataset.copyUrl);
       const row = t.closest('.item-row');
       if (row && t.dataset.move) return moveItem(Number(row.dataset.idx), Number(row.dataset.idx) + Number(t.dataset.move), `[data-move="${t.dataset.move}"]`);
@@ -1232,6 +1375,12 @@
         case 'save-items': return saveItems(t);
         default: return;
       }
+    });
+
+    let wcResize;
+    window.addEventListener('resize', () => {
+      clearTimeout(wcResize);
+      wcResize = setTimeout(() => { if (A.tab === 'results' && $('#wc')) drawWordCloud(); }, 250);
     });
 
     $('#logout-btn').addEventListener('click', () => signOut(false));

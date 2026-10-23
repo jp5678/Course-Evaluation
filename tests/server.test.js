@@ -6,7 +6,7 @@ const H = require('./helpers');
 
 const PIN = '246810';
 
-test('setup: 탭·헤더·기본 문항·샘플 교과목·시트 보호 생성(재실행해도 중복 없음)', () => {
+test('setup: 탭·헤더·기본 문항 은행·이번 학기 교과목 예시 2개·시트 보호(재실행해도 중복 없음)', () => {
   const { env, server } = H.makeServer();
   const st = env.__store.read();
   for (const name of ['Settings', 'Courses', 'Items', 'Tokens', 'Responses']) {
@@ -14,21 +14,40 @@ test('setup: 탭·헤더·기본 문항·샘플 교과목·시트 보호 생성(
     assert.deepEqual(st.sheets[name].values[0].slice(0, server.HEADERS[name].length), server.HEADERS[name]);
   }
   const tpl = server.getItems_('TEMPLATE');
-  assert.equal(tpl.length, 15, '기본 문항 15개(리커트 12 + 서술형 3)');
-  assert.equal(tpl.filter((i) => i.type === 'likert5').length, 12);
-  const demo = H.demoCourse(server);
-  assert.ok(demo, '샘플 교과목');
-  const demoItems = server.getItems_(demo.course_id);
-  assert.equal(demoItems.length, 17, '기본 15 + CLO 2');
-  assert.equal(demoItems.filter((i) => i.domain.startsWith('D.')).length, 2);
-  assert.ok(demoItems.findIndex((i) => i.domain.startsWith('D.')) > demoItems.findIndex((i) => i.domain.startsWith('C.')), 'CLO는 C 영역 뒤');
+  assert.equal(tpl.length, 25, '리커트 21 + 서술형 3 + 드롭다운 1');
+  const doms = [...new Set(tpl.map((i) => i.domain))];
+  assert.deepEqual(doms, ['A. 강의 설계', 'B. 교수학습방법', 'C. 평가 및 과제', 'E. 학습 환경', 'F. 디지털·AI 활용', 'G. 종합', 'H. 온라인(비대면) 강의', '서술형', '응답자 정보']);
+  assert.ok(tpl.some((i) => /유무선 인터넷/.test(i.text)) && tpl.some((i) => /실습실의 시설/.test(i.text)) && tpl.some((i) => /이론 강의실/.test(i.text)), '학습 환경 문항');
+  assert.equal(tpl.filter((i) => i.scope === 'online').length, 4, '온라인 전용 문항 4개');
+  const gender = tpl.find((i) => i.type === 'select');
+  assert.deepEqual(gender.options, ['남', '여']);
+  assert.equal(gender.required, false, '성별은 선택 응답');
+
+  const s = server.getSettingsMap_();
+  assert.equal(s.professor_name, '정종필');
+  assert.equal(s.affiliation, '청암대학교 간호학과');
+  const cs = server.getCourses_();
+  assert.deepEqual(cs.map((c) => [c.course_name, c.grade, c.section, c.department, c.delivery_mode]),
+    [['디지털리터러시와 AI활용', '1', 'A', '간호학과', '대면'], ['AI융합 간호정보학', '3', 'A', '간호학과', '혼합']]);
+  assert.ok(cs.every((c) => c.year === 2026 && c.semester === '2'), '2026학년도 2학기(오늘 기준)');
+  assert.equal(server.itemsForCourse_(cs[0]).length, 23, '대면: 온라인 문항 제외 + CLO 2');
+  assert.equal(server.itemsForCourse_(cs[1]).length, 27, '혼합: 온라인 문항 포함');
   assert.equal(st.sheets.Responses.protections[0].warningOnly, true, 'Responses 경고 보호');
   assert.equal(st.sheets.Tokens.protections[0].warningOnly, true, 'Tokens 경고 보호');
 
   server.setup();
-  assert.equal(server.getItems_('TEMPLATE').length, 15, '재실행 시 문항 중복 없음');
-  assert.equal(server.getCourses_().length, 1, '재실행 시 교과목 중복 없음');
-  assert.equal(server.getSettingsMap_().min_responses, 5, '최소 공개 응답 수 기본 5');
+  assert.equal(server.getItems_('TEMPLATE').length, 25, '재실행 시 문항 중복 없음');
+  assert.equal(server.getCourses_().length, 2, '재실행 시 교과목 중복 없음');
+});
+
+test('이전 버전 시트: setup이 빠진 열(학과·수업 방식·범위)을 끝에 추가', () => {
+  const { env, server } = H.makeServer({ setup: false });
+  const ss = env.SpreadsheetApp.getActiveSpreadsheet();
+  const old = server.HEADERS.Courses.slice(0, 13);
+  ss.insertSheet('Courses').getRange(1, 1, 1, old.length).setValues([old]);
+  server.setup();
+  const hdr = env.__store.read().sheets.Courses.values[0];
+  assert.deepEqual(hdr.slice(0, 15), server.HEADERS.Courses);
 });
 
 test('PIN: 해시(SHA-256+salt) 저장, 5회 실패 시 10분 잠금, 잠금 중 올바른 PIN도 거부', () => {
@@ -67,7 +86,7 @@ test('학생: 접속코드 확인 → 제출, 날짜만 저장(시각·식별정
   assert.equal(server.verifyAccess(c.course_id, 'WRONG').code, 'BAD_CODE');
   const v = server.verifyAccess(c.course_id, c.access_code.toLowerCase());
   assert.equal(v.ok, true, '대소문자 무시');
-  assert.equal(v.items.length, 17);
+  assert.equal(v.items.length, 23);
 
   const r = server.submitResponse(c.course_id, c.access_code, H.fullAnswers(v.items), 'nonce-aaaaaaaaaaaaaaaa');
   assert.equal(r.ok, true);
@@ -300,20 +319,115 @@ test('문항 편집: 응답 수집 후 잠금, 검증, 복제 시 새 ID', () =>
   assert.equal(server.getItems_(dup.course_id).length, 0, '삭제 시 문항도 삭제');
 });
 
-test('샘플 응답 30건 생성·삭제', () => {
+test('샘플 응답(교과목별 30건) 생성·삭제, 실제 응답이 있는 예시 교과목은 보존', () => {
   const { env, server } = H.makeServer({ pin: PIN });
   const r = server.generateSampleResponses();
   assert.equal(r.ok, true);
-  assert.equal(H.table(env, 'Responses').filter((x) => String(x.response_id).startsWith('SAMPLE-')).length, 30);
+  assert.equal(r.created, 60);
+  assert.equal(H.table(env, 'Responses').filter((x) => String(x.response_id).startsWith('SAMPLE-')).length, 60);
   const s = H.login(server, PIN);
-  const demo = H.demoCourse(server);
-  const res = server.getResults(s, demo.course_id);
-  assert.equal(res.locked, false);
-  assert.equal(res.n, 30);
+  const [c1, c2] = server.getCourses_();
+  assert.equal(server.getResults(s, c1.course_id).n, 30);
+  // 예시 교과목 2로 실제 응답 1건이 들어왔다고 가정
+  server.submitResponse(c2.course_id, c2.access_code, H.fullAnswers(server.itemsForCourse_(c2)));
   const d = server.deleteSampleData(true);
-  assert.equal(d.removed, 30);
-  assert.equal(H.table(env, 'Responses').length, 0);
-  assert.equal(H.demoCourse(server), undefined);
+  assert.equal(d.removed, 60);
+  assert.equal(d.keptCourses, 1);
+  assert.equal(H.table(env, 'Responses').length, 1, '실제 응답 보존');
+  assert.deepEqual(server.getCourses_().map((c) => c.course_name), ['AI융합 간호정보학']);
+});
+
+test('수업 방식: 대면은 온라인 문항 숨김, 비대면으로 바꾸면 온라인 문항 추가(응답 전)', () => {
+  const { server } = H.makeServer({ pin: PIN });
+  const s = H.login(server, PIN);
+  const id = H.createCourse(server, s, { delivery_mode: '대면' });
+  const c = () => server.findCourse_(id);
+  assert.equal(server.itemsForCourse_(c()).filter((i) => i.scope === 'online').length, 0);
+  assert.equal(server.verifyAccess(id, 'ABC123').items.some((i) => /온라인/.test(i.domain)), false);
+  const cur = server.getAdminBootstrap(s).courses.find((x) => x.course_id === id);
+  assert.equal(server.saveCourse(s, Object.assign({}, cur, { delivery_mode: '비대면' })).ok, true);
+  const items = server.itemsForCourse_(c());
+  assert.equal(items.filter((i) => i.scope === 'online').length, 4);
+  const firstOnline = items.findIndex((i) => i.scope === 'online');
+  assert.ok(firstOnline < items.findIndex((i) => i.type === 'text'), '온라인 문항은 서술형 앞');
+  assert.equal(server.saveCourse(s, Object.assign({}, cur, { delivery_mode: '비대면' })).ok, true);
+  assert.equal(server.itemsForCourse_(c()).filter((i) => i.scope === 'online').length, 4, '중복 추가 없음');
+});
+
+test('드롭다운 검증: 학년 1~4, 반 A~F, 학과 필수, 수업 방식', () => {
+  const { server } = H.makeServer({ pin: PIN });
+  const s = H.login(server, PIN);
+  const base = { course_name: 'X', year: 2026, semester: '2', grade: 2, section: 'B', department: '간호학과', delivery_mode: '대면', enrollment: 30, start_at: '2026-12-01T09:00', end_at: '2026-12-10T23:59' };
+  assert.equal(server.saveCourse(s, base).ok, true);
+  assert.equal(server.saveCourse(s, Object.assign({}, base, { grade: 5 })).field, 'grade');
+  assert.equal(server.saveCourse(s, Object.assign({}, base, { section: 'G' })).field, 'section');
+  assert.equal(server.saveCourse(s, Object.assign({}, base, { section: 'f' })).ok, true, '소문자 허용');
+  assert.equal(server.saveCourse(s, Object.assign({}, base, { department: '' })).field, 'department');
+  assert.equal(server.saveCourse(s, Object.assign({}, base, { delivery_mode: '원격' })).field, 'delivery_mode');
+  assert.equal(server.saveSettings(s, { professor_name: '정종필', affiliation: '청암대학교 간호학과', min_responses: 5, departments: '간호학과\n보건행정학과\n간호학과' }).ok, true);
+  assert.deepEqual(server.getAdminBootstrap(s).settings.departments, ['간호학과', '보건행정학과'], '중복 제거');
+});
+
+test('성별(드롭다운): 소규모 집단이면 비교·인원·CSV 열 모두 숨김, 충분하면 집단별 평균', () => {
+  const { server } = H.makeServer({ pin: PIN });
+  const s = H.login(server, PIN);
+  const id = H.createCourse(server, s);
+  const items = server.itemsForCourse_(server.findCourse_(id));
+  const g = items.find((i) => i.type === 'select');
+  const submit = (sex, v) => { const a = H.fullAnswers(items, v); a[g.item_id] = sex; return server.submitResponse(id, 'ABC123', a); };
+  for (let i = 0; i < 8; i++) submit('여', 4);
+  submit('남', 2); // 남 1명 → 특정 위험
+  let r = server.getResults(s, id);
+  assert.equal(r.groups[0].suppressed, true);
+  assert.equal(r.groups[0].groups, undefined, '수치 없음');
+  const st = r.stats.items.find((x) => x.type === 'select');
+  assert.equal(st.options, undefined, '인원 분포도 숨김');
+  const csv = server.exportCsv(s, id);
+  assert.equal(csv.omitted, 1);
+  assert.ok(!csv.content.includes('성별'), 'CSV에서 성별 열 제외');
+
+  for (let i = 0; i < 4; i++) submit('남', 3);
+  r = server.getResults(s, id);
+  assert.equal(r.groups[0].suppressed, false);
+  const byLabel = Object.fromEntries(r.groups[0].groups.map((x) => [x.label, x]));
+  assert.equal(byLabel['여'].n, 8);
+  assert.equal(byLabel['남'].n, 5);
+  assert.equal(byLabel['여'].overall, 4);
+  assert.equal(byLabel['남'].overall, 2.8); // (2 + 3*4) / 5
+  assert.equal(server.exportCsv(s, id).omitted, 0);
+  // 미응답 집단이 소규모여도 숨김(전체 평균과의 차로 역산 가능)
+  const a = H.fullAnswers(items, 1); a[g.item_id] = ''; server.submitResponse(id, 'ABC123', a);
+  assert.equal(server.getResults(s, id).groups[0].suppressed, true);
+});
+
+test('결과 한눈에 보기: 긍정 비율, 핵심 지표(만족도·추천), 워드 클라우드', () => {
+  const { server } = H.makeServer({ pin: PIN });
+  const s = H.login(server, PIN);
+  const id = H.createCourse(server, s);
+  const items = server.itemsForCourse_(server.findCourse_(id));
+  const texts = items.filter((i) => i.type === 'text');
+  const vals = [5, 5, 4, 3, 2];
+  vals.forEach((v, i) => {
+    const a = H.fullAnswers(items, v);
+    a[texts[0].item_id] = ['실습이 유익했습니다', '실습 자료가 좋았어요', 'Wi-Fi가 자주 끊겨요', '피드백이 빨랐습니다', '실습실 와이파이 개선'][i];
+    server.submitResponse(id, 'ABC123', a);
+  });
+  const r = server.getResults(s, id);
+  assert.equal(r.stats.overall_pos_pct, 60);
+  assert.equal(r.stats.kpis.satisfaction.pos_pct, 60);
+  assert.match(r.stats.kpis.satisfaction.text, /만족/);
+  assert.match(r.stats.kpis.recommend.text, /추천/);
+  const d = r.stats.domains[0];
+  assert.deepEqual([d.neg_pct, d.neu_pct, d.pos_pct], [20, 20, 60]);
+  assert.equal(d.dist.reduce((x, y) => x + y, 0), 10, '영역 분포 = 문항 2개 × 5명');
+  const words = Object.fromEntries(r.wordcloud.all.map((w) => [w.w, w.n]));
+  assert.equal(words['실습'], 2);
+  assert.equal(words['와이파이'], 2, 'Wi-Fi 표기 통일');
+  assert.ok(!('유익했습니다' in words) && !('좋았어요' in words), '서술어 제외');
+  assert.ok(r.wordcloud.items[texts[0].item_id].length > 0);
+  const boot = server.getAdminBootstrap(s).courses.find((c) => c.course_id === id);
+  assert.equal(boot.pos_pct, 60);
+  assert.ok(boot.domains.length >= 6);
 });
 
 test('google.script.run 반환값에 Date가 없음(모든 공개 API)', () => {

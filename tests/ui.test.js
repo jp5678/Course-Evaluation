@@ -39,7 +39,8 @@ async function noHorizontalScroll(page, label) {
   assert.ok(r.sw <= r.w, `${label}: 가로 스크롤 발생 (scrollWidth ${r.sw} > ${r.w})`);
 }
 
-const shot = (page, name) => page.screenshot({ path: path.join(OUT, name + '.png'), fullPage: true });
+// 등장 애니메이션(최대 ~0.9초)이 끝난 상태를 캡처
+const shot = async (page, name) => { await page.waitForTimeout(900); await page.screenshot({ path: path.join(OUT, name + '.png'), fullPage: true }); };
 
 /** 설문 끝까지 응답(리커트는 칩 클릭, 서술형은 입력 후 다음) */
 async function answerAll(page, opts = {}) {
@@ -96,7 +97,8 @@ test('학생 360px: 진입→접속코드→익명 안내→설문(키보드 1~5
   assert.ok(sizes.every(([w, h]) => w >= 48 && h >= 48), '칩 최소 48px: ' + JSON.stringify(sizes));
   // 진행 바 접근성 속성
   const pb = await page.getAttribute('.progress', 'aria-valuetext');
-  assert.match(pb, /17개 문항 중 1번째/);
+  assert.match(pb, /23개 문항 중 1번째/);
+  assert.equal(await page.locator('.chip .emo').count(), 5, '이모지 칩');
   await noHorizontalScroll(page, '설문');
   await shot(page, 'm03-question');
 
@@ -121,6 +123,43 @@ test('학생 360px: 진입→접속코드→익명 안내→설문(키보드 1~5
   assert.equal(n, 1, '서버에 1건 기록');
   const draft = await page.evaluate(() => Object.keys(sessionStorage).filter((k) => k.startsWith('ces:draft')).length);
   assert.equal(draft, 0, '제출 후 임시 저장 삭제');
+});
+
+test('혼합 수업 교과목: 온라인 문항(H) 포함 27문항, 성별 드롭다운(선택 응답)', async () => {
+  const page = await newPage();
+  await page.goto(base + '?scenario=student');
+  const { onlineCourseId, onlineCode } = await page.evaluate(() => window.__PREVIEW);
+  await page.goto(base + '?scenario=student&c=' + onlineCourseId);
+  await page.getByText('혼합 수업').waitFor();
+  await page.getByRole('button', { name: '시작하기' }).click();
+  await page.locator('#cred').fill(onlineCode);
+  await page.getByRole('button', { name: '확인' }).click();
+  await page.getByRole('button', { name: '동의하고 시작' }).click();
+  await page.waitForSelector('.likert');
+  assert.match(await page.getAttribute('.progress', 'aria-valuetext'), /27개 문항 중 1번째/);
+  let sawOnline = false, sawCheer = false;
+  for (let guard = 0; guard < 40; guard++) {
+    if (await page.locator('#rv').count()) break;
+    if (await page.getByText('온라인(비대면) 강의').count()) sawOnline = true;
+    if (await page.locator('.cheer').count()) sawCheer = true;
+    if (await page.locator('select[data-select]').count()) {
+      await noHorizontalScroll(page, '드롭다운 문항');
+      await shot(page, 'm09-select-gender');
+      await page.selectOption('select[data-select]', '여');
+      await page.getByRole('button', { name: /다음|검토하기/ }).click();
+      continue;
+    }
+    const before = await page.locator('.survey-head strong').innerText();
+    if (await page.locator('.likert').count()) await page.locator('.chip[data-val="4"]').click();
+    else if (await page.locator('textarea').count()) { await page.locator('textarea').fill('실습실 와이파이가 좋아졌으면'); await page.getByRole('button', { name: /다음|검토하기/ }).click(); }
+    await page.waitForFunction((b) => !document.querySelector('.survey-head strong') || document.querySelector('.survey-head strong').textContent !== b || document.getElementById('rv'), before);
+  }
+  assert.ok(sawOnline, '온라인 영역 문항 표시');
+  assert.ok(sawCheer, '진행 응원 메시지');
+  await page.getByRole('button', { name: '제출하기' }).click();
+  await page.getByRole('heading', { name: '응답이 제출되었습니다' }).waitFor();
+  const row = await page.evaluate((id) => window.__server.readResponses_(id)[0], onlineCourseId);
+  assert.ok(Object.values(row).includes('여'), '성별 저장');
 });
 
 test('임시 저장: 설문 중 새로고침해도 응답·위치 복원(sessionStorage)', async () => {
@@ -239,6 +278,9 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·QR·토큰 인�
   await page.locator('#pin').fill('123456');
   await page.getByRole('button', { name: '로그인' }).click();
   await page.getByText('진행 중 교과목').waitFor();
+  const pulses = await page.locator('.course-pulse').count();
+  assert.equal(pulses, await page.evaluate(() => window.__server.getCourses_().length), '교과목 한눈에 카드');
+  assert.ok(await page.locator('.course-pulse .sparkbars').count() >= 2, '공개된 교과목은 영역 막대 표시');
   await page.waitForTimeout(300);
   await shot(page, 'd10-admin-dashboard');
 
@@ -250,8 +292,25 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·QR·토큰 인�
   const sem = await page.evaluate(() => window.__server); void sem;
   const labels = await page.$$eval('#k5 ~ * table tbody th, section[aria-labelledby="k5"] tbody th', (els) => els.map((e) => e.textContent.trim()));
   assert.ok(labels.length >= 2 && labels.every((l) => /A반/.test(l)), '학기 간 비교는 같은 분반만: ' + labels.join(','));
-  const n = await page.locator('#k1 + .big-num').innerText();
-  assert.match(n, /^30/);
+  assert.equal(await page.locator('.kpi-ring').count() >= 4, true, 'KPI 링 4종');
+  assert.match(await page.locator('.ring[aria-label^="응답률"]').first().getAttribute('aria-label'), /30명 응답/);
+  // 워드 클라우드: 단어 클릭 → 해당 응답만 표시 → 해제
+  await page.waitForSelector('#wc text');
+  assert.ok(await page.locator('#wc text').count() >= 8, '단어 8개 이상');
+  const word = await page.locator('#wc text').first().getAttribute('data-w');
+  await page.locator('#wc text').first().click();
+  await page.getByText(`‘${word}’이(가) 들어간 응답`).waitFor();
+  // 표시 건수 = 해당 단어가 들어간 전체 서술형 응답 수(누락 없음)
+  const expected = await page.evaluate((w) => window.__server.getResults(window.__server.adminLogin('123456').session, window.__PREVIEW.courseId)
+    .texts.flatMap((t) => t.answers).filter((a) => a.replace(/wi-?fi/gi, '와이파이').toLowerCase().includes(w.toLowerCase())).length, word);
+  const shown = Number(await page.locator('#wc-hits strong .num').innerText());
+  assert.equal(shown, expected, '단어 포함 응답 수 일치');
+  assert.ok(await page.locator('#wc-hits mark').count() >= 1, '하이라이트');
+  await shot(page, 'd11b-wordcloud-filter');
+  await page.getByRole('button', { name: '선택 해제' }).click();
+  await page.locator('[data-wc]').nth(2).click();
+  await page.waitForSelector('#wc text');
+  assert.equal(await page.locator('.card-title', { hasText: '성별별 비교' }).count(), 1, '성별 비교 카드(표시 또는 익명 보호 안내)');
   await page.waitForTimeout(700);
   await shot(page, 'd11-admin-results');
 
@@ -269,6 +328,7 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·QR·토큰 인�
   await page.keyboard.press('Escape');
 
   // 토큰 생성 → 절취형 인쇄 시트
+  await page.getByRole('tab', { name: '교과목' }).click();
   await page.locator(`[data-act="tokens"][data-id="${tokenCourse}"]`).click();
   await page.locator('#tk-n').fill('12');
   await page.getByRole('button', { name: '생성' }).click();
@@ -287,6 +347,24 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·QR·토큰 인�
   assert.equal(await page.locator('.modal .slip').count(), 12, '취소하면 토큰 시트 유지');
   await page.locator('[data-done]').click();
   await page.getByRole('button', { name: '닫기', exact: true }).last().click();
+
+  // 새 교과목: 드롭다운(학과·학년·반·수업 방식)
+  await page.getByRole('button', { name: '새 교과목' }).click();
+  await page.locator('#f-name').fill('기본간호학실습');
+  for (const id of ['#f-dept', '#f-grade', '#f-sec', '#f-mode']) assert.equal(await page.locator(id).evaluate((e) => e.tagName), 'SELECT', id + ' 드롭다운');
+  assert.deepEqual(await page.$$eval('#f-grade option', (o) => o.map((x) => x.value)), ['1', '2', '3', '4']);
+  assert.deepEqual(await page.$$eval('#f-sec option', (o) => o.map((x) => x.value)), ['A', 'B', 'C', 'D', 'E', 'F']);
+  await page.selectOption('#f-grade', '2');
+  await page.selectOption('#f-sec', 'C');
+  await page.selectOption('#f-mode', '비대면');
+  await shot(page, 'd13b-course-form');
+  await page.getByRole('button', { name: '저장' }).click();
+  await page.getByText('교과목을 만들었습니다.').waitFor();
+  const made = await page.evaluate(() => { const c = window.__server.getCourses_().find((x) => x.course_name === '기본간호학실습'); return { c, n: window.__server.itemsForCourse_(c).filter((i) => i.scope === 'online').length }; });
+  assert.equal(made.c.grade, '2');
+  assert.equal(made.c.section, 'C');
+  assert.equal(made.c.delivery_mode, '비대면');
+  assert.equal(made.n, 4, '비대면 교과목에 온라인 문항 포함');
 
   // 문항: 새 교과목(응답 0)에 CLO 일괄 입력 → 저장
   await page.getByRole('tab', { name: '문항' }).click();
