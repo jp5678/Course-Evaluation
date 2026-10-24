@@ -761,3 +761,23 @@ test('간단 접속: 링크·QR에 접속코드 포함, 공통 주소에서 코�
   const html = server.doGet({ parameter: { c: demo.course_id, k: '<x>"ab12' } }).getContent();
   assert.match(html, /data-code="XAB12"/);
 });
+
+test('이전 버전 시트 업그레이드(v1.3.0): 교수학습방법 문항 문구 변경(응답 있는 교과목 제외)', () => {
+  const { env, server } = H.makeServer({ pin: PIN });
+  const OLD = '토의·사례·시뮬레이션 등 다양한 교수학습방법이 활용되었다.';
+  const NEW = '토의·사례·시뮬레이션·플립러닝·스마트교수법·AI활용 등 다양한 교수학습방법이 활용되었다.';
+  const sh = env.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Items');
+  const it = server.readTable_('Items');
+  const col = it.headers.indexOf('text') + 1;
+  // 이전 문구로 되돌려 이전 버전 시트 재현
+  it.rows.filter((r) => r.text === NEW).forEach((r) => sh.getRange(r._row, col).setValue(OLD));
+  const [dl, ai] = server.getCourses_();
+  const aiItems = server.itemsForCourse_(server.findCourse_(ai.course_id));
+  assert.equal(server.submitResponse(ai.course_id, ai.access_code, H.fullAnswers(aiItems)).ok, true);
+
+  server.setup();
+  const text = (id) => server.getItems_(id).filter((i) => /교수학습방법이 활용/.test(i.text)).map((i) => i.text);
+  assert.deepEqual(text('TEMPLATE'), [NEW], '기본 문항 은행');
+  assert.deepEqual(text(dl.course_id), [NEW], '응답 없는 교과목');
+  assert.deepEqual(text(ai.course_id), [OLD], '응답 있는 교과목은 그대로');
+});

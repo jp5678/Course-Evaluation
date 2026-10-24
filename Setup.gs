@@ -13,7 +13,7 @@ var DEFAULT_ITEMS = [
   ['B. 교수학습방법', '교수자의 설명은 이해하기 쉬웠다.', 'likert5'],
   ['B. 교수학습방법', '수업 자료(교안·영상·실습자료 등)는 학습에 유용하였다.', 'likert5'],
   ['B. 교수학습방법', '수업 중 질문하거나 참여할 기회가 충분히 주어졌다.', 'likert5'],
-  ['B. 교수학습방법', '토의·사례·시뮬레이션 등 다양한 교수학습방법이 활용되었다.', 'likert5'],
+  ['B. 교수학습방법', '토의·사례·시뮬레이션·플립러닝·스마트교수법·AI활용 등 다양한 교수학습방법이 활용되었다.', 'likert5'],
   ['C. 평가 및 과제', '평가 기준과 방법이 사전에 공지되었다.', 'likert5'],
   ['C. 평가 및 과제', '평가는 공정하게 이루어졌다.', 'likert5'],
   ['C. 평가 및 과제', '과제의 양과 난이도가 적절하였다.', 'likert5'],
@@ -197,9 +197,24 @@ function upgradeTemplateScopes_() {
  * ④ 예시 교과목에 넣었던 임시값(반 'A', 수강인원 40) 비우기 (v1.2.3)
  * 응답이 이미 있는 교과목은 설문 구성이 바뀌므로 문항을 건드리지 않습니다.
  */
+/** 문구가 바뀐 기본 문항: 이전 문구 → 새 문구 */
+var RENAMED_ITEMS = {
+  '토의·사례·시뮬레이션 등 다양한 교수학습방법이 활용되었다.': '토의·사례·시뮬레이션·플립러닝·스마트교수법·AI활용 등 다양한 교수학습방법이 활용되었다.'
+};
+
 function upgradeDefaults_() {
   var used = {};
   readResponses_().forEach(function (r) { used[String(r.course_id)] = true; });
+  // 바뀐 문구 반영: 기본 문항 은행과 응답이 없는 교과목만(응답이 있는 교과목은 문항 의미 보존)
+  var renamed = 0;
+  var rt = readTable_(APP.SHEETS.ITEMS);
+  var textCol = rt.headers.indexOf('text') + 1;
+  rt.rows.forEach(function (r) {
+    var next = RENAMED_ITEMS[String(r.text)];
+    if (!next || used[String(r.course_id)]) return;
+    rt.sheet.getRange(r._row, textCol).setValue(next);
+    renamed++;
+  });
   var n = filterTable_(APP.SHEETS.ITEMS, function (r) {
     var gender = String(r.type) === 'select' && /^성별/.test(String(r.text)) && String(r.domain) === '응답자 정보';
     return !(gender && (String(r.course_id) === APP.TEMPLATE_ID || !used[String(r.course_id)]));
@@ -227,7 +242,7 @@ function upgradeDefaults_() {
     if (String(r.section) === 'A') { ct.sheet.getRange(r._row, secCol).setValue(''); n++; }
     if (Number(r.enrollment) === 40) { ct.sheet.getRange(r._row, enrCol).setValue(''); n++; }
   });
-  return n;
+  return n + renamed;
 }
 
 /** 헤더 행에 없는 열만 끝에 추가합니다(이전 버전 시트 자동 확장). */

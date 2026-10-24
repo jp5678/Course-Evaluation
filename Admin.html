@@ -563,20 +563,18 @@
             <p class="small muted">${esc(c.course_name)} · ${esc(termFull(c))}</p>
             <div class="qr-box">${svg}</div>
             ${c.access_mode === 'code' && c.access_code ? `<div class="center"><div class="small muted">접속코드</div><div class="mid-num" style="letter-spacing:.12em">${esc(c.access_code)}</div></div>` : ''}
-            ${c.access_mode !== 'token' ? `<div class="callout info">${icon('smartphone')}<div class="small stack">
-              <p><strong>학생 접속 방법(둘 중 하나)</strong></p>
-              <p>① <strong>QR 찍기</strong> — 접속코드가 QR에 들어 있어 코드 입력 없이 바로 시작합니다.</p>
-              <p>② <strong>공통 주소 + 접속코드</strong> — 모든 교과목이 같은 주소를 씁니다. LMS 공지에 한 번만 올려 두면, 학생은 접속코드만 입력합니다.</p>
-              ${c.base_url ? `<div class="linkbox"><code>${esc(c.base_url)}</code><button type="button" class="btn sm" data-copy-base>${icon('copy')}공통 주소 복사</button></div>` : ''}
+            ${c.access_mode !== 'token' ? `<div class="callout info">${icon('smartphone')}<div class="small">
+              <p><strong>학생 접속</strong> ① QR 찍기(코드 입력 없음) ② 공통 주소에서 코드 입력</p>
+              ${c.base_url ? `<button type="button" class="btn sm" data-copy-base style="margin-top:8px">${icon('copy')}공통 주소 복사(LMS 공지용)</button>` : ''}
             </div></div>` : ''}
-            ${c.access_mode === 'token' ? `<div class="callout info">${icon('ticket')}<p class="small">토큰 방식입니다. 학생은 이 링크에서 종이 토큰을 입력합니다. 토큰 시트의 QR은 토큰이 미리 입력된 링크입니다.</p></div>` : ''}
+            ${c.access_mode === 'token' ? `<div class="callout info">${icon('ticket')}<p class="small">토큰 방식: 학생은 종이 토큰을 입력합니다(토큰 시트의 QR은 입력 없이 시작).</p></div>` : ''}
             <div class="linkbox"><code>${esc(c.link)}</code><button type="button" class="btn sm" data-copy>${icon('copy')}복사</button></div>
             <div class="row" style="justify-content:center">
               <button type="button" class="btn sm primary" data-check-link>${icon('stethoscope')}링크 점검(학생 조건으로 열어 보기)</button>
               <a class="btn sm" href="${esc(c.link)}" target="_blank" rel="noopener" data-open-link>${icon('external-link')}새 창에서 열기</a>
             </div>
             <div id="link-check" aria-live="polite"></div>
-            <p class="tiny muted center">교수님 브라우저에서만 「현재 파일을 열 수 없습니다」가 뜨면 Google 계정이 여러 개 로그인된 탓일 수 있습니다. 링크를 시크릿 창(Ctrl+Shift+N)에 붙여 넣어 확인하거나 [링크 점검]을 누르세요.</p>
+            <p class="tiny muted center">교수님 브라우저에서만 열리지 않으면 시크릿 창(Ctrl+Shift+N)에서 확인하세요.</p>
           </div>`,
         footer: `<button type="button" class="btn" data-svg>${icon('download')}QR 저장(SVG)</button>
           <button type="button" class="btn primary" data-present>${icon('presentation')}수업 화면에 띄우기</button>`

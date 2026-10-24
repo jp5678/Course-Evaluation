@@ -536,6 +536,7 @@ details > summary::-webkit-details-marker { display: none; }
 
 .callout { display: flex; gap: 12px; padding: 14px 16px; border-radius: 18px; background: var(--butter); color: var(--ink); align-items: flex-start; }
 .callout.info { background: var(--sky); }
+.callout > div, .callout > p { min-width: 0; } /* 긴 내용이 상자를 넘지 않게 */
 .callout svg { width: 20px; height: 20px; flex: none; margin-top: 2px; }
 
 .present {

@@ -365,6 +365,8 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·QR·토큰 인�
   await page.getByRole('button', { name: /링크 점검/ }).click();
   await page.getByText('정상: 로그인하지 않은 학생도 이 링크를 열 수 있습니다.').waitFor();
   await shot(page, 'd13-qr-modal');
+  const ov = await page.$eval('.modal-body', (el) => [el.scrollWidth, el.clientWidth]);
+  assert.ok(ov[0] <= ov[1], 'QR 모달 가로 넘침 없음: ' + ov);
   await page.keyboard.press('Escape');
 
   // 토큰 생성 → 절취형 인쇄 시트
@@ -472,6 +474,22 @@ test('관리자를 테스트용(/dev) 주소로 연 경우: 원인 안내 → �
   await page.locator('[data-act="qr"]').first().click();
   await page.waitForSelector('.qr-box svg');
   assert.match(await page.locator('[data-open-link]').getAttribute('href'), /PREVIEW\/exec\?c=/);
+});
+
+test('교수 360px: 링크·QR 모달 가로 넘침 없음(짧은 안내·공통 주소 복사 버튼)', async () => {
+  const page = await newPage();
+  await page.goto(base + '?scenario=admin&page=admin');
+  await page.locator('#pin').fill('123456');
+  await page.getByRole('button', { name: '로그인' }).click();
+  await page.getByRole('tab', { name: '교과목' }).click();
+  const cid = await page.evaluate(() => window.__PREVIEW.courseId); // 접속코드 방식 교과목
+  await page.locator(`[data-act="qr"][data-id="${cid}"]`).click();
+  await page.waitForSelector('.qr-box svg');
+  await page.getByRole('button', { name: /공통 주소 복사/ }).waitFor();
+  const ov = await page.$eval('.modal-body', (el) => [el.scrollWidth, el.clientWidth]);
+  assert.ok(ov[0] <= ov[1], 'QR 모달 가로 넘침 없음(360px): ' + ov);
+  await noHorizontalScroll(page, 'QR 모달');
+  await shot(page, 'm13-qr-modal');
 });
 
 test('브라우저 콘솔 오류 없음', () => {
