@@ -10,6 +10,7 @@
 </head>
 <body class="page-admin">
   <a class="skip-link" href="#main">본문 바로가기</a>
+  <div class="deco" aria-hidden="true"><span class="s1"></span><span class="s2"></span><span class="s3"></span><span class="s4"></span></div>
 
   <header class="topbar">
     <div class="topbar-inner">
@@ -121,6 +122,10 @@
     function setView(html, focusHeading) {
       destroyCharts();
       view.innerHTML = html;
+      // 화면 전환 등장 효과(모션 최소화 설정이면 CSS에서 끔)
+      view.classList.remove('view-enter');
+      void view.offsetWidth;
+      view.classList.add('view-enter');
       CES.icons();
       if (focusHeading) {
         const h = $('h1', view);
@@ -282,7 +287,7 @@
       const soon = open.filter((c) => c.hours_left != null && c.hours_left <= 72).sort((a, b) => a.hours_left - b.hours_left);
 
       setView(`
-        <h1 class="sr-only">대시보드</h1>
+        ${heroBanner(open, soon, cs)}
         ${A.data.webAppUrl ? '' : `<div style="margin-bottom:16px">${urlNotice()}</div>`}
         <div class="bento">
           <section class="card soft rise" style="--i:0" aria-labelledby="d1">
@@ -333,6 +338,36 @@
       CES.animateIn(view);
     }
 
+    /** 탭 제목 앞 이모지 타일(장식) */
+    const tile = (emo) => `<span class="ptile" aria-hidden="true">${emo}</span>`;
+
+    /** 대시보드 환영 배너: 시간대 인사·오늘 날짜·상태 스티커·바로가기 */
+    function heroBanner(open, soon, cs) {
+      const h = Number(new Date().toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: 'Asia/Seoul' }));
+      const greet = h >= 5 && h < 11 ? '좋은 아침입니다' : h >= 11 && h < 17 ? '좋은 오후입니다' : '좋은 저녁입니다';
+      const name = (A.data.settings && A.data.settings.professor_name) || '';
+      const today = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+      const total = cs.reduce((a, c) => a + c.response_count, 0);
+      const sub = open.length ? `진행 중인 설문 ${open.length}개에서 학생들의 목소리가 모이고 있어요.` : '새 설문을 준비해 볼까요? 교과목을 만들고 QR로 안내하면 됩니다.';
+      return `<section class="hero rise" aria-labelledby="hero-h">
+          <div class="hero-text">
+            <p class="hero-date">${esc(today)}</p>
+            <h1 id="hero-h">${greet}${name ? `, ${esc(name)} 교수님` : ''} <span class="wave" aria-hidden="true">👋</span></h1>
+            <p class="hero-sub">${esc(sub)}</p>
+            <div class="row hero-actions">
+              <button type="button" class="btn primary sm" data-go="courses">${icon('qr-code')}교과목·QR</button>
+              <button type="button" class="btn sm" data-go="results">${icon('chart-column')}결과 보기</button>
+            </div>
+          </div>
+          <div class="stickers hero-stickers" aria-hidden="true">
+            <div class="sticker" style="--i:0"><span class="emo">📡</span><b>${open.length}</b>개 진행 중</div>
+            <div class="sticker" style="--i:1"><span class="emo">💬</span><b>${total}</b>건 응답</div>
+            <div class="sticker" style="--i:2"><span class="emo">⏰</span><b>${soon.length}</b>개 마감 임박</div>
+          </div>
+          <p class="sr-only">진행 중 ${open.length}개, 누적 응답 ${total}건, 72시간 이내 마감 ${soon.length}개</p>
+        </section>`;
+    }
+
     function pulseCard(c) {
       const doms = (c.domains || []);
       const lock = c.locked_reason === 'MIN_RESPONSES' ? `응답 ${c.response_count}/${A.data.settings.min_responses}명 — 결과 잠김`
@@ -358,7 +393,7 @@
       const cs = A.data.courses;
       setView(`
         <div class="row-between" style="margin-bottom:16px">
-          <h1>교과목</h1>
+          <h1 class="page-title">${tile('📚')}교과목</h1>
           <button type="button" class="btn primary" data-act="new-course">${icon('plus')}새 교과목</button>
         </div>
         ${cs.length ? `<div class="bento" style="grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr))">${cs.map(courseCard).join('')}</div>`
@@ -721,7 +756,7 @@
       }
       setView(`
         <div class="row-between" style="margin-bottom:16px">
-          <h1>문항 편집</h1>
+          <h1 class="page-title">${tile('📝')}문항 편집</h1>
           <div class="field" style="min-width:min(100%,360px)"><label class="sr-only" for="items-course">교과목 선택</label>
             <select class="select" id="items-course">${courseOptions(A.itemsCourse, true)}</select></div>
         </div>
@@ -1026,7 +1061,7 @@
       }
       setView(`
         <div class="row-between" style="margin-bottom:16px">
-          <h1>결과 분석</h1>
+          <h1 class="page-title">${tile('📊')}결과 분석</h1>
           <div class="field" style="min-width:min(100%,360px)"><label class="sr-only" for="res-course">교과목 선택</label>
             <select class="select" id="res-course">${courseOptions(A.resultsCourse, false)}</select></div>
         </div>
@@ -1453,7 +1488,7 @@
       const s = A.data.settings;
       const url = A.data.webAppUrl;
       setView(`
-        <h1 style="margin-bottom:16px">설정</h1>
+        <h1 class="page-title" style="margin-bottom:16px">${tile('⚙️')}설정</h1>
         <div class="bento">
           <section class="card span-2" aria-labelledby="s1"><h2 id="s1" style="margin-bottom:16px">기본 정보</h2>
             <form id="set-form" class="form-grid" novalidate>

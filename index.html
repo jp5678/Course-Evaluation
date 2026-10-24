@@ -579,7 +579,7 @@ details > summary::-webkit-details-marker { display: none; }
   50% { transform: translate(18px, 26px) rotate(18deg); }
   100% { transform: translate(-14px, 10px) rotate(-12deg); }
 }
-body.page-student { background: var(--bg); position: relative; isolation: isolate; }
+body.page-student, body.page-admin { background: var(--bg); position: relative; isolation: isolate; }
 /* 슬라이드 전환 중 잠깐 생기는 가로 넘침 차단(clip은 sticky 헤더를 깨지 않음) */
 .page-student main.wrap { overflow-x: clip; }
 
@@ -687,6 +687,27 @@ body.page-student { background: var(--bg); position: relative; isolation: isolat
 /* ───── 교과목 한눈에(대시보드) ───── */
 .warn-text { color: var(--danger-ink); }
 .ai-panel h3 { display: flex; gap: 6px; align-items: center; }
+/* 교수자 관리 화면: 환영 배너·제목 타일·카드 반응·화면 전환 */
+.page-admin main.wrap { overflow-x: clip; }
+.hero { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 20px; align-items: center; margin-bottom: 18px;
+  padding: 24px 26px; border-radius: 28px; background: linear-gradient(135deg, var(--primary-soft) 0%, var(--sky) 100%); position: relative; overflow: hidden; }
+.hero::after { content: ''; position: absolute; width: 180px; height: 180px; right: -50px; bottom: -70px; border-radius: 46% 54% 60% 40%; background: var(--butter); opacity: .7; z-index: 0; animation: drift 20s ease-in-out infinite; }
+.hero > * { position: relative; z-index: 1; min-width: 0; }
+.hero h1 { font-size: clamp(1.35rem, 2.6vw, 1.9rem); margin: 4px 0 6px; text-wrap: balance; }
+.hero-date { font-size: .8125rem; color: var(--muted); letter-spacing: .02em; margin: 0; }
+.hero-sub { margin: 0; color: var(--ink); opacity: .85; }
+.hero-actions { margin-top: 14px; }
+.hero-stickers .sticker { background: var(--surface) !important; box-shadow: var(--shadow); }
+.hero-stickers .sticker b { font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+.wave { display: inline-block; transform-origin: 70% 70%; animation: wave 2.4s ease-in-out 1s 2; }
+@keyframes wave { 0%, 60%, 100% { transform: rotate(0); } 10%, 30% { transform: rotate(14deg); } 20% { transform: rotate(-8deg); } 40% { transform: rotate(-4deg); } 50% { transform: rotate(10deg); } }
+.page-title { display: flex; align-items: center; gap: 10px; }
+.ptile { display: inline-grid; place-items: center; width: 1.7em; height: 1.7em; border-radius: 12px; background: var(--primary-soft); font-size: .8em; flex: none; animation: emo-bounce .5s var(--spring) both; }
+.page-admin .bento > .card, .page-admin .course-card, .page-admin .course-pulse { transition: transform .25s var(--ease), box-shadow .25s var(--ease); }
+.page-admin .bento > .card:hover, .page-admin .course-pulse:hover { transform: translateY(-3px); box-shadow: var(--shadow); }
+.view-enter { animation: rise-in .45s var(--ease) both; }
+@media (max-width: 760px) { .hero { grid-template-columns: 1fr; padding: 20px; } }
+@media (prefers-reduced-motion: reduce) { .hero::after, .wave, .ptile, .view-enter { animation: none !important; } .page-admin .bento > .card:hover, .page-admin .course-pulse:hover { transform: none; } }
 /* 사용 매뉴얼 탭 */
 .manual details { border-top: 1px solid var(--line); padding: 12px 0; }
 .manual details:first-of-type { margin-top: 12px; }

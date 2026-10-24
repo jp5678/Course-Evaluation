@@ -3,7 +3,7 @@
   <section class="card pad-lg manual" aria-labelledby="mn-title">
     <div class="row-between">
       <div>
-        <h1 id="mn-title" style="font-size:1.375rem;margin:0">사용 매뉴얼</h1>
+        <h1 id="mn-title" class="page-title" style="font-size:1.375rem;margin:0"><span class="ptile" aria-hidden="true">📖</span>사용 매뉴얼</h1>
         <p class="small muted" style="margin-top:4px">교수용 안내 · 장 제목을 누르면 펼쳐집니다.</p>
       </div>
       <button type="button" class="btn sm" data-manual-toggle>모두 펼치기</button>
@@ -44,6 +44,7 @@
         <li>관리자 주소(<code>…/exec?page=admin</code>)에서 PIN을 입력합니다. 5회 틀리면 10분간 잠깁니다.</li>
         <li>PIN 입력 상자가 안 보이면 <code>?page=admin</code>이 빠진 것입니다. 학생용 접속코드 화면 아래 <b>교수자 로그인</b> 링크를 누르세요.</li>
         <li>「응답 수」는 진행 중인 모든 교과목의 합계이고, 「전체 평균」·「긍정 응답률」은 <b>결과가 열린 교과목만</b>으로 계산합니다. 카드 아래에 기준(예: 결과가 열린 1개 교과목(30명) 기준 · 1개는 잠김)이 표시됩니다.</li>
+        <li>대시보드 맨 위 <b>환영 배너</b>에 오늘 날짜와 진행 중 설문·누적 응답·마감 임박 수가 스티커로 표시되고, [교과목·QR]·[결과 보기]로 바로 이동할 수 있습니다.</li>
         <li>교과목 카드를 누르면 결과 화면으로 이동합니다. 「마감 임박」은 72시간 안에 끝나는 교과목입니다.</li>
       </ul>
     </details>
@@ -119,7 +120,7 @@
         <li><b>업데이트</b>: Code.gs를 새 버전으로 바꿔 저장 → <b>setup</b> 실행 → <b>배포 관리 ▸ ✏️ ▸ 버전: 새 버전 ▸ 배포</b>.</li>
       </ul>
       <p class="callout"><span><b>「새 배포」를 만들지 마세요.</b> 웹 앱 주소가 바뀌어 이미 안내한 QR·공통 주소가 열리지 않습니다.</span></p>
-      <p class="small muted">[테스트] 샘플 응답은 결과 화면 연습용입니다. 실제 평가 전에 반드시 「샘플 데이터 모두 삭제」를 실행하세요.</p>
+      <p class="small muted">[테스트] 샘플 응답은 결과 화면 연습용입니다. 실제 평가 전에 반드시 「샘플 데이터 모두 삭제」를 실행하세요. 삭제는 <b>샘플 응답만</b> 지우며 교과목·접속코드·QR은 그대로 유지됩니다.</p>
     </details>
 
     <details id="mn-10">
@@ -139,6 +140,7 @@
         <tr><th>「현재 파일을 열 수 없습니다」</th><td>시크릿 창에서 열리면 교수님 브라우저의 다중 계정 문제(학생은 정상). 안 열리면 배포가 <b>실행: 나 / 액세스: 모든 사용자</b>인지, [설정]의 학생용 주소가 배포 주소와 같은지 확인.</td></tr>
         <tr><th>학생에게 로그인 화면</th><td>액세스를 「모든 사용자」로 바꾸고 새 버전으로 배포.</td></tr>
         <tr><th>PIN 입력 상자가 없음</th><td>주소에 <code>?page=admin</code>을 붙이거나 접속코드 화면의 「교수자 로그인」 링크.</td></tr>
+        <tr><th>QR로 들어가면 「설문을 찾을 수 없음」</th><td>예전에 저장·인쇄한 QR이거나 교과목을 다시 만든 경우입니다. 학생 화면이 QR 속 접속코드로 다시 찾고, 그래도 없으면 접속코드 입력 화면으로 안내합니다. [링크·QR]을 다시 열어 새 QR을 안내하세요(창을 열 때 최신 정보로 갱신됩니다).</td></tr>
         <tr><th>결과가 열리지 않음</th><td>응답 수가 최소 공개 수 미만이거나 결과 공개일 전.</td></tr>
         <tr><th>문항을 고칠 수 없음</th><td>응답이 들어온 교과목은 잠김. [복제]로 새 교과목을 만들어 수정.</td></tr>
         <tr><th>Responses 시트에 빈칸</th><td>정상. 문항마다 열이 따로 있어 다른 교과목의 문항 열은 빈칸입니다. 머리글 색이 교과목별로 다르고, 메모에 [교과목명]이 있습니다.</td></tr>
