@@ -297,7 +297,7 @@ test('역문항 환산, 서술형 무작위 순서, CQI·CSV 내보내기', () =
   const cqi = server.exportCqi(s, id);
   assert.ok(cqi.content.includes('강점') && cqi.content.includes('개선점'));
   const txt = server.exportText(s, id);
-  assert.ok(txt.content.includes('응답0') && txt.content.includes('AI 요약 요청 예시'));
+  assert.ok(txt.content.includes('응답0') && txt.content.includes('[AI 요약 요청]') && txt.content.includes('CQI 개선 과제 3가지'));
 });
 
 test('문항 편집: 응답 수집 후 잠금, 검증, 복제 시 새 ID', () => {
@@ -875,8 +875,9 @@ test('PDF 내보내기: 원자료·CQI 요약표·서술형(잠금 규칙 동일
   assert.match(cqi, /강점/);
   assert.match(cqi, /개선 계획/);
   const text = decode(server.exportPdf(s, dl.course_id, 'text'));
-  assert.match(text, /서술형 텍스트\(AI 요약용\)/);
-  assert.match(text, /AI 요약 요청 예시/);
+  assert.match(text, /서술형 응답 \(보고·인쇄용\)/);
+  assert.match(text, /AI 요약 요청 문구/);
+  assert.match(text, /AI 요약 결과/);
   assert.match(text, /학교 공식 강의평가가 아닌/);
   assert.equal(server.exportPdf(s, dl.course_id, 'xls').code, 'VALIDATION');
   assert.equal(server.exportPdf('', dl.course_id, 'raw').code, 'AUTH');
@@ -912,4 +913,33 @@ test('샘플 응답: 두 교과목 모두 생성, 교과목별 열 범위 안내
   assert.notEqual(sh.bgs['1,4'], sh.bgs['1,' + colNum(ai.from)], '교과목별 머리글 색');
   assert.equal(server.colLetter_(28), 'AB');
   assert.equal(server.colLetter_(63), 'BK');
+});
+
+test('서술형 AI 분석: 범위(문항별) TXT·PDF, 잘못된 문항 거부, AI 요약 붙여넣기 PDF(이스케이프·5,000자), 간호교육 CQI 요청 문구', () => {
+  const { server } = H.makeServer({ pin: PIN });
+  const s = H.login(server, PIN);
+  server.generateSampleResponses();
+  const [dl] = server.getCourses_();
+  const textItems = server.itemsForCourse_(server.findCourse_(dl.course_id)).filter((i) => i.type === 'text');
+  const all = server.exportText(s, dl.course_id);
+  assert.equal((all.content.match(/^■ /gm) || []).length, 3, '전체: 서술형 3문항');
+  const one = server.exportText(s, dl.course_id, textItems[1].item_id);
+  assert.equal((one.content.match(/^■ /gm) || []).length, 1, '범위: 1문항');
+  assert.ok(one.content.includes(textItems[1].text));
+  assert.match(one.filename, /서술형2\.txt$/);
+  assert.equal(server.exportText(s, dl.course_id, 'nope1234').code, 'VALIDATION');
+  ['간호학과 교과목의 CQI', '다음 학기 CQI 개선 과제 3가지', '학습성과(CLO)', '추측하지 말 것'].forEach((k) => assert.ok(all.content.includes(k), k));
+  // 결과 화면에서 복사용으로 같은 문구 제공
+  const prompt = server.getResults(s, dl.course_id).ai_prompt;
+  assert.ok(prompt.includes('간호학과 교과목의 CQI') && all.content.includes(prompt), 'TXT와 같은 요청 문구');
+  const decode = (r) => Buffer.from(r.base64, 'base64').toString('utf8');
+  const blank = decode(server.exportPdf(s, dl.course_id, 'text'));
+  assert.match(blank, /class="plan"/, '요약이 없으면 작성란');
+  const sum = '1) 주요 주제: <b>실습</b>\n2) 개선: 피드백 ' + 'x'.repeat(6000);
+  const pdf = server.exportPdf(s, dl.course_id, 'text', { itemId: textItems[0].item_id, aiSummary: sum });
+  const html = decode(pdf);
+  assert.ok(html.includes('1) 주요 주제: &lt;b&gt;실습&lt;/b&gt;<br>2) 개선'), '이스케이프·줄바꿈');
+  assert.ok(!html.includes('x'.repeat(5001)), '5,000자 제한');
+  assert.equal((html.match(/<h2>/g) || []).length, 2, '범위 1문항 + AI 요약 결과');
+  assert.equal(server.exportPdf(s, dl.course_id, 'text', { itemId: 'bad' }).code, 'VALIDATION');
 });

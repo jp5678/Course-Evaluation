@@ -457,13 +457,34 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·QR·토큰 인�
   const demo = await page.evaluate(() => window.__PREVIEW.courseId);
   await page.selectOption('#res-course', demo);
   await page.waitForSelector('[data-export="exportText"]');
-  // 원자료 CSV·CQI 요약표 CSV 버튼은 삭제(PDF로 대체)
+  // 원자료 CSV·CQI 요약표 CSV 버튼은 삭제(PDF로 대체), 서술형 버튼은 용도가 드러나는 이름
   assert.equal(await page.locator('[data-export="exportCsv"], [data-export="exportCqi"]').count(), 0);
+  assert.equal((await page.locator('[data-export="exportText"]').innerText()).trim(), '서술형 텍스트(AI 붙여넣기용 TXT)');
+  assert.equal((await page.locator('[data-pdf="text"]').innerText()).trim(), '서술형 응답 PDF(보고·인쇄용)');
   const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('[data-export="exportText"]').click()]);
   const file = path.join(OUT, 'export-text.txt');
   await dl.saveAs(file);
   const txt = fs.readFileSync(file, 'utf8');
-  assert.ok(txt.includes('서술형 응답') && txt.includes('AI 요약 요청 예시'), '서술형 텍스트(AI 요약용) TXT');
+  assert.ok(txt.includes('서술형 응답') && txt.includes('[AI 요약 요청]'), '서술형 TXT');
+
+  // AI용으로 복사: 클릭 즉시 클립보드(범위 선택 반영), 글자 수 안내
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.locator('[data-ai-copy]').click();
+  const clip = await page.evaluate(() => navigator.clipboard.readText());
+  assert.ok(clip.includes('■ ') && clip.includes('간호학과 교과목의 CQI'), 'AI용 복사 내용');
+  assert.match(await page.locator('#ai-len').innerText(), /^약 [\d,]+자/);
+  const optVal = await page.$eval('#ai-scope option:nth-child(2)', (o) => o.value);
+  await page.selectOption('#ai-scope', optVal);
+  await page.locator('[data-ai-copy]').click();
+  const clip1 = await page.evaluate(() => navigator.clipboard.readText());
+  assert.equal((clip1.match(/^■ /gm) || []).length, 1, '범위: 서술형 1문항만 복사');
+  // AI 요약 붙여넣기 → 서술형 응답 PDF에 포함
+  await page.locator('#ai-summary').fill('주요 주제: 실습 시간 확대 요구');
+  const [sp] = await Promise.all([page.waitForEvent('download'), page.locator('[data-pdf="text"]').click()]);
+  const spf = path.join(OUT, 'export-text-summary.pdf');
+  await sp.saveAs(spf);
+  assert.ok(fs.readFileSync(spf, 'utf8').includes('주요 주제: 실습 시간 확대 요구'), 'AI 요약이 PDF에 포함');
+  await page.selectOption('#ai-scope', '');
 
   // PDF로 저장(원자료·CQI·서술형): base64 → 이진 파일 내려받기
   // 헤드리스 Chromium은 PDF 내려받기의 suggestedFilename을 'download'로 보고하므로, 앵커에 지정한 이름을 직접 확인

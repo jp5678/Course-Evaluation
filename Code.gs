@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.3.8',
+  VERSION: '1.3.9',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -503,6 +503,7 @@ function getResults(session, courseId) {
       groups: groupCompare_(ctx.items, ctx.rows, ctx.minN),
       texts: textAnswers_(ctx.items, ctx.rows),
       wordcloud: wordCloudData_(ctx.items, ctx.rows),
+      ai_prompt: AI_PROMPT,
       cqi: cqiSummary_(stats),
       likertLabels: LIKERT_LABELS
     };
@@ -567,41 +568,67 @@ function exportCqi(session, courseId) {
 }
 
 /** 서술형 전체 텍스트(AI 요약용). 문항별로 무작위 순서. */
-function exportText(session, courseId) {
+function exportText(session, courseId, itemId) {
   return adminApi_(session, function () {
     var ctx = resultContext_(courseId);
     if (!ctx.ok) return ctx;
     if (ctx.locked) return lockedResult_(ctx);
+    var texts = scopedTexts_(ctx, itemId);
+    if (!texts) return { ok: false, code: 'VALIDATION', field: 'item_id' };
     var c = ctx.summary;
     var out = [];
     out.push('[' + APP.NAME + '] 서술형 응답 — ' + c.course_name + ' (' + c.year + '학년도 ' + c.semester +
-      '학기' + (c.section ? ', ' + c.section + '반' : '') + ') / 응답 ' + ctx.rows.length + '명');
+      '학기' + (c.section ? ', ' + c.section + '반' : '') + ') / 응답 ' + ctx.rows.length + '명' +
+      (itemId ? ' / 문항 1개만' : ''));
     out.push('※ 응답 순서는 무작위입니다. 이름·학번 등 개인을 식별할 수 있는 내용이 있으면 AI에 입력하기 전에 삭제하세요.');
     out.push('');
-    textAnswers_(ctx.items, ctx.rows).forEach(function (t) {
+    texts.forEach(function (t) {
       out.push('■ ' + t.text + ' (' + t.answers.length + '건)');
       t.answers.forEach(function (a) { out.push('- ' + a.replace(/\n+/g, ' ')); });
       out.push('');
     });
     out.push('---');
-    out.push('[AI 요약 요청 예시]');
-    out.push('위 강의평가 서술형 응답을 문항별로 ① 주요 주제 3~5개(빈도 순) ② 대표 의견 요약 ③ 다음 학기 CQI 개선 과제 3가지로 정리해 주세요. 응답에 없는 내용은 추측하지 마세요.');
-    return { ok: true, filename: exportName_(ctx.course, '서술형') + '.txt', content: out.join('\n') };
+    out.push('[AI 요약 요청]');
+    out.push(AI_PROMPT);
+    var suffix = itemId ? '서술형' + (ctx.items.filter(function (it) { return it.type === 'text'; }).map(function (it) { return it.item_id; }).indexOf(itemId) + 1) : '서술형';
+    return { ok: true, filename: exportName_(ctx.course, suffix) + '.txt', content: out.join('\n') };
   });
+}
+
+/** 서술형 AI 요약 요청 문구(간호교육 CQI 보고 양식). TXT·복사·PDF가 함께 씁니다. */
+var AI_PROMPT = [
+  '당신은 간호학과 교과목의 CQI(지속적 질 개선) 보고서 작성을 돕는 교육 평가 전문가입니다.',
+  '위 학생 서술형 응답만을 근거로 다음 형식에 맞춰 한국어 개조식으로 정리해 주세요.',
+  '1) 문항별 주요 주제 3~5개: 주제명, 대략적 언급 건수, 대표 응답 1개 인용',
+  '2) 강점: 다음 학기에도 유지할 교수학습 요소',
+  '3) 개선 요구: 교수학습방법 / 평가·과제 / 학습 환경(강의실·실습실·인터넷) / 디지털·AI 활용 영역으로 분류',
+  '4) 다음 학기 CQI 개선 과제 3가지: 개선 내용, 실행 방법, 성과 확인 지표',
+  '5) 학습성과(CLO)와 간호 실무 역량에 주는 시사점',
+  '조건: 응답에 없는 내용은 추측하지 말 것. 특정 학생을 짐작할 수 있는 표현은 제외할 것. 긍정·부정 의견의 비중을 왜곡하지 말 것.'
+].join('\n');
+
+/** 서술형 응답(문항별 무작위 순서). itemId가 있으면 그 서술형 문항만, 잘못된 ID면 null */
+function scopedTexts_(ctx, itemId) {
+  var texts = textAnswers_(ctx.items, ctx.rows);
+  if (!itemId) return texts;
+  var one = texts.filter(function (t) { return t.item_id === String(itemId); });
+  return one.length ? one : null;
 }
 
 /**
  * 원자료·CQI 요약표·서술형 응답을 PDF로 내보냅니다(kind: raw | cqi | text).
  * 보고서 HTML을 PDF로 변환해 base64로 반환합니다. 결과와 같은 잠금 규칙(최소 공개 수·공개일)을 적용합니다.
  */
-function exportPdf(session, courseId, kind) {
+function exportPdf(session, courseId, kind, opts) {
   return adminApi_(session, function () {
     var builders = { raw: rawPdfBody_, cqi: cqiPdfBody_, text: textPdfBody_ };
     if (!builders.hasOwnProperty(kind)) return { ok: false, code: 'VALIDATION', field: 'kind' };
     var ctx = resultContext_(courseId);
     if (!ctx.ok) return ctx;
     if (ctx.locked) return lockedResult_(ctx);
-    var built = builders[kind](ctx);
+    opts = opts && typeof opts === 'object' ? opts : {};
+    if (kind === 'text' && opts.itemId && !scopedTexts_(ctx, opts.itemId)) return { ok: false, code: 'VALIDATION', field: 'item_id' };
+    var built = builders[kind](ctx, opts);
     var pdf = HtmlService.createHtmlOutput(pdfDocument_(built.title, ctx, built.body)).getAs('application/pdf');
     return {
       ok: true,
@@ -705,15 +732,23 @@ function cqiPdfBody_(ctx) {
   return { title: 'CQI 요약표', label: 'CQI요약', body: html };
 }
 
-/** 서술형 텍스트(AI 요약용) PDF: TXT 내보내기와 같은 구성(주의 문구·문항별 무작위 순서 응답·AI 요약 요청 예시) */
-function textPdfBody_(ctx) {
-  var html = '<p class="note">응답 순서는 무작위입니다. 이름·학번 등 개인을 식별할 수 있는 내용이 있으면 AI에 입력하기 전에 삭제하세요.</p>';
-  html += textAnswers_(ctx.items, ctx.rows).map(function (t) {
+/**
+ * 서술형 응답 PDF(보고·인쇄용): 주의 문구 → 문항별 응답(무작위 순서) → AI 요약 결과(교수가 붙여 넣은 내용, 없으면 작성란) → AI 요청 문구.
+ * opts.itemId: 서술형 문항 하나만, opts.aiSummary: 붙여 넣은 AI 요약(최대 5,000자, 이스케이프)
+ */
+function textPdfBody_(ctx, opts) {
+  opts = opts || {};
+  var html = '<p class="note">응답 순서는 무작위입니다. 이름·학번 등 개인을 식별할 수 있는 내용이 있으면 공유·AI 입력 전에 삭제하세요.</p>';
+  html += (scopedTexts_(ctx, opts.itemId) || []).map(function (t) {
     return '<h2>' + escHtml_(t.text) + ' <span class="note">(' + t.answers.length + '건)</span></h2>' +
       (t.answers.length ? '<ol>' + t.answers.map(function (a) { return '<li>' + escHtml_(a) + '</li>'; }).join('') + '</ol>' : '<p class="note">응답 없음</p>');
   }).join('') || '<p class="note">서술형 문항이 없습니다.</p>';
-  html += '<div class="box"><b>AI 요약 요청 예시</b><br>위 강의평가 서술형 응답을 문항별로 ① 주요 주제 3~5개(빈도 순) ② 대표 의견 요약 ③ 다음 학기 CQI 개선 과제 3가지로 정리해 주세요. 응답에 없는 내용은 추측하지 마세요.</div>';
-  return { title: '서술형 텍스트(AI 요약용)', label: '서술형', body: html };
+  var summary = String(opts.aiSummary == null ? '' : opts.aiSummary).replace(/\r\n?/g, '\n').trim().slice(0, 5000);
+  html += '<h2>AI 요약 결과</h2>' + (summary
+    ? '<div class="box">' + escHtml_(summary).replace(/\n/g, '<br>') + '</div><p class="note">※ 생성형 AI가 작성한 요약을 교수가 검토해 붙여 넣은 내용입니다.</p>'
+    : '<div class="plan" style="height:160px"></div><p class="note">AI 요약 결과를 붙여 넣거나 직접 작성하세요.</p>');
+  html += '<div class="box"><b>AI 요약 요청 문구</b><br>' + escHtml_(AI_PROMPT).replace(/\n/g, '<br>') + '</div>';
+  return { title: '서술형 응답 (보고·인쇄용)', label: '서술형', body: html };
 }
 
 function saveSettings(session, data) {

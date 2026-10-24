@@ -692,6 +692,8 @@ body.page-student { background: var(--bg); position: relative; isolation: isolat
 .hbars .dist > span { transition: flex-grow 1s var(--ease); }
 
 /* ───── 교과목 한눈에(대시보드) ───── */
+.warn-text { color: var(--danger-ink); }
+.ai-panel h3 { display: flex; gap: 6px; align-items: center; }
 /* 사용 매뉴얼 탭 */
 .manual details { border-top: 1px solid var(--line); padding: 12px 0; }
 .manual details:first-of-type { margin-top: 12px; }
@@ -895,9 +897,14 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
       <table>
         <tr><th>원자료 PDF</th><td>문항 번호표 → 객관식 응답표(무작위 순서) → 서술형 응답표</td></tr>
         <tr><th>CQI 요약표 PDF</th><td>영역별 결과, 강점·개선점, 문항별 결과, 개선 계획 작성란</td></tr>
-        <tr><th>서술형 텍스트(AI 요약용)</th><td>서술형 응답과 AI 요약 요청 예시(.txt)</td></tr>
-        <tr><th>서술형 텍스트(AI 요약용) PDF</th><td>위 내용을 A4 PDF로</td></tr>
       </table>
+      <p><b>서술형 응답 AI 분석</b> (CQI 요약표 아래)</p>
+      <ol>
+        <li><b>범위</b>를 고릅니다(전체 또는 서술형 문항 하나). 글자 수가 표시되고, 너무 길면 문항별로 나누도록 안내합니다.</li>
+        <li><b>AI용으로 복사</b>를 눌러 생성형 AI(ChatGPT·Gemini·Claude 등)에 붙여 넣습니다. 간호교육 CQI 보고 양식에 맞춘 요청 문구가 함께 복사됩니다. 파일이 필요하면 <b>서술형 텍스트(AI 붙여넣기용 TXT)</b>를 받습니다.</li>
+        <li>AI 요약을 검토해 <b>AI 요약 붙여넣기</b> 칸에 넣고 <b>서술형 응답 PDF(보고·인쇄용)</b>를 저장합니다. 칸을 비우면 PDF에 작성란이 인쇄됩니다.</li>
+      </ol>
+
       <p class="small muted">AI에 넣기 전에 이름·학번 등 개인 식별 정보가 없는지 확인하세요.</p>
     </details>
 
@@ -2662,6 +2669,7 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
         if (A.wcKey !== 'all' && !res.texts.some((t) => t.item_id === A.wcKey)) A.wcKey = 'all';
         drawCharts(res);
         drawWordCloud();
+        bindAiPanel(res);
         CES.animateIn(body);
       }
     }
@@ -2810,12 +2818,11 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
 
         <section class="card span-4" aria-labelledby="k9"><div class="row-between"><div class="card-title" id="k9">${icon('clipboard-list')}CQI 요약표</div>
 </div>
-          <div class="row" style="margin-top:8px;justify-content:flex-end" aria-label="내보내기">
+          <div class="row" style="margin-top:8px;justify-content:flex-end" aria-label="보고서 PDF">
             <button type="button" class="btn sm" data-pdf="raw">${icon('file-text')}원자료 PDF</button>
             <button type="button" class="btn sm" data-pdf="cqi">${icon('file-text')}CQI 요약표 PDF</button>
-            <button type="button" class="btn sm primary" data-export="exportText">${icon('sparkles')}서술형 텍스트(AI 요약용)</button>
-            <button type="button" class="btn sm primary" data-pdf="text">${icon('file-text')}서술형 텍스트(AI 요약용) PDF</button>
           </div>
+          ${aiPanel(r)}
           <div class="bento" style="margin-top:12px">
             <div class="card span-2" style="box-shadow:none"><h3>${icon('thumbs-up')} 강점</h3><ol class="small" style="padding-left:20px;margin:8px 0 0">
               ${r.cqi.strengths.map((s) => `<li>${esc(s.text)} <span class="num muted">(${fmt(s.mean)})</span></li>`).join('') || '<li>—</li>'}</ol></div>
@@ -2965,9 +2972,66 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
       }
     }
 
+    /** 서술형 응답 AI 분석: 범위 선택 → AI용 복사·TXT → AI 요약 붙여넣기 → PDF(보고·인쇄용) */
+    const AI_LONG = 8000; // 이 글자 수를 넘으면 문항별로 나눠 넣기를 권함(무료 AI 서비스의 한 번 입력 한도를 고려한 대략값)
+    function aiScope() { const el = $('#ai-scope'); return el ? el.value : ''; }
+    function aiSummaryKey() { return 'ces:aisum:' + A.resultsCourse; }
+    function aiText(r, scope) {
+      const c = r.course;
+      const texts = (r.texts || []).filter((t) => !scope || t.item_id === scope);
+      const out = [`[강의평가 Studio] 서술형 응답 — ${c.course_name} (${c.year}학년도 ${c.semester}학기${c.section ? ', ' + c.section + '반' : ''}) / 응답 ${r.n}명${scope ? ' / 문항 1개만' : ''}`,
+        '※ 응답 순서는 무작위입니다. 이름·학번 등 개인을 식별할 수 있는 내용이 있으면 AI에 입력하기 전에 삭제하세요.', ''];
+      texts.forEach((t) => { out.push(`■ ${t.text} (${t.answers.length}건)`); t.answers.forEach((a) => out.push('- ' + String(a).replace(/\n+/g, ' '))); out.push(''); });
+      out.push('---', '[AI 요약 요청]', r.ai_prompt || '');
+      return out.join('\n');
+    }
+    function aiPanel(r) {
+      const texts = r.texts || [];
+      if (!texts.length) return '';
+      const saved = CES.store.get(aiSummaryKey()) || '';
+      return `<div class="card ai-panel" style="box-shadow:none;margin-top:12px" aria-labelledby="ai-h">
+          <h3 id="ai-h">${icon('sparkles')} 서술형 응답 AI 분석</h3>
+          <ol class="small muted" style="margin:6px 0 10px;padding-left:20px"><li>범위를 고르고 <b>AI용으로 복사</b>(또는 TXT 내려받기)</li><li>생성형 AI에 붙여 넣어 요약 받기</li><li>요약을 아래 칸에 붙여 넣고 <b>서술형 응답 PDF</b> 저장</li></ol>
+          <div class="row" style="align-items:center">
+            <label class="small" for="ai-scope">범위</label>
+            <select class="select" id="ai-scope" style="width:auto;max-width:100%;min-width:0;min-height:40px;font-size:.875rem">
+              <option value="">전체(서술형 ${texts.length}문항)</option>
+              ${texts.map((t, i) => `<option value="${esc(t.item_id)}">서술형 ${i + 1}: ${esc(t.text.length > 28 ? t.text.slice(0, 28) + '…' : t.text)}</option>`).join('')}
+            </select>
+            <span class="small muted" id="ai-len" aria-live="polite"></span>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <button type="button" class="btn sm primary" data-ai-copy>${icon('clipboard-copy')}AI용으로 복사</button>
+            <button type="button" class="btn sm" data-export="exportText">${icon('file-down')}서술형 텍스트(AI 붙여넣기용 TXT)</button>
+          </div>
+          <div class="field" style="margin-top:12px"><label for="ai-summary" class="small">AI 요약 붙여넣기(선택 · PDF에 함께 저장, 최대 5,000자)</label>
+            <textarea class="textarea" id="ai-summary" rows="5" maxlength="5000" placeholder="AI가 만든 요약을 검토한 뒤 붙여 넣으세요. 비워 두면 PDF에 작성란이 인쇄됩니다.">${esc(saved)}</textarea></div>
+          <div class="row" style="margin-top:8px;justify-content:flex-end">
+            <button type="button" class="btn sm primary" data-pdf="text">${icon('file-text')}서술형 응답 PDF(보고·인쇄용)</button>
+          </div>
+        </div>`;
+    }
+    function bindAiPanel(r) {
+      const sel = $('#ai-scope');
+      if (!sel) return;
+      const len = $('#ai-len');
+      const update = () => {
+        const n = aiText(r, sel.value).length;
+        len.textContent = `약 ${n.toLocaleString()}자` + (n > AI_LONG && !sel.value ? ' · 길어서 AI에 한 번에 넣기 어려울 수 있습니다. 문항별로 나눠 보세요.' : '');
+        len.classList.toggle('warn-text', n > AI_LONG && !sel.value);
+      };
+      sel.addEventListener('change', update);
+      update();
+      // 클릭 즉시(사용자 동작 안에서) 복사 — 서버 응답을 기다리지 않아 브라우저가 클립보드를 막지 않음
+      $('[data-ai-copy]').addEventListener('click', () => CES.copy(aiText(r, sel.value)));
+      const sum = $('#ai-summary');
+      sum.addEventListener('input', () => CES.store.set(aiSummaryKey(), sum.value));
+    }
+
     async function doPdf(kind, btn) {
       const restore = CES.busyButton(btn, 'PDF 만드는 중…');
-      const res = await api('exportPdf', [A.resultsCourse, kind]);
+      const opts = kind === 'text' ? { itemId: aiScope(), aiSummary: ($('#ai-summary') || {}).value || '' } : undefined;
+      const res = await api('exportPdf', opts ? [A.resultsCourse, kind, opts] : [A.resultsCourse, kind]);
       restore();
       if (!res.ok) return fail(res);
       CES.downloadBase64(res.filename, res.base64, res.mime || 'application/pdf');
@@ -2976,7 +3040,7 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
 
     async function doExport(fn, btn) {
       const restore = CES.busyButton(btn, '준비 중…');
-      const res = await api(fn, [A.resultsCourse]);
+      const res = await api(fn, fn === 'exportText' ? [A.resultsCourse, aiScope()] : [A.resultsCourse]);
       restore();
       if (!res.ok) return fail(res);
       CES.download(res.filename, res.content, fn === 'exportText' ? 'text/plain' : 'text/csv');
