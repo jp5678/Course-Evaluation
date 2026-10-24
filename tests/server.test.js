@@ -618,51 +618,6 @@ test('학생 링크 주소: 비어 있을 때만 /exec 주소를 자동 기억, 
   assert.equal(s3.studentBaseUrl_(s3.getSettingsMap_()), EXEC);
 });
 
-test('링크 점검: 로그인 없는 조건으로 열어 정상·로그인 요구·열 수 없음·권한 미승인을 판정', () => {
-  const EXEC = 'https://script.google.com/macros/s/ABC/exec';
-  const scenarios = {
-    OK: (u) => (u.startsWith(EXEC) ? { code: 302, headers: { Location: 'https://script.googleusercontent.com/macros/echo?x=1' } }
-      : { code: 200, body: '<html><body class="page-student cesstudentpage">' }),
-    WRAPPER: () => ({ code: 200, body: '<iframe id="sandboxFrame" src="https://n-abc-script.googleusercontent.com/userCodeAppPanel">' }),
-    LOGIN: () => ({ code: 302, headers: { location: 'https://accounts.google.com/ServiceLogin?continue=x' } }),
-    UNAVAILABLE: () => ({ code: 404, body: '현재 파일을 열 수 없습니다. drive.google.com/start/apps' }),
-    // 실제 관찰된 응답: 리디렉션 없이 400 + Page Not Found
-    REAL400: () => ({ code: 400, body: '<html><head><title>Page Not Found</title></head><body>drive.google.com/start/apps</body></html>' }),
-    NEED_AUTH: () => { throw new Error('You do not have permission to call UrlFetchApp.fetch. Required permissions: https://www.googleapis.com/auth/script.external_request'); }
-  };
-  scenarios.UNKNOWN = () => ({ code: 200, body: '<html><title>무언가 다른 페이지</title></html>' });
-  // 관리자 주소와 같음 → 로그인 요구는 액세스 권한 문제(ACCESS), 곧바로 '없는 페이지'는 배포 이상(BROKEN)
-  const expect = { OK: 'OK', WRAPPER: 'OK', LOGIN: 'ACCESS', UNAVAILABLE: 'BROKEN', REAL400: 'BROKEN', NEED_AUTH: 'NEED_AUTH', UNKNOWN: 'UNKNOWN' };
-  for (const [name, fetch] of Object.entries(scenarios)) {
-    const seen = [];
-    const { server } = H.makeServer({ pin: PIN, url: EXEC, fetch: (u, p) => { seen.push([u, p]); return fetch(u, p); } });
-    const s = H.login(server, PIN);
-    const c = server.getCourses_()[0];
-    const r = server.checkStudentLink(s, c.course_id);
-    assert.equal(r.ok, true);
-    assert.equal(r.result, expect[name], name);
-    if (name === 'UNKNOWN') assert.equal(r.title, '무언가 다른 페이지', '판정 근거(페이지 제목)');
-    if (name === 'OK') assert.deepEqual(r.hops.map((h) => h.status), [302, 200], '판정 근거(상태 코드 흐름)');
-    if (seen.length) {
-      assert.equal(seen[0][0], EXEC + '?c=' + c.course_id, '학생 링크 그대로 점검');
-      assert.equal(seen[0][1].followRedirects, false, '리디렉션을 직접 따라가며 판정');
-    }
-  }
-  // 저장된 학생용 주소가 현재 실행 주소와 다르면(예: 예전 배포) 원래 판정 유지
-  for (const [name, want] of [['UNAVAILABLE', 'UNAVAILABLE'], ['LOGIN', 'LOGIN']]) {
-    const { server } = H.makeServer({ pin: PIN, url: EXEC, fetch: scenarios[name] });
-    const s = H.login(server, PIN);
-    assert.equal(server.saveSettings(s, { professor_name: 'x', affiliation: 'y', min_responses: 5, departments: '간호학과', webapp_url: 'https://script.google.com/macros/s/OLD/exec' }).ok, true);
-    const r = server.checkStudentLink(s, server.getCourses_()[0].course_id);
-    assert.equal(r.result, want, name + '(다른 주소)');
-    assert.equal(r.current, EXEC);
-  }
-  const { server } = H.makeServer({ pin: PIN, url: 'https://script.google.com/macros/s/ABC/dev' });
-  const s = H.login(server, PIN);
-  assert.equal(server.checkStudentLink(s, server.getCourses_()[0].course_id).result, 'NO_URL');
-  assert.equal(server.checkStudentLink('', 'x').code, 'AUTH', '관리자만');
-});
-
 test('교과목 편집에서 반·수강인원 없이 저장, 응답률 대신 응답 수(수강인원 입력 시에만 응답률)', () => {
   const { server } = H.makeServer({ pin: PIN });
   const s = H.login(server, PIN);
@@ -816,4 +771,29 @@ test('이전 버전 시트 업그레이드(v1.3.0): F 영역 5개·예시 교과
   assert.ok(server.getItems_('TEMPLATE').every((i) => /^t\d+$/.test(i.item_id)), '기본 문항 ID 형식 유지');
   server.setup();
   assert.equal(count('TEMPLATE', /^F\./), 5, '재실행해도 중복 없음');
+});
+
+test('샘플 응답: 필수 문항은 모두 채움(두 교과목 30건씩), 교과목 복제 시 접속코드 중복 없음, 예상 시간 제공', () => {
+  const { server } = H.makeServer({ pin: PIN });
+  const s = H.login(server, PIN);
+  assert.equal(server.generateSampleResponses().created, 60);
+  server.getCourses_().forEach((c) => {
+    const items = server.itemsForCourse_(c);
+    const rows = server.readResponses_(c.course_id);
+    assert.equal(rows.length, 30, c.course_name);
+    rows.forEach((r) => items.filter((it) => it.required).forEach((it) => {
+      assert.notEqual(String(r[it.item_id] == null ? '' : r[it.item_id]).trim(), '', c.course_name + ': ' + it.text);
+    }));
+  });
+  // 복제 20회: 접속코드가 기존 교과목과 겹치지 않음
+  const src = server.getCourses_()[0];
+  for (let i = 0; i < 20; i++) {
+    assert.equal(server.duplicateCourse(s, src.course_id, { year: 2027, semester: '1', start_at: '2027-03-02T09:00', end_at: '2027-03-20T23:59' }).ok, true);
+  }
+  const codes = server.getCourses_().map((c) => String(c.access_code).toUpperCase());
+  assert.equal(new Set(codes).size, codes.length, '접속코드 중복 없음');
+  // 관리자 목록에 예상 응답 시간(수업 화면 안내에 사용)
+  const sum = server.getAdminBootstrap(s).courses.find((c) => c.course_id === src.course_id);
+  assert.equal(sum.est_minutes, 5);
+  assert.equal(typeof server.checkStudentLink, 'undefined', '외부 접속(UrlFetch) 기능 제거');
 });

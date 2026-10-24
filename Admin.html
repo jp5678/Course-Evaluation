@@ -263,9 +263,10 @@
       const open = cs.filter((c) => c.status === '진행');
       const basis = open.length ? open : cs;
       const resp = basis.reduce((a, c) => a + c.response_count, 0);
-      const withEnroll = basis.filter((c) => c.enrollment > 0); // 수강인원을 입력한 교과목만 응답률 계산
-      const enroll = withEnroll.reduce((a, c) => a + c.enrollment, 0);
-      const respE = withEnroll.reduce((a, c) => a + c.response_count, 0);
+      // 응답률은 대상 교과목 모두에 수강인원이 있을 때만(일부만 있으면 응답이 빠진 왜곡된 비율이 되므로 응답 수로 표시)
+      const allEnrolled = basis.length > 0 && basis.every((c) => c.enrollment > 0);
+      const enroll = allEnrolled ? basis.reduce((a, c) => a + c.enrollment, 0) : 0;
+      const respE = resp;
       const rate = enroll ? Math.round(respE / enroll * 1000) / 10 : null;
       const withMean = cs.filter((c) => c.mean != null);
       const wN = withMean.reduce((a, c) => a + c.response_count, 0);
@@ -586,7 +587,7 @@
       el.setAttribute('aria-label', '수업 화면용 QR');
       el.innerHTML = `<h1>${esc(c.course_name)} 강의평가</h1><div class="qr-box">${svg}</div>
         ${c.access_mode === 'code' && c.access_code ? `<div><div class="muted">접속코드</div><div class="code-big">${esc(c.access_code)}</div></div>` : ''}
-        <p class="muted">휴대폰 카메라로 QR을 찍으면 바로 시작합니다 · 익명 · 약 3분</p>
+        <p class="muted">휴대폰 카메라로 QR을 찍으면 바로 시작합니다 · 익명${c.est_minutes ? ' · 약 ' + c.est_minutes + '분' : ''}</p>
         <button type="button" class="btn" data-x>${icon('x')}닫기 (Esc)</button>`;
       document.body.appendChild(el);
       CES.icons();

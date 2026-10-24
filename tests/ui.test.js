@@ -282,7 +282,10 @@ test('교수 360px: PIN 오류 안내→로그인→대시보드→결과(차트
   await page.getByText('남은 시도 4회').waitFor();
   await page.locator('#pin').fill('123456');
   await page.getByRole('button', { name: '로그인' }).click();
-  await page.getByText('진행 중 교과목').waitFor();
+  await page.getByText('진행 중 교과목', { exact: true }).waitFor();
+  // 수강인원이 일부 교과목에만 있으면 왜곡된 응답률(예: 0/40명) 대신 응답 수 합계
+  assert.equal(await page.locator('#d2').innerText(), '응답 수');
+  assert.equal(await page.locator('section[aria-labelledby="d2"] .ring').count(), 0);
   await noHorizontalScroll(page, '대시보드');
   await shot(page, 'm10-admin-dashboard');
 
@@ -307,7 +310,7 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·QR·토큰 인�
   await page.goto(base + '?scenario=admin&page=admin');
   await page.locator('#pin').fill('123456');
   await page.getByRole('button', { name: '로그인' }).click();
-  await page.getByText('진행 중 교과목').waitFor();
+  await page.getByText('진행 중 교과목', { exact: true }).waitFor();
   const pulses = await page.locator('.course-pulse').count();
   assert.equal(pulses, await page.evaluate(() => window.__server.getCourses_().length), '교과목 한눈에 카드');
   assert.ok(await page.locator('.course-pulse .sparkbars').count() >= 2, '공개된 교과목은 영역 막대 표시');

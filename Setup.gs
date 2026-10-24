@@ -494,14 +494,17 @@ function appendSampleRows_(course, n) {
         rowObj[it.item_id] = Math.min(5, Math.max(1, v + bias + (Math.random() < 0.6 ? shift : 0)));
       } else if (it.type === 'text') {
         var pool = SAMPLE_TEXTS[textSlot[it.item_id] % SAMPLE_TEXTS.length];
-        rowObj[it.item_id] = Math.random() < 0.7 ? asTextCell_(pool[Math.floor(Math.random() * pool.length)]) : '';
+        // 필수 문항은 항상 채움(선택 문항만 일부 비움)
+        rowObj[it.item_id] = it.required || Math.random() < 0.7 ? asTextCell_(pool[Math.floor(Math.random() * pool.length)]) : '';
       } else if (it.type === 'select') {
         var x = Math.random();
-        rowObj[it.item_id] = x < 0.08 ? '' : asTextCell_(it.options[x < 0.30 ? 0 : 1] || it.options[0]);
+        rowObj[it.item_id] = x < 0.08 && !it.required ? '' : asTextCell_(it.options[x < 0.30 ? 0 : 1] || it.options[0]);
       } else if (it.type === 'single') {
         rowObj[it.item_id] = asTextCell_(it.options[Math.floor(Math.random() * it.options.length)]);
       } else if (it.type === 'multi') {
-        rowObj[it.item_id] = asTextCell_(it.options.filter(function () { return Math.random() < 0.4; }).join('; '));
+        var picked = it.options.filter(function () { return Math.random() < 0.4; });
+        if (!picked.length && it.required) picked = [it.options[Math.floor(Math.random() * it.options.length)]];
+        rowObj[it.item_id] = picked.length ? asTextCell_(picked.join('; ')) : '';
       }
     });
     rows.push(headers.map(function (h) { return rowObj.hasOwnProperty(h) ? rowObj[h] : ''; }));

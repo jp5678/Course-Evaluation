@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.3.0',
+  VERSION: '1.3.1',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -273,6 +273,7 @@ function getAdminBootstrap(session) {
       summary.pos_pct = st ? st.overall_pos_pct : null;
       summary.domains = st ? st.domains.map(function (d) { return { domain: d.domain, mean: d.mean, pos_pct: d.pos_pct }; }) : [];
       summary.item_count = its.length;
+      summary.est_minutes = estMinutes_(its);
       summary.tokens_total = (tokenStats[c.course_id] || {}).total || 0;
       summary.tokens_used = (tokenStats[c.course_id] || {}).used || 0;
       return summary;
@@ -352,7 +353,7 @@ function duplicateCourse(session, sourceId, data) {
     if (!src) return { ok: false, code: 'NOT_FOUND' };
     var merged = {
       course_name: src.course_name, grade: src.grade, enrollment: 0,
-      access_mode: src.access_mode, access_code: randomString_(6, APP.TOKEN_ALPHABET),
+      access_mode: src.access_mode, access_code: '',
       department: src.department, delivery_mode: data.delivery_mode || src.delivery_mode,
       course_type: data.course_type || src.course_type,
       year: data.year, semester: data.semester, section: data.section != null ? data.section : '',
@@ -364,6 +365,7 @@ function duplicateCourse(session, sourceId, data) {
     return withLock_(function () {
       var table = readTable_(APP.SHEETS.COURSES);
       c.course_id = newCourseId_(table.rows);
+      c.access_code = uniqueAccessCode_(table.rows); // 공통 주소에서 코드로 교과목을 찾으므로 겹치지 않게
       c.status = statusByDates_(c, new Date());
       var row = courseToRow_(c);
       table.sheet.getRange(table.sheet.getLastRow() + 1, 1, 1, row.length).setValues([row]);
@@ -1126,9 +1128,14 @@ function courseSummary_(c, n, now, url) {
   };
 }
 
-function publicCourse_(c, items, settings) {
+/** 예상 응답 시간(분): 리커트 7초, 서술형 35초, 그 밖 10초 */
+function estMinutes_(items) {
   var sec = 0;
   items.forEach(function (it) { sec += it.type === 'text' ? 35 : it.type === 'likert5' ? 7 : 10; });
+  return Math.max(1, Math.round(sec / 60));
+}
+
+function publicCourse_(c, items, settings) {
   return {
     course_id: c.course_id,
     course_name: c.course_name,
@@ -1142,7 +1149,7 @@ function publicCourse_(c, items, settings) {
     access_mode: c.access_mode,
     has_code: String(c.access_code || '').trim() !== '',
     item_count: items.length,
-    est_minutes: Math.max(1, Math.round(sec / 60)),
+    est_minutes: estMinutes_(items),
     start_label: c.start_at ? fmtLabel_(c.start_at) : '',
     end_label: c.end_at ? fmtLabel_(c.end_at) : '',
     min_responses: minResponses_(settings)
@@ -1411,63 +1418,6 @@ function rememberExecUrl_(settings) {
  *         | UNAVAILABLE(배포를 열 수 없음) | UNKNOWN(판정 불가, 세부 정보 확인) | NEED_AUTH | NO_URL | ERROR
  * 판정 근거(hops: 상태 코드·호스트, title)를 함께 돌려줍니다.
  */
-function checkStudentLink(session, courseId) {
-  return adminApi_(session, function () {
-    var course = findCourse_(sanitizeId_(courseId));
-    if (!course) return { ok: false, code: 'NOT_FOUND' };
-    var base = studentBaseUrl_(getSettingsMap_());
-    var current = webAppUrl_();
-    var out = base ? probeUrl_(base + '?c=' + encodeURIComponent(course.course_id)) : { result: 'NO_URL' };
-    // 관리자 주소와 같은데 로그인 요구 → 액세스 권한 문제. 로그인 없이 곧바로 '없는 페이지'(400/404) → 배포 자체 이상
-    if (base && base === current) {
-      if (out.result === 'LOGIN') out.result = 'ACCESS';
-      else if (out.result === 'UNAVAILABLE') out.result = 'BROKEN';
-    }
-    out.ok = true;
-    out.url = base;
-    out.current = APP.EXEC_URL_RE.test(current) ? current : '';
-    return out;
-  });
-}
-
-function probeUrl_(url) {
-  var u = url, hops = [];
-  var done = function (o) { o.hops = hops; return o; };
-  var host = function (x) { var m = /^https?:\/\/([^/?#]+)/.exec(x); return m ? m[1] : ''; };
-  for (var hop = 0; hop < 6; hop++) {
-    if (/^https:\/\/accounts\.google\.com\//.test(u)) { hops.push({ host: host(u), status: 'login' }); return done({ result: 'LOGIN' }); }
-    var res;
-    try {
-      res = UrlFetchApp.fetch(u, { followRedirects: false, muteHttpExceptions: true });
-    } catch (e) {
-      var msg = String(e && e.message || e);
-      return done(/permission|권한|authoriz/i.test(msg) ? { result: 'NEED_AUTH' } : { result: 'ERROR', detail: msg.slice(0, 200) });
-    }
-    var code = res.getResponseCode();
-    hops.push({ host: host(u), status: code });
-    if (code >= 300 && code < 400) {
-      var h = res.getHeaders() || {};
-      var loc = String(h.Location || h.location || '');
-      if (!loc) return done({ result: 'ERROR', detail: 'HTTP ' + code });
-      if (loc.charAt(0) === '/') loc = u.match(/^https?:\/\/[^/]+/)[0] + loc;
-      u = loc;
-      continue;
-    }
-    var body = String(res.getContentText() || '');
-    var tm = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(body);
-    var title = tm ? tm[1].replace(/\s+/g, ' ').trim().slice(0, 120) : '';
-    // 앱 화면(학생 페이지 표식 또는 Apps Script 웹 앱 껍데기)이 오면 정상
-    if (body.indexOf('cesstudentpage') >= 0 || /userCodeAppPanel|goog\.script\.init/.test(body)) return done({ result: 'OK', title: title });
-    if (/accounts\.google\.com\/(?:ServiceLogin|v3\/signin|signin)/.test(body)) return done({ result: 'LOGIN', title: title });
-    // Google의 「현재 파일을 열 수 없습니다」 페이지 또는 404
-    if (code === 400 || code === 404 || code === 403 || /drive\.google\.com\/start\/apps|unable to open the file|열 수 없습니다/i.test(body)) {
-      return done({ result: 'UNAVAILABLE', status: code, title: title });
-    }
-    return done({ result: 'UNKNOWN', status: code, title: title });
-  }
-  return done({ result: 'ERROR', detail: '리디렉션이 너무 많습니다' });
-}
-
 /* ───────────────────────────── 보안 유틸 ───────────────────────────── */
 
 function adminApi_(session, fn) {
@@ -1589,6 +1539,15 @@ function newCourseId_(rows) {
   var id;
   do { id = 'c' + randomString_(7, APP.ID_ALPHABET); } while (taken[id]);
   return id;
+}
+
+/** 다른 교과목과 겹치지 않는 6자리 접속코드 */
+function uniqueAccessCode_(courseRows) {
+  var used = {};
+  courseRows.forEach(function (r) { used[String(r.access_code || '').trim().toUpperCase()] = true; });
+  var code;
+  do { code = randomString_(6, APP.TOKEN_ALPHABET); } while (used[code]);
+  return code;
 }
 
 function newItemId_(taken) {
