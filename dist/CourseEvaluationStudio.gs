@@ -1776,6 +1776,9 @@ var DEFAULT_ITEMS = [
   ['E. 학습 환경', '강의실·실습실의 유무선 인터넷(Wi-Fi) 환경이 원활하였다.', 'likert5'],
   ['F. 디지털·AI 활용', '수업에서 활용한 디지털 도구·AI는 학습에 도움이 되었다.', 'likert5'],
   ['F. 디지털·AI 활용', '이 수업에서 배운 디지털·AI 활용 역량을 간호실무에 활용할 수 있다고 느낀다.', 'likert5'],
+  ['F. 디지털·AI 활용', '수업에서 사용하는 디지털 도구·AI의 사용 방법을 충분히 안내받았다.', 'likert5'],
+  ['F. 디지털·AI 활용', 'AI가 제시한 정보의 정확성과 근거를 비판적으로 검토하는 능력이 향상되었다.', 'likert5'],
+  ['F. 디지털·AI 활용', 'AI 활용 시 윤리·저작권·개인정보(환자정보) 보호의 중요성을 이해하게 되었다.', 'likert5'],
   ['G. 종합', '이 수업에 전반적으로 만족한다.', 'likert5'],
   ['G. 종합', '이 수업을 후배에게 추천하고 싶다.', 'likert5'],
   ['H. 온라인(비대면) 강의', '온라인 강의 영상·음성의 품질이 학습하기에 적절하였다.', 'likert5', null, 'online'],
@@ -1793,14 +1796,20 @@ var SAMPLE_COURSES = [
     course_name: '디지털리터러시와 AI활용', semester: '1', grade: 1, section: '', enrollment: 0, delivery_mode: '대면', course_type: '이론+실습',
     clos: [
       '나는 디지털 도구를 활용하여 학습 자료를 검색·정리할 수 있게 되었다.',
-      '나는 생성형 AI를 학습에 윤리적이고 비판적으로 활용할 수 있게 되었다.'
+      '나는 생성형 AI를 학습에 윤리적이고 비판적으로 활용할 수 있게 되었다.',
+      '나는 문서·스프레드시트·프레젠테이션 도구로 학습 결과물을 작성할 수 있게 되었다.',
+      '나는 온라인 건강정보의 신뢰성을 평가하고 근거 자료를 선별할 수 있게 되었다.',
+      '나는 디지털 협업 도구를 활용하여 팀 과제를 수행할 수 있게 되었다.'
     ]
   },
   {
     course_name: 'AI융합 간호정보학', grade: 3, section: '', enrollment: 0, delivery_mode: '혼합', course_type: '이론+실습',
     clos: [
       '나는 간호정보시스템(EMR)의 구조와 기능을 설명할 수 있게 되었다.',
-      '나는 AI 기반 임상의사결정지원 결과를 간호 근거에 비추어 검토할 수 있게 되었다.'
+      '나는 AI 기반 임상의사결정지원 결과를 간호 근거에 비추어 검토할 수 있게 되었다.',
+      '나는 표준간호용어(NANDA·NIC·NOC 등)를 활용하여 간호기록을 구조화할 수 있게 되었다.',
+      '나는 간호 데이터를 수집·분석·시각화하여 간호문제 해결에 활용할 수 있게 되었다.',
+      '나는 의료정보 보안과 환자 개인정보 보호 원칙을 간호실무에 적용할 수 있게 되었다.'
     ]
   }
 ];
@@ -1995,7 +2004,66 @@ function upgradeDefaults_() {
     if (String(r.section) === 'A') { ct.sheet.getRange(r._row, secCol).setValue(''); n++; }
     if (Number(r.enrollment) === 40) { ct.sheet.getRange(r._row, enrCol).setValue(''); n++; }
   });
+
+  // v1.3: F 영역 기본 문항 5개, 예시 교과목 CLO 5개 — 이전 기본 2개를 그대로 가진 곳(응답 없음)에만 추가
+  var fDefaults = DEFAULT_ITEMS.filter(function (d) { return d[0] === 'F. 디지털·AI 활용'; })
+    .map(function (d) { return { domain: d[0], text: d[1], type: d[2], scope: d[4] || '' }; });
+  var targets = [APP.TEMPLATE_ID].concat(getCourses_().map(function (c) { return c.course_id; }));
+  targets.forEach(function (id) {
+    if (!used[id]) n += addMissingItems_(id, fDefaults, 2);
+  });
+  getCourses_().forEach(function (c) {
+    if (c.course_id.indexOf('demo') !== 0 || used[c.course_id]) return;
+    var spec = SAMPLE_COURSES.filter(function (x) { return x.course_name === c.course_name; })[0];
+    if (!spec) return;
+    n += addMissingItems_(c.course_id, spec.clos.map(function (t) { return { domain: CLO_DOMAIN, text: t, type: 'likert5', scope: '' }; }), 2);
+  });
   return n + renamed;
+}
+
+/**
+ * 기본 문항 목록(같은 영역) 중 빠진 문항을 그 영역의 마지막 문항 뒤에 넣습니다.
+ * 이전 버전 기본 문항(앞 baseCount개)이 모두 있을 때만 추가해, 교수가 지운 영역은 되살리지 않습니다.
+ */
+function addMissingItems_(courseId, wanted, baseCount) {
+  var items = getItems_(courseId);
+  var has = {};
+  items.forEach(function (it) { has[it.text] = true; });
+  if (!wanted.slice(0, baseCount).every(function (w) { return has[w.text]; })) return 0;
+  var missing = wanted.filter(function (w) { return !has[w.text]; });
+  if (!missing.length) return 0;
+  var domain = wanted[0].domain;
+  var last = -1;
+  items.forEach(function (it, i) { if (it.domain === domain) last = i; });
+  var merged = items.slice(0, last + 1).concat(missing.map(function (w) {
+    return { item_id: '', domain: w.domain, text: w.text, type: w.type, required: true, reverse: false, options: [], scope: w.scope || '' };
+  }), items.slice(last + 1));
+  var all = readTable_(APP.SHEETS.ITEMS);
+  var taken = {};
+  all.rows.forEach(function (r) { taken[String(r.item_id)] = true; });
+  var rows = merged.map(function (it, i) {
+    var c = JSON.parse(JSON.stringify(it));
+    if (!c.item_id) {
+      c.item_id = courseId === APP.TEMPLATE_ID ? templateItemId_(taken) : newItemId_(taken);
+      taken[c.item_id] = true;
+    }
+    c.course_id = courseId;
+    c.order = i + 1;
+    return itemToRow_(c);
+  });
+  var kept = all.rows.filter(function (r) { return String(r.course_id) !== courseId; })
+    .map(function (r) { return HEADERS.Items.map(function (h) { return r[h] == null ? '' : r[h]; }); });
+  rewriteBody_(all.sheet, HEADERS.Items.length, kept.concat(rows));
+  return missing.length;
+}
+
+/** 기본 문항 은행용 ID(t01, t02, …) 중 비어 있는 다음 번호 */
+function templateItemId_(taken) {
+  for (var i = 1; i < 1000; i++) {
+    var id = 't' + (i < 10 ? '0' + i : String(i));
+    if (!taken[id]) return id;
+  }
+  return newItemId_(taken);
 }
 
 /** 헤더 행에 없는 열만 끝에 추가합니다(이전 버전 시트 자동 확장). */

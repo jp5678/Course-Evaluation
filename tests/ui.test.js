@@ -99,7 +99,7 @@ test('학생 360px: 진입→접속코드→익명 안내→설문(키보드 1~5
   assert.ok(sizes.every(([w, h]) => w >= 48 && h >= 48), '칩 최소 48px: ' + JSON.stringify(sizes));
   // 진행 바 접근성 속성
   const pb = await page.getAttribute('.progress', 'aria-valuetext');
-  assert.match(pb, /22개 문항 중 1번째/);
+  assert.match(pb, /28개 문항 중 1번째/);
   assert.equal(await page.locator('.chip .emo').count(), 5, '이모지 칩');
   await noHorizontalScroll(page, '설문');
   await shot(page, 'm03-question');
@@ -160,7 +160,7 @@ test('간단 접속: 공통 주소에서 코드만 입력 → 바로 시작, QR(
   await p3.getByText('접속코드가 올바르지 않습니다').waitFor();
 });
 
-test('혼합 수업 교과목: 온라인 문항(H) 포함 26문항, 성별 문항 없음, 모든 문항 필수', async () => {
+test('혼합 수업 교과목: 온라인 문항(H) 포함 32문항, 성별 문항 없음, 모든 문항 필수', async () => {
   const page = await newPage();
   await page.goto(base + '?scenario=student');
   const { onlineCourseId, onlineCode } = await page.evaluate(() => window.__PREVIEW);
@@ -171,7 +171,7 @@ test('혼합 수업 교과목: 온라인 문항(H) 포함 26문항, 성별 문�
   await page.getByRole('button', { name: '확인' }).click();
   await page.getByRole('button', { name: '동의하고 시작' }).click();
   await page.waitForSelector('.likert');
-  assert.match(await page.getAttribute('.progress', 'aria-valuetext'), /26개 문항 중 1번째/);
+  assert.match(await page.getAttribute('.progress', 'aria-valuetext'), /32개 문항 중 1번째/);
   let sawOnline = false, sawCheer = false, sawSelect = false;
   for (let guard = 0; guard < 40; guard++) {
     if (await page.locator('#rv').count()) break;

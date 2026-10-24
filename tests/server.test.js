@@ -14,7 +14,7 @@ test('setup: 탭·헤더·기본 문항 은행·이번 학기 교과목 예시 2
     assert.deepEqual(st.sheets[name].values[0].slice(0, server.HEADERS[name].length), server.HEADERS[name]);
   }
   const tpl = server.getItems_('TEMPLATE');
-  assert.equal(tpl.length, 24, '리커트 21 + 서술형 3 (성별 문항 삭제)');
+  assert.equal(tpl.length, 27, '리커트 24(F 영역 5개) + 서술형 3');
   const doms = [...new Set(tpl.map((i) => i.domain))];
   assert.deepEqual(doms, ['A. 강의 설계', 'B. 교수학습방법', 'C. 평가 및 과제', 'E. 학습 환경', 'F. 디지털·AI 활용', 'G. 종합', 'H. 온라인(비대면) 강의', '서술형']);
   assert.ok(tpl.some((i) => /유무선 인터넷/.test(i.text)) && tpl.some((i) => /실습실의 시설/.test(i.text)) && tpl.some((i) => /이론 강의실/.test(i.text)), '학습 환경 문항');
@@ -35,13 +35,15 @@ test('setup: 탭·헤더·기본 문항 은행·이번 학기 교과목 예시 2
   assert.ok(cs.every((c) => c.course_type === '이론+실습'), '예시 교과목 유형');
   assert.deepEqual(cs.map((c) => [c.year, c.semester]), [[2026, '1'], [2026, '2']], '디지털리터러시와 AI활용=1학기, AI융합 간호정보학=2학기');
   assert.ok(cs.every((c) => server.itemsForCourse_(c).every((i) => i.required)), '예시 교과목 문항도 모두 필수');
-  assert.equal(server.itemsForCourse_(cs[0]).length, 22, '대면: 온라인 문항 제외 + CLO 2');
-  assert.equal(server.itemsForCourse_(cs[1]).length, 26, '혼합: 온라인 문항 포함');
+  assert.equal(cs[0].course_name, '디지털리터러시와 AI활용');
+  assert.equal(cs[0].delivery_mode, '대면', '디지털리터러시와 AI활용은 대면으로 초기 설정');
+  assert.equal(server.itemsForCourse_(cs[0]).length, 28, '대면: 온라인 문항 제외 + CLO 5');
+  assert.equal(server.itemsForCourse_(cs[1]).length, 32, '혼합: 온라인 문항 포함 + CLO 5');
   assert.equal(st.sheets.Responses.protections[0].warningOnly, true, 'Responses 경고 보호');
   assert.equal(st.sheets.Tokens.protections[0].warningOnly, true, 'Tokens 경고 보호');
 
   server.setup();
-  assert.equal(server.getItems_('TEMPLATE').length, 24, '재실행 시 문항 중복 없음');
+  assert.equal(server.getItems_('TEMPLATE').length, 27, '재실행 시 문항 중복 없음');
   assert.equal(server.getCourses_().length, 2, '재실행 시 교과목 중복 없음');
 });
 
@@ -91,7 +93,7 @@ test('학생: 접속코드 확인 → 제출, 날짜만 저장(시각·식별정
   assert.equal(server.verifyAccess(c.course_id, 'WRONG').code, 'BAD_CODE');
   const v = server.verifyAccess(c.course_id, c.access_code.toLowerCase());
   assert.equal(v.ok, true, '대소문자 무시');
-  assert.equal(v.items.length, 22);
+  assert.equal(v.items.length, 28);
 
   const r = server.submitResponse(c.course_id, c.access_code, H.fullAnswers(v.items), 'nonce-aaaaaaaaaaaaaaaa');
   assert.equal(r.ok, true);
@@ -780,4 +782,38 @@ test('이전 버전 시트 업그레이드(v1.3.0): 교수학습방법 문항 �
   assert.deepEqual(text('TEMPLATE'), [NEW], '기본 문항 은행');
   assert.deepEqual(text(dl.course_id), [NEW], '응답 없는 교과목');
   assert.deepEqual(text(ai.course_id), [OLD], '응답 있는 교과목은 그대로');
+});
+
+test('이전 버전 시트 업그레이드(v1.3.0): F 영역 5개·예시 교과목 CLO 5개로 확대(응답 있는 교과목·교수가 지운 영역 제외)', () => {
+  const { server } = H.makeServer({ pin: PIN });
+  const s = H.login(server, PIN);
+  const isNewF = (i) => /사용 방법을 충분히|비판적으로 검토하는 능력|윤리·저작권/.test(i.text);
+  const NEW_CLO = /오피스|문서·스프레드시트|건강정보의 신뢰성|협업 도구|표준간호용어|간호 데이터를|의료정보 보안/;
+  // v1.2 상태 재현: 새 F 3개·새 CLO 3개 삭제
+  const strip = (id) => assert.equal(server.saveItems(s, id, server.getItems_(id).filter((i) => !isNewF(i) && !NEW_CLO.test(i.text))).ok, true);
+  const [dl, ai] = server.getCourses_();
+  const own = H.createCourse(server, s, { course_name: '기본간호학' });
+  ['TEMPLATE', dl.course_id, ai.course_id, own].forEach(strip);
+  // 교수가 F 영역을 통째로 지운 교과목
+  const noF = H.createCourse(server, s, { course_name: '성인간호학' });
+  server.saveItems(s, noF, server.getItems_(noF).filter((i) => !/^F\./.test(i.domain)));
+  // AI융합 간호정보학은 이미 응답 1건
+  assert.equal(server.submitResponse(ai.course_id, ai.access_code, H.fullAnswers(server.itemsForCourse_(server.findCourse_(ai.course_id)))).ok, true);
+  const count = (id, re) => server.getItems_(id).filter((i) => re.test(i.domain)).length;
+  assert.equal(count(dl.course_id, /^F\./), 2);
+
+  server.setup();
+  assert.equal(count('TEMPLATE', /^F\./), 5, '기본 문항 은행 F 5개');
+  assert.equal(count(dl.course_id, /^F\./), 5, '응답 없는 예시 교과목 F 5개');
+  assert.equal(count(dl.course_id, /^D\./), 5, '응답 없는 예시 교과목 CLO 5개');
+  assert.equal(count(own, /^F\./), 5, '교수가 만든 교과목(응답 없음)도 F 5개');
+  assert.equal(count(ai.course_id, /^F\./), 2, '응답 있는 교과목은 그대로');
+  assert.equal(count(ai.course_id, /^D\./), 2, '응답 있는 교과목 CLO 그대로');
+  assert.equal(count(noF, /^F\./), 0, '교수가 지운 영역은 되살리지 않음');
+  // 새 문항은 F 영역 끝(G 종합 앞)에 들어감
+  const doms = server.getItems_(dl.course_id).map((i) => i.domain.charAt(0)).join('');
+  assert.match(doms, /D{5}.*F{5}G/);
+  assert.ok(server.getItems_('TEMPLATE').every((i) => /^t\d+$/.test(i.item_id)), '기본 문항 ID 형식 유지');
+  server.setup();
+  assert.equal(count('TEMPLATE', /^F\./), 5, '재실행해도 중복 없음');
 });
