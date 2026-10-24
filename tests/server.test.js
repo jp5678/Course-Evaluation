@@ -326,7 +326,7 @@ test('문항 편집: 응답 수집 후 잠금, 검증, 복제 시 새 ID', () =>
   assert.equal(server.getItems_(dup.course_id).length, 0, '삭제 시 문항도 삭제');
 });
 
-test('샘플 응답(교과목별 30건) 생성·삭제, 실제 응답이 있는 예시 교과목은 보존', () => {
+test('샘플 응답(교과목별 30건) 생성·삭제: 샘플 응답만 삭제, 교과목·ID·접속코드 유지(QR 그대로)', () => {
   const { env, server } = H.makeServer({ pin: PIN });
   const r = server.generateSampleResponses();
   assert.equal(r.ok, true);
@@ -337,11 +337,15 @@ test('샘플 응답(교과목별 30건) 생성·삭제, 실제 응답이 있는 
   assert.equal(server.getResults(s, c1.course_id).n, 30);
   // 예시 교과목 2로 실제 응답 1건이 들어왔다고 가정
   server.submitResponse(c2.course_id, c2.access_code, H.fullAnswers(server.itemsForCourse_(c2)));
+  const before = server.getCourses_().map((c) => c.course_id + ':' + c.access_code);
   const d = server.deleteSampleData(true);
   assert.equal(d.removed, 60);
-  assert.equal(d.keptCourses, 1);
   assert.equal(H.table(env, 'Responses').length, 1, '실제 응답 보존');
-  assert.deepEqual(server.getCourses_().map((c) => c.course_name), ['AI융합 간호정보학']);
+  assert.deepEqual(server.getCourses_().map((c) => c.course_id + ':' + c.access_code), before, '교과목·ID·접속코드 유지');
+  // 다시 생성해도 같은 교과목에 추가(새 교과목을 만들지 않음 → 이미 안내한 QR이 그대로 동작)
+  server.generateSampleResponses();
+  assert.deepEqual(server.getCourses_().map((c) => c.course_id + ':' + c.access_code), before);
+  assert.equal(server.getItems_(c1.course_id).length > 0, true, '문항 유지');
 });
 
 test('수업 방식: 대면은 온라인 문항 숨김, 비대면으로 바꾸면 온라인 문항 추가(응답 전)', () => {

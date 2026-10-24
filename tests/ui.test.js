@@ -164,6 +164,24 @@ test('간단 접속: 공통 주소에서 코드만 입력 → 바로 시작, QR(
   await p3.getByText('접속코드가 올바르지 않습니다').waitFor();
 });
 
+test('오래된 QR·링크: 교과목 ID가 없으면 링크의 접속코드로 다시 찾고, 코드도 없으면 접속코드 입력 화면', async () => {
+  const page = await newPage();
+  await page.goto(base + '?scenario=student');
+  const code = await page.evaluate(() => window.__PREVIEW.accessCode);
+  // 예전 교과목 ID + 현재 접속코드 → 해당 교과목으로 바로 연결
+  await page.goto(base + '?scenario=student&c=demoOLD1&k=' + code);
+  await page.getByRole('button', { name: '시작하기' }).click();
+  await page.getByRole('heading', { name: '익명으로 응답합니다' }).waitFor();
+  // 예전 교과목 ID만 → 막힌 화면 대신 접속코드 입력 안내
+  const p2 = await newPage();
+  await p2.goto(base + '?scenario=student&c=demoOLD1');
+  await p2.getByRole('heading', { name: '접속코드 입력' }).waitFor();
+  await p2.getByText('링크의 설문을 찾을 수 없습니다').waitFor();
+  await p2.locator('#code').fill(code);
+  await p2.getByRole('button', { name: '시작하기' }).click();
+  await p2.locator('#ct').waitFor();
+});
+
 test('혼합 수업 교과목: 온라인 문항(H) 포함 32문항, 성별 문항 없음, 모든 문항 필수', async () => {
   const page = await newPage();
   await page.goto(base + '?scenario=student');

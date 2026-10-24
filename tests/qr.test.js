@@ -33,6 +33,8 @@ const cases = [
   'hello',
   base + '?c=c7k2mx9pq',
   base + '?c=c7k2mx9pq&t=ABCDEFGH',
+  // 실제 형식: 접속코드가 담긴 학생 QR(v1.3.0~)
+  'https://script.google.com/macros/s/AKfycbwafmZykHzkkBGj0CHzpPdMd0FEyOdnIsfrz2faBBL7SkkgQFJLSDVOqHXRDcWEo8IN/exec?c=demotaam&k=NURSE74',
   base + '?page=admin&x=' + 'a'.repeat(120),
   '강의평가 Studio 한글 UTF-8 테스트 · 간호학과',
   'x'.repeat(600)

@@ -534,7 +534,7 @@ function deleteSampleData(skipConfirm) {
   if (skipConfirm !== true) {
     var ui = getUiOrNull_();
     if (ui) {
-      var ans = ui.alert('샘플 데이터 삭제', 'SAMPLE 응답과 예시 교과목을 삭제합니다(실제 응답이 있는 교과목은 보존). 계속할까요?', ui.ButtonSet.YES_NO);
+      var ans = ui.alert('샘플 데이터 삭제', 'SAMPLE 응답만 삭제합니다. 교과목·문항·접속코드·QR은 그대로 유지됩니다. 계속할까요?', ui.ButtonSet.YES_NO);
       if (ans !== ui.Button.YES) return { ok: false, code: 'CANCELLED' };
     }
   }
@@ -542,19 +542,13 @@ function deleteSampleData(skipConfirm) {
     var removed = filterTable_(APP.SHEETS.RESPONSES, function (r) {
       return String(r.response_id).indexOf('SAMPLE-') !== 0;
     });
-    // 예시 교과목(demo*)은 실제 응답이 하나도 없을 때만 삭제합니다(예시 교과목으로 실제 평가를 진행한 경우 보호).
-    var used = {};
-    readResponses_().forEach(function (r) { used[String(r.course_id)] = true; });
-    var kept = getCourses_().filter(function (c) { return c.course_id.indexOf('demo') === 0 && used[c.course_id]; }).length;
-    var isDemo = function (id) { return String(id).indexOf('demo') === 0 && !used[String(id)]; };
-    filterTable_(APP.SHEETS.TOKENS, function (r) { return !isDemo(r.course_id); });
-    filterTable_(APP.SHEETS.ITEMS, function (r) { return !isDemo(r.course_id); });
-    filterTable_(APP.SHEETS.COURSES, function (r) { return !isDemo(r.course_id); });
+    // 교과목(예시 교과목 포함)은 지우지 않습니다. 예시 교과목을 실제 수업에 쓰는 경우가 많고,
+    // 지웠다가 다시 만들면 교과목 ID·접속코드가 바뀌어 이미 안내한 QR·링크가 열리지 않기 때문입니다.
     pruneResponseColumns_();
-    return { ok: true, removed: removed, keptCourses: kept };
+    return { ok: true, removed: removed };
   });
   notify_('샘플 데이터 삭제', result.ok
-    ? '샘플 응답 ' + result.removed + '건과 예시 교과목을 삭제했습니다.' + (result.keptCourses ? '\n(실제 응답이 있는 예시 교과목 ' + result.keptCourses + '개는 보존했습니다.)' : '')
+    ? '샘플 응답 ' + result.removed + '건을 삭제했습니다.\n교과목·문항·접속코드·QR은 그대로입니다.'
     : '다른 작업이 진행 중입니다.');
   return result;
 }

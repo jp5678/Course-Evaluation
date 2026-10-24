@@ -558,6 +558,20 @@
         ② [설정] 탭의 「학생용 웹 앱 주소」에 붙여 넣고 저장하세요.</p></div></div>`;
     }
 
+    /** QR은 항상 최신 교과목 정보로(다른 곳에서 교과목·접속코드가 바뀌었을 수 있음) */
+    async function openQrFresh(id, btn) {
+      const restore = CES.busyButton(btn, '불러오는 중…');
+      await refresh();
+      restore();
+      const c = courseById(id);
+      if (!c) {
+        CES.toast('교과목 정보가 바뀌었습니다. 목록을 새로 불러왔습니다.', 'error');
+        if (A.tab === 'courses') renderCourses();
+        return;
+      }
+      openQr(c);
+    }
+
     function openQr(c) {
       if (!c.link) {
         CES.modal({ title: '링크·QR', html: urlNotice(),
@@ -1543,7 +1557,7 @@
         case 'edit-course': return openCourseForm(c);
         case 'dup-course': return openDuplicate(c);
         case 'del-course': return deleteCourse(c);
-        case 'qr': return openQr(c);
+        case 'qr': return openQrFresh(t.dataset.id, t);
         case 'tokens': return openTokens(c);
         case 'add-item':
           A.items.push({ domain: A.items.length ? A.items[A.items.length - 1].domain : DOMAINS[0], text: '', type: 'likert5', required: true, reverse: false, options: [] });
