@@ -43,6 +43,10 @@ test('설치 파일: 학생·교수 화면 HTML이 원본 다중 파일과 한 �
   }
 });
 
+test('내려받기용 dist/Code.gs는 설치 파일과 같은 내용', () => {
+  assert.equal(fs.readFileSync(path.join(ROOT, 'dist', 'Code.gs'), 'utf8'), BUNDLE);
+});
+
 test('설치 파일: 응답 제출 → 결과 분석 흐름', () => {
   const { server } = bundleServer();
   server.storePin_('123456');

@@ -57,6 +57,12 @@ test('체험판: 첫 화면 → 학생 응답 제출 → 교수 결과 반영 �
   const sw = await p.evaluate(() => document.documentElement.scrollWidth);
   assert.ok(sw <= 360, '첫 화면 가로 스크롤 없음');
   await p.screenshot({ path: path.join(OUT, 'demo-01-landing.png'), fullPage: true });
+  // 정식 설치 파일 내려받기(같은 출처 + download 속성 → 파일로 저장)
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.locator('#download-code').click()]);
+  assert.equal(dl.suggestedFilename(), 'Code.gs');
+  const saved = path.join(OUT, 'downloaded-Code.gs');
+  await dl.saveAs(saved);
+  assert.equal(fs.readFileSync(saved, 'utf8'), fs.readFileSync(path.join(ROOT, 'dist', 'Code.gs'), 'utf8'), '내려받은 파일 = 설치 파일');
 
   const code = (await cards.first().locator('.kbd').innerText()).trim();
   await cards.first().getByRole('link', { name: '응답해 보기' }).click();

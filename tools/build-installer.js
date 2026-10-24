@@ -63,4 +63,6 @@ ${rewrite(read('Setup.gs'), 'Setup.gs')}
 
 fs.mkdirSync(path.join(ROOT, 'dist'), { recursive: true });
 fs.writeFileSync(path.join(ROOT, 'dist', 'CourseEvaluationStudio.gs'), out);
-console.log(`설치 파일 빌드 완료: dist/CourseEvaluationStudio.gs (v${version}, ${(Buffer.byteLength(out) / 1024).toFixed(0)} KB)`);
+// 내려받기용: Apps Script의 Code.gs에 그대로 붙여 넣는 파일(내용 동일, 파일 이름만 Code.gs)
+fs.writeFileSync(path.join(ROOT, 'dist', 'Code.gs'), out);
+console.log(`설치 파일 빌드 완료: dist/CourseEvaluationStudio.gs, dist/Code.gs (v${version}, ${(Buffer.byteLength(out) / 1024).toFixed(0)} KB)`);

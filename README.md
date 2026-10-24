@@ -76,8 +76,9 @@ Google 스프레드시트 하나와 Apps Script만으로 동작하며 외부 서
 템플릿 시트가 없어도, 파일 하나만 붙여 넣으면 바로 정식 버전을 쓸 수 있습니다.
 
 1. Google 스프레드시트를 새로 만듭니다(예: `강의평가 Studio`).
-2. **[확장 프로그램] ▸ [Apps Script]** 를 엽니다. 왼쪽 `Code.gs`의 내용을 모두 지우고 **[설치 파일 `dist/CourseEvaluationStudio.gs`](dist/CourseEvaluationStudio.gs)** 전체를 붙여 넣은 뒤 저장(Ctrl+S)합니다.
-   - GitHub에서 파일을 열고 **[Raw]** 를 누른 다음 전체 선택(Ctrl+A) → 복사하면 편합니다.
+2. **[확장 프로그램] ▸ [Apps Script]** 를 엽니다. 왼쪽 `Code.gs`의 내용을 모두 지우고 설치 파일 **`Code.gs`** 전체를 붙여 넣은 뒤 저장(Ctrl+S)합니다.
+   - **내려받기:** [dist/Code.gs](dist/Code.gs) 파일 화면 오른쪽 위의 **⤓ (Download raw file)** 버튼을 누르거나, [체험판 첫 화면](https://jp5678.github.io/Course-Evaluation/)의 **[Code.gs 내려받기]** 버튼을 누르세요. 내려받은 파일을 메모장 등으로 열어 전체 선택(Ctrl+A) → 복사합니다.
+   - `dist/Code.gs`와 `dist/CourseEvaluationStudio.gs`는 내용이 같은 파일입니다(이름만 다름).
 3. (권장) 편집기 왼쪽 **⚙ 프로젝트 설정 ▸ 시간대**를 `(GMT+09:00) 서울`로 바꿉니다. 날짜 계산은 설치 파일이 한국 시간으로 고정하지만, 샘플 데이터의 시각까지 맞추려면 이 설정이 필요합니다.
 4. 위쪽 함수 선택 상자에서 **`setup`** 을 고르고 **[실행]** → 권한 승인(아래 3단계와 같음)을 합니다.
 5. **[배포] ▸ [새 배포] ▸ 웹 앱**으로 배포합니다(실행: 나 / 액세스: 모든 사용자). 아래 4단계와 같습니다.
@@ -252,7 +253,7 @@ Responses와 Tokens 탭에는 직접 편집하면 경고가 뜨도록 보호가 
 | `Scripts.html` | 공통 JS: 서버 호출(재시도·로딩), 모달, 다운로드, 링 게이지·카운트업, 워드 클라우드 배치(나선형), 내장 QR 인코더, confetti |
 | `appsscript.json` | V8, Asia/Seoul, 웹 앱(실행: 소유자 / 액세스: 모든 사용자) |
 | `tests/` | 로컬 테스트(Apps Script에는 올리지 않음) |
-| `dist/CourseEvaluationStudio.gs` | **정식 설치 파일**(단일 파일, `tools/build-installer.js`로 생성 — 직접 수정하지 마세요) |
+| `dist/Code.gs`, `dist/CourseEvaluationStudio.gs` | **정식 설치 파일**(단일 파일, 두 파일은 내용 동일. `tools/build-installer.js`로 생성 — 직접 수정하지 마세요) |
 | `index.html`, `demo/` | GitHub Pages 체험판(`tools/build-demo.js`로 생성 — 직접 수정하지 마세요) |
 | `.github/workflows/pages.yml` | 푸시마다 테스트·체험판 최신 여부 검사, 기본 브랜치면 Pages 배포 |
 
