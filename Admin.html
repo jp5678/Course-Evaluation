@@ -593,17 +593,26 @@
       const msg = {
         OK: ['shield-check', 'info', '정상: 로그인하지 않은 학생도 이 링크를 열 수 있습니다.',
           '교수님 브라우저에서만 열리지 않는다면 Google 계정이 여러 개 로그인된 탓입니다. 시크릿 창에서 확인하거나 다른 계정에서 로그아웃하세요. 학생에게는 문제가 없습니다.'],
+        ACCESS: ['lock', '', '문제: 배포는 정상인데, 로그인하지 않은 학생은 열 수 없습니다(배포 액세스 권한 문제).',
+          '관리자 화면이 바로 이 주소에서 실행 중이므로 배포는 살아 있습니다. 학생이 열지 못하는 원인은 <strong>액세스 권한</strong>입니다.<br>' +
+          'Apps Script ▸ [배포] ▸ [배포 관리] ▸ ✏️(편집) ▸ 「액세스 권한이 있는 사용자」를 <strong>모든 사용자</strong>로 바꾸고, 버전: <strong>새 버전</strong> ▸ [배포]를 누르세요. ' +
+          '이 항목을 바꿀 수 없으면 [배포] ▸ <strong>새 배포</strong>(실행: 나 / 액세스: 모든 사용자)를 만들고, 새 웹 앱 URL을 [설정] ▸ 「학생용 웹 앱 주소」에 넣으세요(QR이 바뀝니다).'],
         LOGIN: ['lock', '', '문제: 학생이 열면 Google 로그인을 요구합니다(배포 액세스 권한 문제).',
           'Apps Script ▸ [배포] ▸ [배포 관리] ▸ ✏️ ▸ 「액세스 권한이 있는 사용자」를 <strong>모든 사용자</strong>로 바꾸고 버전: 새 버전 ▸ [배포]를 누르세요.'],
         UNAVAILABLE: ['triangle-alert', '', '문제: 이 주소의 웹 앱을 열 수 없습니다(삭제·보관된 배포이거나 주소가 다름).',
           'Apps Script ▸ [배포] ▸ [배포 관리]에 표시된 <strong>현재 웹 앱 URL(…/exec)</strong>을 복사해 [설정] ▸ 「학생용 웹 앱 주소」에 붙여 넣고 저장하세요.' + useCurrent],
+        UNKNOWN: ['circle-help', 'info', '자동 판정을 하지 못했습니다.',
+          '아래 세부 정보를 확인하시고, 링크를 시크릿 창(Ctrl+Shift+N)이나 로그인하지 않은 휴대폰 브라우저에서 직접 열어 확인하세요.'],
         NEED_AUTH: ['key-round', '', '점검 권한이 아직 승인되지 않았습니다.',
           'Apps Script 편집기에서 <strong>setup</strong>을 한 번 실행해 권한(외부 주소 접속)을 승인한 뒤, [배포 관리] ▸ 새 버전으로 다시 배포하세요.'],
         NO_URL: ['triangle-alert', '', '학생용 웹 앱 주소가 없습니다.', '[설정] ▸ 「학생용 웹 앱 주소」에 /exec 주소를 입력하세요.'],
         ERROR: ['circle-alert', '', '점검하지 못했습니다.', esc(res.detail || '잠시 후 다시 시도하세요.')]
       }[res.result] || ['circle-alert', '', '점검하지 못했습니다.', ''];
+      const hops = (res.hops || []).map((h) => `${esc(h.host)} → ${esc(String(h.status))}`).join('<br>');
       box.innerHTML = `<div class="callout ${msg[1]}" role="status" style="margin-top:4px">${icon(msg[0])}<div class="small stack" style="margin:0">
-        <p><strong>${msg[2]}</strong></p><p>${msg[3]}</p></div></div>`;
+        <p><strong>${msg[2]}</strong></p><p>${msg[3]}</p>
+        ${hops || res.title ? `<details><summary class="tiny" style="text-decoration:underline">점검 세부 정보(문제 신고 시 함께 보내 주세요)</summary>
+          <p class="tiny num" style="margin-top:6px">${hops}${res.title ? `<br>페이지 제목: ${esc(res.title)}` : ''}</p></details>` : ''}</div></div>`;
       CES.icons();
       const b = $('[data-use-current]', box);
       if (b) b.addEventListener('click', async () => {

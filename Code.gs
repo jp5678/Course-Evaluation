@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.2.4',
+  VERSION: '1.2.5',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -1363,8 +1363,9 @@ function rememberExecUrl_(settings) {
 
 /**
  * 학생 링크 점검: 로그인하지 않은 학생과 같은 조건(쿠키 없음)으로 링크를 직접 열어 결과를 판정합니다.
- * result: OK(열림) | LOGIN(Google 로그인 요구 = 액세스 권한 문제) | UNAVAILABLE(배포를 열 수 없음)
- *         | NEED_AUTH(점검 권한 미승인) | NO_URL | ERROR
+ * result: OK(열림) | LOGIN(Google 로그인 요구) | ACCESS(배포는 살아 있으나 로그인 없이 열 수 없음 = 액세스 권한 문제)
+ *         | UNAVAILABLE(배포를 열 수 없음) | UNKNOWN(판정 불가, 세부 정보 확인) | NEED_AUTH | NO_URL | ERROR
+ * 판정 근거(hops: 상태 코드·호스트, title)를 함께 돌려줍니다.
  */
 function checkStudentLink(session, courseId) {
   return adminApi_(session, function () {
@@ -1373,6 +1374,8 @@ function checkStudentLink(session, courseId) {
     var base = studentBaseUrl_(getSettingsMap_());
     var current = webAppUrl_();
     var out = base ? probeUrl_(base + '?c=' + encodeURIComponent(course.course_id)) : { result: 'NO_URL' };
+    // 관리자 화면이 바로 이 주소에서 실행 중이면 배포는 살아 있음 → 익명 접속 실패는 액세스 권한 문제
+    if ((out.result === 'UNAVAILABLE' || out.result === 'LOGIN') && base && base === current) out.result = 'ACCESS';
     out.ok = true;
     out.url = base;
     out.current = APP.EXEC_URL_RE.test(current) ? current : '';
@@ -1381,32 +1384,41 @@ function checkStudentLink(session, courseId) {
 }
 
 function probeUrl_(url) {
-  var u = url;
+  var u = url, hops = [];
+  var done = function (o) { o.hops = hops; return o; };
+  var host = function (x) { var m = /^https?:\/\/([^/?#]+)/.exec(x); return m ? m[1] : ''; };
   for (var hop = 0; hop < 6; hop++) {
-    if (/^https:\/\/accounts\.google\.com\//.test(u)) return { result: 'LOGIN' };
+    if (/^https:\/\/accounts\.google\.com\//.test(u)) { hops.push({ host: host(u), status: 'login' }); return done({ result: 'LOGIN' }); }
     var res;
     try {
       res = UrlFetchApp.fetch(u, { followRedirects: false, muteHttpExceptions: true });
     } catch (e) {
       var msg = String(e && e.message || e);
-      return /permission|권한|authoriz/i.test(msg) ? { result: 'NEED_AUTH' } : { result: 'ERROR', detail: msg.slice(0, 200) };
+      return done(/permission|권한|authoriz/i.test(msg) ? { result: 'NEED_AUTH' } : { result: 'ERROR', detail: msg.slice(0, 200) });
     }
     var code = res.getResponseCode();
+    hops.push({ host: host(u), status: code });
     if (code >= 300 && code < 400) {
       var h = res.getHeaders() || {};
       var loc = String(h.Location || h.location || '');
-      if (!loc) return { result: 'ERROR', detail: 'HTTP ' + code };
+      if (!loc) return done({ result: 'ERROR', detail: 'HTTP ' + code });
       if (loc.charAt(0) === '/') loc = u.match(/^https?:\/\/[^/]+/)[0] + loc;
       u = loc;
       continue;
     }
     var body = String(res.getContentText() || '');
+    var tm = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(body);
+    var title = tm ? tm[1].replace(/\s+/g, ' ').trim().slice(0, 120) : '';
     // 앱 화면(학생 페이지 표식 또는 Apps Script 웹 앱 껍데기)이 오면 정상
-    if (body.indexOf('cesstudentpage') >= 0 || /userCodeAppPanel|goog\.script\.init/.test(body)) return { result: 'OK' };
-    if (/accounts\.google\.com\/(?:ServiceLogin|v3\/signin|signin)/.test(body)) return { result: 'LOGIN' };
-    return { result: 'UNAVAILABLE', status: code };
+    if (body.indexOf('cesstudentpage') >= 0 || /userCodeAppPanel|goog\.script\.init/.test(body)) return done({ result: 'OK', title: title });
+    if (/accounts\.google\.com\/(?:ServiceLogin|v3\/signin|signin)/.test(body)) return done({ result: 'LOGIN', title: title });
+    // Google의 「현재 파일을 열 수 없습니다」 페이지 또는 404
+    if (code === 404 || code === 403 || /drive\.google\.com\/start\/apps|unable to open the file|열 수 없습니다/i.test(body)) {
+      return done({ result: 'UNAVAILABLE', status: code, title: title });
+    }
+    return done({ result: 'UNKNOWN', status: code, title: title });
   }
-  return { result: 'ERROR', detail: '리디렉션이 너무 많습니다' };
+  return done({ result: 'ERROR', detail: '리디렉션이 너무 많습니다' });
 }
 
 /* ───────────────────────────── 보안 유틸 ───────────────────────────── */

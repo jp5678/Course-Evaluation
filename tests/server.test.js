@@ -626,7 +626,9 @@ test('링크 점검: 로그인 없는 조건으로 열어 정상·로그인 요�
     UNAVAILABLE: () => ({ code: 404, body: '현재 파일을 열 수 없습니다. drive.google.com/start/apps' }),
     NEED_AUTH: () => { throw new Error('You do not have permission to call UrlFetchApp.fetch. Required permissions: https://www.googleapis.com/auth/script.external_request'); }
   };
-  const expect = { OK: 'OK', WRAPPER: 'OK', LOGIN: 'LOGIN', UNAVAILABLE: 'UNAVAILABLE', NEED_AUTH: 'NEED_AUTH' };
+  scenarios.UNKNOWN = () => ({ code: 200, body: '<html><title>무언가 다른 페이지</title></html>' });
+  // 관리자 화면이 같은 주소에서 실행 중(배포 살아 있음) → 로그인 요구·열 수 없음은 액세스 권한 문제(ACCESS)
+  const expect = { OK: 'OK', WRAPPER: 'OK', LOGIN: 'ACCESS', UNAVAILABLE: 'ACCESS', NEED_AUTH: 'NEED_AUTH', UNKNOWN: 'UNKNOWN' };
   for (const [name, fetch] of Object.entries(scenarios)) {
     const seen = [];
     const { server } = H.makeServer({ pin: PIN, url: EXEC, fetch: (u, p) => { seen.push([u, p]); return fetch(u, p); } });
@@ -635,10 +637,21 @@ test('링크 점검: 로그인 없는 조건으로 열어 정상·로그인 요�
     const r = server.checkStudentLink(s, c.course_id);
     assert.equal(r.ok, true);
     assert.equal(r.result, expect[name], name);
+    if (name === 'UNKNOWN') assert.equal(r.title, '무언가 다른 페이지', '판정 근거(페이지 제목)');
+    if (name === 'OK') assert.deepEqual(r.hops.map((h) => h.status), [302, 200], '판정 근거(상태 코드 흐름)');
     if (seen.length) {
       assert.equal(seen[0][0], EXEC + '?c=' + c.course_id, '학생 링크 그대로 점검');
       assert.equal(seen[0][1].followRedirects, false, '리디렉션을 직접 따라가며 판정');
     }
+  }
+  // 저장된 학생용 주소가 현재 실행 주소와 다르면(예: 예전 배포) 원래 판정 유지
+  for (const [name, want] of [['UNAVAILABLE', 'UNAVAILABLE'], ['LOGIN', 'LOGIN']]) {
+    const { server } = H.makeServer({ pin: PIN, url: EXEC, fetch: scenarios[name] });
+    const s = H.login(server, PIN);
+    assert.equal(server.saveSettings(s, { professor_name: 'x', affiliation: 'y', min_responses: 5, departments: '간호학과', webapp_url: 'https://script.google.com/macros/s/OLD/exec' }).ok, true);
+    const r = server.checkStudentLink(s, server.getCourses_()[0].course_id);
+    assert.equal(r.result, want, name + '(다른 주소)');
+    assert.equal(r.current, EXEC);
   }
   const { server } = H.makeServer({ pin: PIN, url: 'https://script.google.com/macros/s/ABC/dev' });
   const s = H.login(server, PIN);
