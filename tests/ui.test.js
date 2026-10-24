@@ -127,6 +127,39 @@ test('학생 360px: 진입→접속코드→익명 안내→설문(키보드 1~5
   assert.equal(draft, 0, '제출 후 임시 저장 삭제');
 });
 
+test('간단 접속: 공통 주소에서 코드만 입력 → 바로 시작, QR(코드 포함 링크)은 코드 입력 생략', async () => {
+  // ① 공통 주소(교과목 ID 없음): 접속코드 입력 화면 → 틀린 코드 안내 → 올바른 코드(소문자) → 교과목 카드
+  const page = await newPage();
+  await page.goto(base + '?scenario=student&c=');
+  await page.getByRole('heading', { name: '접속코드 입력' }).waitFor();
+  await noHorizontalScroll(page, '공통 주소 코드 입력');
+  await shot(page, 'm00-code-entry');
+  await page.locator('#code').fill('NOPE99');
+  await page.getByRole('button', { name: '시작하기' }).click();
+  await page.getByText('일치하는 설문이 없습니다').waitFor();
+  const code = await page.evaluate(() => window.__PREVIEW.accessCode);
+  await page.locator('#code').fill(code.toLowerCase());
+  await page.getByRole('button', { name: '시작하기' }).click();
+  await page.locator('#ct').waitFor();
+  // 시작하기 → 코드를 다시 묻지 않고 익명 안내로
+  await page.getByRole('button', { name: '시작하기' }).click();
+  await page.getByRole('heading', { name: '익명으로 응답합니다' }).waitFor();
+  assert.equal(await page.locator('#cred').count(), 0, '코드 재입력 없음');
+
+  // ② QR 링크(?c=…&k=코드): 시작하기 → 바로 익명 안내
+  const p2 = await newPage();
+  const cid = await page.evaluate(() => window.__PREVIEW.courseId);
+  await p2.goto(base + '?scenario=student&c=' + cid + '&k=' + code);
+  await p2.getByRole('button', { name: '시작하기' }).click();
+  await p2.getByRole('heading', { name: '익명으로 응답합니다' }).waitFor();
+
+  // ③ 링크의 코드가 틀리면(코드 변경 등) 입력 화면으로 안내
+  const p3 = await newPage();
+  await p3.goto(base + '?scenario=student&c=' + cid + '&k=WRONG1');
+  await p3.getByRole('button', { name: '시작하기' }).click();
+  await p3.getByText('접속코드가 올바르지 않습니다').waitFor();
+});
+
 test('혼합 수업 교과목: 온라인 문항(H) 포함 26문항, 성별 문항 없음, 모든 문항 필수', async () => {
   const page = await newPage();
   await page.goto(base + '?scenario=student');
@@ -210,14 +243,14 @@ test('기간 외 접속·마감·토큰 재사용 안내 화면', async () => {
   await p2.goto(base + '?scenario=tokenused');
   const tok = await p2.evaluate(() => window.__PREVIEW.tokens[0]);
   await p2.goto(base + '?scenario=tokenused&t=' + tok.replace('-', ''));
+  // QR 링크의 토큰은 입력 없이 자동 확인 → 이미 사용된 토큰 안내
   await p2.getByRole('button', { name: '시작하기' }).click();
-  assert.equal(await p2.inputValue('#cred'), tok, 'QR 링크의 토큰 자동 입력');
-  await p2.getByRole('button', { name: '확인' }).click();
   await p2.getByRole('heading', { name: '이미 사용된 토큰입니다' }).waitFor();
   await shot(p2, 'm07-token-used');
 
+  // 교과목 ID 없는 주소는 공통 주소: 접속코드 입력 화면
   await p2.goto(base + '?c=');
-  await p2.getByRole('heading', { name: '유효하지 않은 링크입니다' }).waitFor();
+  await p2.getByRole('heading', { name: '접속코드 입력' }).waitFor();
 });
 
 test('다크 모드·모션 최소화: 대비 토큰 적용, confetti 생략', async () => {

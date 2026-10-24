@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css">
   <?!= include('Styles'); ?>
 </head>
-<body class="page-student cesstudentpage" data-course="<?= courseId ?>" data-token="<?= tokenPrefill ?>">
+<body class="page-student cesstudentpage" data-course="<?= courseId ?>" data-token="<?= tokenPrefill ?>" data-code="<?= codePrefill ?>">
   <a class="skip-link" href="#main">본문 바로가기</a>
   <div class="deco" aria-hidden="true"><span class="s1"></span><span class="s2"></span><span class="s3"></span><span class="s4"></span></div>
 
@@ -58,6 +58,8 @@
     var S = {
       courseId: document.body.getAttribute('data-course') || '',
       tokenPrefill: document.body.getAttribute('data-token') || '',
+      // 링크·QR에 담긴 접속코드(또는 토큰): 인증 단계에서 자동으로 확인해 입력을 생략합니다.
+      autoCred: document.body.getAttribute('data-code') || document.body.getAttribute('data-token') || '',
       course: null,
       items: [],
       labels: ['전혀 그렇지 않다', '그렇지 않다', '보통이다', '그렇다', '매우 그렇다'],
@@ -71,8 +73,13 @@
       dir: 1,
       cheered: {}
     };
-    var DRAFT_KEY = 'ces:draft:' + S.courseId;
-    var DONE_KEY = 'ces:done:' + S.courseId;
+    var DRAFT_KEY, DONE_KEY;
+    function setCourseId(id) {
+      S.courseId = id;
+      DRAFT_KEY = 'ces:draft:' + id;
+      DONE_KEY = 'ces:done:' + id;
+    }
+    setCourseId(S.courseId);
 
     /* ───── 공통 렌더링 ───── */
     function render(html, focusSel) {
@@ -122,7 +129,7 @@
 
     /* ───── 1. 진입 ───── */
     function start() {
-      if (!S.courseId) { notice('INVALID'); return; }
+      if (!S.courseId) { renderCodeEntry(); return; }
       CES.call('getCourseForStudent', [S.courseId]).then(function (res) {
         if (!res.ok) {
           if (res.code === 'NOT_FOUND') return notice('NOT_FOUND');
@@ -138,6 +145,42 @@
         } else {
           renderIntro();
         }
+      });
+    }
+
+    /* ───── 0. 공통 주소: 접속코드만 입력 ───── */
+    function renderCodeEntry(errorMsg) {
+      render(
+        '<form class="card pad-lg stack-lg rise" id="code-form" novalidate aria-labelledby="ce">' +
+        '<div class="notice-icon">' + icon('key-round') + '</div>' +
+        '<div class="center"><h1 id="ce">접속코드 입력</h1><p class="muted small" style="margin-top:6px">수업 시간에 안내받은 코드만 입력하면 바로 시작합니다.</p></div>' +
+        '<div class="field">' +
+        '<label for="code">접속코드</label>' +
+        '<input id="code" class="input code" name="code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="12" inputmode="text" ' +
+        'placeholder="예: 4JQZJA" aria-describedby="code-hint' + (errorMsg ? ' code-err' : '') + '"' + (errorMsg ? ' aria-invalid="true"' : '') + '>' +
+        '<p class="hint" id="code-hint">영문·숫자 코드입니다. 대소문자는 구분하지 않습니다. 종이 토큰을 받았다면 토큰을 입력하세요.</p>' +
+        (errorMsg ? '<p class="error" id="code-err">' + icon('circle-alert') + ' ' + esc(errorMsg) + '</p>' : '') +
+        '</div>' +
+        '<button type="submit" class="btn primary block" id="code-btn">시작하기' + icon('arrow-right') + '</button>' +
+        '</form>',
+        '#code'
+      );
+      $('#code-form').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var v = $('#code').value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (!v) { renderCodeEntry('접속코드를 입력하세요.'); return; }
+        var restore = CES.busyButton($('#code-btn'), '찾는 중…');
+        CES.call('findCourseByCode', [v]).then(function (res) {
+          restore();
+          if (!res.ok) {
+            if (res.code === 'BAD_CODE') return renderCodeEntry('일치하는 설문이 없습니다. 코드를 다시 확인해 주세요.');
+            return notice('ERROR', { retry: true });
+          }
+          setCourseId(res.course_id);
+          S.autoCred = v;
+          if (res.token) S.tokenPrefill = v;
+          start();
+        });
       });
     }
 
@@ -169,6 +212,7 @@
     /* ───── 2. 인증 ───── */
     function renderAuth(errorMsg) {
       if (!needsCredential()) { verify(''); return; }
+      if (S.autoCred) { var auto = S.autoCred; S.autoCred = ''; verify(auto); return; }
       var isToken = S.course.access_mode === 'token';
       var label = isToken ? '일회용 토큰' : '접속코드';
       var help = isToken ? '교수님께 받은 종이 토큰의 8자리 문자(예: ABCD-EF23)를 입력하세요. 토큰은 한 번만 사용할 수 있습니다.'

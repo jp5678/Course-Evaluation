@@ -151,19 +151,19 @@ test('기간 외 접속: 시작 전·종료 후·수동 마감 모두 차단', (
   const open = H.createCourse(server, s);
 
   assert.equal(server.getCourseForStudent(future).state, '준비');
-  assert.equal(server.verifyAccess(future, 'ABC123').code, 'NOT_STARTED');
-  assert.equal(server.submitResponse(future, 'ABC123', {}).code, 'NOT_STARTED');
+  assert.equal(server.verifyAccess(future, H.codeOf(server, future)).code, 'NOT_STARTED');
+  assert.equal(server.submitResponse(future, H.codeOf(server, future), {}).code, 'NOT_STARTED');
 
   assert.equal(server.getCourseForStudent(past).state, '마감');
-  assert.equal(server.verifyAccess(past, 'ABC123').code, 'CLOSED');
-  assert.equal(server.submitResponse(past, 'ABC123', {}).code, 'CLOSED');
+  assert.equal(server.verifyAccess(past, H.codeOf(server, past)).code, 'CLOSED');
+  assert.equal(server.submitResponse(past, H.codeOf(server, past), {}).code, 'CLOSED');
 
   const c = server.getAdminBootstrap(s).courses.find((x) => x.course_id === open);
   assert.equal(c.status, '진행');
   const upd = server.saveCourse(s, Object.assign({}, c, { manual_close: true }));
   assert.equal(upd.ok, true);
   assert.equal(server.getCourseForStudent(open).state, '마감', '수동 마감');
-  assert.equal(server.submitResponse(open, 'ABC123', {}).code, 'CLOSED');
+  assert.equal(server.submitResponse(open, H.codeOf(server, open), {}).code, 'CLOSED');
 
   assert.equal(server.getCourseForStudent('nope').code, 'NOT_FOUND');
   assert.equal(server.getCourseForStudent('"><script>').code, 'NOT_FOUND');
@@ -221,7 +221,7 @@ test('최소 공개 응답 수 미만 잠금(결과·내보내기·대시보드 
   const s = H.login(server, PIN);
   const id = H.createCourse(server, s, { course_name: '성인간호학', section: 'A' });
   const items = server.getItems_(id);
-  for (let i = 0; i < 4; i++) assert.equal(server.submitResponse(id, 'ABC123', H.fullAnswers(items, 3 + (i % 3))).ok, true);
+  for (let i = 0; i < 4; i++) assert.equal(server.submitResponse(id, H.codeOf(server, id), H.fullAnswers(items, 3 + (i % 3))).ok, true);
 
   let r = server.getResults(s, id);
   assert.equal(r.locked, true);
@@ -231,7 +231,7 @@ test('최소 공개 응답 수 미만 잠금(결과·내보내기·대시보드 
   for (const fn of ['exportCsv', 'exportCqi', 'exportText']) assert.equal(server[fn](s, id).locked, true, fn + ' 잠금');
   assert.equal(server.getAdminBootstrap(s).courses.find((c) => c.course_id === id).mean, null);
 
-  assert.equal(server.submitResponse(id, 'ABC123', H.fullAnswers(items, 5)).ok, true);
+  assert.equal(server.submitResponse(id, H.codeOf(server, id), H.fullAnswers(items, 5)).ok, true);
   r = server.getResults(s, id);
   assert.equal(r.locked, false);
   assert.equal(r.n, 5);
@@ -245,7 +245,7 @@ test('최소 공개 응답 수 미만 잠금(결과·내보내기·대시보드 
   // 분반 비교: B반은 응답 2건 → 비교에서 제외
   const idB = H.createCourse(server, s, { course_name: '성인간호학', section: 'B' });
   const itemsB = server.getItems_(idB);
-  for (let i = 0; i < 2; i++) server.submitResponse(idB, 'ABC123', H.fullAnswers(itemsB, 2));
+  for (let i = 0; i < 2; i++) server.submitResponse(idB, H.codeOf(server, idB), H.fullAnswers(itemsB, 2));
   r = server.getResults(s, id);
   assert.equal(r.section_compare.groups.length, 1);
   assert.equal(r.section_compare.excluded, 1, '소규모 분반 제외');
@@ -260,7 +260,7 @@ test('결과공개일 이전 잠금', () => {
   const tomorrow = H.iso(new Date(Date.now() + 86400000 * 2)).slice(0, 10);
   const id = H.createCourse(server, s, { result_open_date: tomorrow });
   const items = server.getItems_(id);
-  for (let i = 0; i < 6; i++) server.submitResponse(id, 'ABC123', H.fullAnswers(items));
+  for (let i = 0; i < 6; i++) server.submitResponse(id, H.codeOf(server, id), H.fullAnswers(items));
   const r = server.getResults(s, id);
   assert.equal(r.reason, 'BEFORE_OPEN_DATE');
   assert.equal(r.open_date, tomorrow);
@@ -279,7 +279,7 @@ test('역문항 환산, 서술형 무작위 순서, CQI·CSV 내보내기', () =
     const a = H.fullAnswers(saved, 5);
     a[saved[0].item_id] = 1; // 역문항 1 → 5점 환산
     a[texts[0].item_id] = '응답' + i;
-    server.submitResponse(id, 'ABC123', a);
+    server.submitResponse(id, H.codeOf(server, id), a);
   }
   const r = server.getResults(s, id);
   assert.equal(r.stats.items[0].mean, 5, '역문항 환산');
@@ -308,7 +308,7 @@ test('문항 편집: 응답 수집 후 잠금, 검증, 복제 시 새 ID', () =>
   const withChoice = items.concat([{ domain: 'G. 기타', text: '선호 수업 방식', type: 'multi', options: ['강의', '토론', '실습'], required: false }]);
   assert.equal(server.saveItems(s, id, withChoice).ok, true);
 
-  server.submitResponse(id, 'ABC123', H.fullAnswers(server.getItems_(id)));
+  server.submitResponse(id, H.codeOf(server, id), H.fullAnswers(server.getItems_(id)));
   assert.equal(server.getItemsAdmin(s, id).locked, true);
   assert.equal(server.saveItems(s, id, items).code, 'LOCKED_ITEMS');
   assert.equal(server.deleteCourse(s, id).code, 'HAS_RESPONSES');
@@ -348,7 +348,7 @@ test('수업 방식: 대면은 온라인 문항 숨김, 비대면으로 바꾸�
   const id = H.createCourse(server, s, { delivery_mode: '대면' });
   const c = () => server.findCourse_(id);
   assert.equal(server.itemsForCourse_(c()).filter((i) => i.scope === 'online').length, 0);
-  assert.equal(server.verifyAccess(id, 'ABC123').items.some((i) => /온라인/.test(i.domain)), false);
+  assert.equal(server.verifyAccess(id, H.codeOf(server, id)).items.some((i) => /온라인/.test(i.domain)), false);
   const cur = server.getAdminBootstrap(s).courses.find((x) => x.course_id === id);
   assert.equal(server.saveCourse(s, Object.assign({}, cur, { delivery_mode: '비대면' })).ok, true);
   const items = server.itemsForCourse_(c());
@@ -373,11 +373,11 @@ test('교과목 유형: 이론은 실습실 문항, 실습은 이론 강의실 �
   assert.equal(has(practice, /^실습실의 시설/), true);
   assert.equal(has(both, /^이론 강의실/) && has(both, /^실습실의 시설/), true);
   assert.equal(visible(theory).length, visible(both).length - 1, '이론 교과목은 1문항 적음');
-  assert.equal(server.verifyAccess(theory, 'ABC123').items.some((i) => /^실습실/.test(i.text)), false, '학생 화면에서도 제외');
+  assert.equal(server.verifyAccess(theory, H.codeOf(server, theory)).items.some((i) => /^실습실/.test(i.text)), false, '학생 화면에서도 제외');
   assert.equal(server.getAdminBootstrap(s).courses.find((c) => c.course_id === theory).item_count, visible(theory).length);
   // 숨긴 문항은 제출 검증·결과에도 나타나지 않음
   const items = server.itemsForCourse_(server.findCourse_(theory));
-  for (let i = 0; i < 5; i++) server.submitResponse(theory, 'ABC123', H.fullAnswers(items));
+  for (let i = 0; i < 5; i++) server.submitResponse(theory, H.codeOf(server, theory), H.fullAnswers(items));
   const r = server.getResults(s, theory);
   assert.equal(r.stats.items.some((x) => /^실습실/.test(x.text)), false);
   assert.equal(server.saveCourse(s, Object.assign({}, base(server, s, practice), { course_type: '보건' })).field, 'course_type');
@@ -392,7 +392,7 @@ test('응답 수집 후에는 교과목 유형·수업 방식 변경 불가(문�
   const s = H.login(server, PIN);
   const id = H.createCourse(server, s, { course_type: '이론+실습' });
   assert.equal(server.saveCourse(s, Object.assign({}, base(server, s, id), { course_type: '이론' })).ok, true, '응답 전 변경 허용');
-  server.submitResponse(id, 'ABC123', H.fullAnswers(server.itemsForCourse_(server.findCourse_(id))));
+  server.submitResponse(id, H.codeOf(server, id), H.fullAnswers(server.itemsForCourse_(server.findCourse_(id))));
   let r = server.saveCourse(s, Object.assign({}, base(server, s, id), { course_type: '실습' }));
   assert.equal(r.code, 'VALIDATION');
   assert.equal(r.field, 'course_type');
@@ -445,7 +445,7 @@ test('드롭다운(교수가 추가한 성별 문항): 소규모 집단이면 �
   addGender(server, s, id);
   const items = server.itemsForCourse_(server.findCourse_(id));
   const g = items.find((i) => i.type === 'select');
-  const submit = (sex, v) => { const a = H.fullAnswers(items, v); a[g.item_id] = sex; return server.submitResponse(id, 'ABC123', a); };
+  const submit = (sex, v) => { const a = H.fullAnswers(items, v); a[g.item_id] = sex; return server.submitResponse(id, H.codeOf(server, id), a); };
   for (let i = 0; i < 8; i++) submit('여', 4);
   submit('남', 2); // 남 1명 → 특정 위험
   let r = server.getResults(s, id);
@@ -468,14 +468,14 @@ test('드롭다운(교수가 추가한 성별 문항): 소규모 집단이면 �
   assert.equal(server.exportCsv(s, id).omitted, 0);
   // 성별은 필수: 비워 두면 제출 거부
   const a = H.fullAnswers(items, 1); a[g.item_id] = '';
-  assert.deepEqual(server.submitResponse(id, 'ABC123', a).missing, [g.item_id]);
+  assert.deepEqual(server.submitResponse(id, H.codeOf(server, id), a).missing, [g.item_id]);
 
   // 교수가 성별을 선택 응답으로 바꾼 교과목: 미응답 집단이 소규모여도 숨김(전체 평균과의 차로 역산 가능)
   const id2 = H.createCourse(server, s);
   addGender(server, s, id2, false);
   const its2 = server.itemsForCourse_(server.findCourse_(id2));
   const g2 = its2.find((i) => i.type === 'select');
-  const sub2 = (sex) => { const x = H.fullAnswers(its2); x[g2.item_id] = sex; return server.submitResponse(id2, 'ABC123', x); };
+  const sub2 = (sex) => { const x = H.fullAnswers(its2); x[g2.item_id] = sex; return server.submitResponse(id2, H.codeOf(server, id2), x); };
   for (let i = 0; i < 5; i++) { sub2('여'); sub2('남'); }
   assert.equal(server.getResults(s, id2).groups[0].suppressed, false);
   assert.equal(sub2('').ok, true);
@@ -525,7 +525,7 @@ test('결과 한눈에 보기: 긍정 비율, 핵심 지표(만족도·추천), 
   vals.forEach((v, i) => {
     const a = H.fullAnswers(items, v);
     a[texts[0].item_id] = ['실습이 유익했습니다', '실습 자료가 좋았어요', 'Wi-Fi가 자주 끊겨요', '피드백이 빨랐습니다', '실습실 와이파이 개선'][i];
-    server.submitResponse(id, 'ABC123', a);
+    server.submitResponse(id, H.codeOf(server, id), a);
   });
   const r = server.getResults(s, id);
   assert.equal(r.stats.overall_pos_pct, 60);
@@ -687,13 +687,13 @@ test('학기 간 비교: 반이 없는 새 교과목과 반이 있는 이전 교
   const cur = H.createCourse(server, s, { course_name: '성인간호학', section: '' });
   [prev, cur].forEach((id) => {
     const its = server.itemsForCourse_(server.findCourse_(id));
-    for (let i = 0; i < 5; i++) server.submitResponse(id, 'ABC123', H.fullAnswers(its));
+    for (let i = 0; i < 5; i++) server.submitResponse(id, H.codeOf(server, id), H.fullAnswers(its));
   });
   assert.equal(server.getResults(s, cur).semester_compare.groups.length, 2);
   // 같은 학기의 다른 반은 학기 간 비교에 섞이지 않음
   const same = H.createCourse(server, s, { course_name: '성인간호학', section: 'B' });
   const its = server.itemsForCourse_(server.findCourse_(same));
-  for (let i = 0; i < 5; i++) server.submitResponse(same, 'ABC123', H.fullAnswers(its));
+  for (let i = 0; i < 5; i++) server.submitResponse(same, H.codeOf(server, same), H.fullAnswers(its));
   const r = server.getResults(s, cur);
   assert.equal(r.semester_compare.groups.length, 2);
   assert.equal(r.section_compare.groups.length, 2, '같은 학기 다른 반은 분반 간 비교로');
@@ -723,4 +723,41 @@ test('이전 버전 시트 업그레이드(v1.2.3): 성별 문항 삭제(응답 
   assert.equal(hasGender(dl.course_id), false, '응답 없는 교과목에서 삭제');
   assert.equal(hasGender(ai.course_id), true, '응답 있는 교과목은 그대로');
   server.getCourses_().forEach((c) => { assert.equal(c.section, ''); assert.equal(c.enrollment, 0); });
+});
+
+test('간단 접속: 링크·QR에 접속코드 포함, 공통 주소에서 코드만으로 교과목 찾기(토큰 포함), 코드 중복 금지', () => {
+  const { server } = H.makeServer({ pin: PIN, url: 'https://script.google.com/macros/s/ABC/exec' });
+  const s = H.login(server, PIN);
+  const demo = H.demoCourse(server);
+  const boot = server.getAdminBootstrap(s);
+  const sum = boot.courses.find((c) => c.course_id === demo.course_id);
+  assert.equal(sum.base_url, 'https://script.google.com/macros/s/ABC/exec');
+  assert.equal(sum.link, sum.base_url + '?c=' + demo.course_id + '&k=' + demo.access_code.toUpperCase(), 'QR에 코드 포함');
+
+  // 공통 주소: 코드만으로 찾기(대소문자·공백·하이픈 무시)
+  const f = server.findCourseByCode(' ' + demo.access_code.toLowerCase() + ' ');
+  assert.deepEqual([f.ok, f.course_id, f.token], [true, demo.course_id, false]);
+  assert.equal(server.findCourseByCode('ZZZZZZ').code, 'BAD_CODE');
+  assert.equal(server.findCourseByCode('').code, 'BAD_CODE');
+
+  // 토큰 방식: 토큰으로 교과목 찾기, 링크에는 코드 없음
+  const tid = H.createCourse(server, s, { access_mode: 'token', access_code: '' });
+  const tok = server.generateTokens(s, tid, 2).tokens[0];
+  const ft = server.findCourseByCode(tok);
+  assert.deepEqual([ft.ok, ft.course_id, ft.token], [true, tid, true]);
+  assert.ok(!/&k=/.test(server.getAdminBootstrap(s).courses.find((c) => c.course_id === tid).link));
+
+  // 코드 중복 금지(자기 자신 재저장은 허용)
+  const dup = server.saveCourse(s, Object.assign({}, { course_name: '중복', year: 2026, semester: '2', grade: 3, department: '간호학과', delivery_mode: '대면',
+    start_at: H.iso(new Date()), end_at: H.iso(new Date(Date.now() + 86400000)), access_mode: 'code', access_code: demo.access_code.toLowerCase() }));
+  assert.equal(dup.code, 'VALIDATION');
+  assert.equal(dup.field, 'access_code');
+  const id2 = H.createCourse(server, s, { access_code: 'UNIQ01' });
+  const again = server.saveCourse(s, { course_id: id2, course_name: '테스트 교과목', year: 2026, semester: '2', grade: 3, department: '간호학과', delivery_mode: '대면',
+    start_at: H.iso(new Date(Date.now() - 3600000)), end_at: H.iso(new Date(Date.now() + 86400000)), access_mode: 'code', access_code: 'UNIQ01' });
+  assert.equal(again.ok, true);
+
+  // doGet: k 파라미터는 영숫자만 남겨 템플릿에 전달
+  const html = server.doGet({ parameter: { c: demo.course_id, k: '<x>"ab12' } }).getContent();
+  assert.match(html, /data-code="XAB12"/);
 });

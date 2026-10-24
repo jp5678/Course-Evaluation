@@ -56,17 +56,24 @@ function iso(d) {
 }
 
 /** 과거/미래 기간의 교과목 생성 */
+let codeSeq = 0;
 function createCourse(server, session, overrides = {}) {
   const now = Date.now();
+  codeSeq += 1; // 접속코드는 교과목마다 달라야 함
   const data = Object.assign({
     course_name: '테스트 교과목', year: 2026, semester: '2', grade: 3, section: 'A', enrollment: 40,
     department: '간호학과', delivery_mode: '대면',
     start_at: iso(new Date(now - 86400000)), end_at: iso(new Date(now + 86400000 * 7)),
-    access_mode: 'code', access_code: 'ABC123', result_open_date: ''
+    access_mode: 'code', access_code: 'ABC' + String(100 + codeSeq), result_open_date: ''
   }, overrides);
   const r = server.saveCourse(session, data);
   if (!r.ok) throw new Error('saveCourse failed: ' + JSON.stringify(r));
   return r.course_id;
 }
 
-module.exports = { GasMock, ROOT, SOURCES, readFile, makeServer, login, table, demoCourse, fullAnswers, iso, createCourse };
+/** 교과목의 접속코드(교과목마다 다름) */
+function codeOf(server, courseId) {
+  return server.findCourse_(courseId).access_code;
+}
+
+module.exports = { codeOf, GasMock, ROOT, SOURCES, readFile, makeServer, login, table, demoCourse, fullAnswers, iso, createCourse };

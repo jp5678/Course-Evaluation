@@ -1991,6 +1991,12 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
             <p class="small muted">${esc(c.course_name)} · ${esc(termFull(c))}</p>
             <div class="qr-box">${svg}</div>
             ${c.access_mode === 'code' && c.access_code ? `<div class="center"><div class="small muted">접속코드</div><div class="mid-num" style="letter-spacing:.12em">${esc(c.access_code)}</div></div>` : ''}
+            ${c.access_mode !== 'token' ? `<div class="callout info">${icon('smartphone')}<div class="small stack">
+              <p><strong>학생 접속 방법(둘 중 하나)</strong></p>
+              <p>① <strong>QR 찍기</strong> — 접속코드가 QR에 들어 있어 코드 입력 없이 바로 시작합니다.</p>
+              <p>② <strong>공통 주소 + 접속코드</strong> — 모든 교과목이 같은 주소를 씁니다. LMS 공지에 한 번만 올려 두면, 학생은 접속코드만 입력합니다.</p>
+              ${c.base_url ? `<div class="linkbox"><code>${esc(c.base_url)}</code><button type="button" class="btn sm" data-copy-base>${icon('copy')}공통 주소 복사</button></div>` : ''}
+            </div></div>` : ''}
             ${c.access_mode === 'token' ? `<div class="callout info">${icon('ticket')}<p class="small">토큰 방식입니다. 학생은 이 링크에서 종이 토큰을 입력합니다. 토큰 시트의 QR은 토큰이 미리 입력된 링크입니다.</p></div>` : ''}
             <div class="linkbox"><code>${esc(c.link)}</code><button type="button" class="btn sm" data-copy>${icon('copy')}복사</button></div>
             <div class="row" style="justify-content:center">
@@ -2004,6 +2010,8 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
           <button type="button" class="btn primary" data-present>${icon('presentation')}수업 화면에 띄우기</button>`
       });
       $('[data-copy]', m.el).addEventListener('click', () => CES.copy(c.link));
+      const copyBase = $('[data-copy-base]', m.el);
+      if (copyBase) copyBase.addEventListener('click', () => CES.copy(c.base_url));
       $('[data-check-link]', m.el).addEventListener('click', (e) => checkLink(c, e.currentTarget, $('#link-check', m.el)));
       $('[data-svg]', m.el).addEventListener('click', () => CES.download(`QR_${c.course_name}_${term(c)}.svg`.replace(/\s+/g, '_'), svg, 'image/svg+xml'));
       $('[data-present]', m.el).addEventListener('click', () => { m.close(); present(c, svg); });
@@ -2069,7 +2077,7 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
       el.setAttribute('aria-label', '수업 화면용 QR');
       el.innerHTML = `<h1>${esc(c.course_name)} 강의평가</h1><div class="qr-box">${svg}</div>
         ${c.access_mode === 'code' && c.access_code ? `<div><div class="muted">접속코드</div><div class="code-big">${esc(c.access_code)}</div></div>` : ''}
-        <p class="muted">휴대폰 카메라로 QR을 스캔하세요 · 익명 · 약 3분</p>
+        <p class="muted">휴대폰 카메라로 QR을 찍으면 바로 시작합니다 · 익명 · 약 3분</p>
         <button type="button" class="btn" data-x>${icon('x')}닫기 (Esc)</button>`;
       document.body.appendChild(el);
       CES.icons();

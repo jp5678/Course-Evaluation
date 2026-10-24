@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.2.7',
+  VERSION: '1.3.0',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -69,6 +69,7 @@ function doGet(e) {
   var t = HtmlService.createTemplateFromFile(isAdmin ? 'Admin' : 'Student');
   t.courseId = sanitizeId_(p.c);
   t.tokenPrefill = normalizeToken_(p.t || '');
+  t.codePrefill = String(p.k || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
   t.professorName = String(settings.professor_name || '');
   t.affiliation = String(settings.affiliation || '');
   return t.evaluate()
@@ -95,6 +96,39 @@ function getCourseForStudent(courseId) {
       state: effectiveStatus_(course, new Date()),
       course: publicCourse_(course, items, getSettingsMap_())
     };
+  });
+}
+
+/**
+ * 공통 주소에서 접속코드(또는 일회용 토큰)만으로 교과목을 찾습니다.
+ * 같은 코드가 여럿이면 응답 기간 중인 교과목을 우선합니다. 실패 시 지연으로 무차별 대입을 늦춥니다.
+ */
+function findCourseByCode(code) {
+  return safe_(function () {
+    var raw = String(code == null ? '' : code).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+    if (!raw) return { ok: false, code: 'BAD_CODE' };
+    var now = new Date();
+    var courses = getCourses_();
+    var hits = courses.filter(function (c) {
+      return c.access_mode !== 'token' && String(c.access_code || '').trim().toUpperCase() === raw;
+    });
+    var isToken = false;
+    if (!hits.length && raw.length === APP.TOKEN_LENGTH) {
+      var tokens = readTable_(APP.SHEETS.TOKENS).rows;
+      var salt = tokenSalt_();
+      hits = courses.filter(function (c) {
+        if (c.access_mode !== 'token') return false;
+        var h = tokenHash_(c.course_id, raw, salt);
+        return tokens.some(function (r) { return String(r.course_id) === c.course_id && String(r.token_hash) === h; });
+      });
+      isToken = hits.length > 0;
+    }
+    if (!hits.length) {
+      Utilities.sleep(400);
+      return { ok: false, code: 'BAD_CODE' };
+    }
+    var open = hits.filter(function (c) { return effectiveStatus_(c, now) === APP.STATUS.OPEN; });
+    return { ok: true, course_id: (open[0] || hits[0]).course_id, token: isToken };
   });
 }
 
@@ -284,6 +318,13 @@ function saveCourse(session, data) {
         c.course_id = newCourseId_(table.rows);
       }
       c.status = data.manual_close ? APP.STATUS.CLOSED : statusByDates_(c, new Date());
+      // 공통 주소에서 접속코드만으로 교과목을 찾으므로 코드는 교과목마다 달라야 합니다.
+      var code = String(c.access_code || '').toUpperCase();
+      if (c.access_mode !== 'token' && code && table.rows.some(function (r) {
+        return String(r.course_id) !== String(c.course_id) && String(r.access_mode) !== 'token' && String(r.access_code || '').trim().toUpperCase() === code;
+      })) {
+        return { ok: false, code: 'VALIDATION', field: 'access_code', message: '다른 교과목이 이미 쓰는 접속코드입니다. 다른 코드를 입력하세요.' };
+      }
       var row = courseToRow_(c);
       if (existing) {
         // 응답이 들어온 뒤 문항 구성(표시 조건)이 바뀌면 앞뒤 응답의 문항이 달라지므로 막습니다.
@@ -1078,7 +1119,10 @@ function courseSummary_(c, n, now, url) {
     delivery_mode: c.delivery_mode,
     course_type: c.course_type,
     hours_left: status === APP.STATUS.OPEN && hoursLeft != null ? Math.round(hoursLeft * 10) / 10 : null,
-    link: url ? url + '?c=' + encodeURIComponent(c.course_id) : ''
+    // 접속코드 방식은 링크·QR에 코드를 담아 학생이 코드를 입력하지 않아도 되게 합니다.
+    link: url ? url + '?c=' + encodeURIComponent(c.course_id) +
+      (c.access_mode !== 'token' && c.access_code ? '&k=' + encodeURIComponent(String(c.access_code).trim().toUpperCase()) : '') : '',
+    base_url: url || ''
   };
 }
 
