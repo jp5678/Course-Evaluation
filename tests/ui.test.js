@@ -545,6 +545,35 @@ test('사용 매뉴얼 탭: 맨 위 메뉴 끝, 12개 장, 차례로 펼치기·
   await shot(page, 'm14-manual');
 });
 
+test('문항 편집: 영역 드롭다운에 모든 영역 표시, 영역 변경, 직접 입력으로 새 영역 추가', async () => {
+  const page = await newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(base + '?scenario=student&page=admin');
+  await page.locator('#pin').fill('123456');
+  await page.getByRole('button', { name: '로그인' }).click();
+  await page.getByText('진행 중 교과목', { exact: true }).waitFor();
+  await page.getByRole('tab', { name: '문항' }).click();
+  const cid = await page.evaluate(() => window.__PREVIEW.courseId);
+  await page.selectOption('#items-course', cid);
+  await page.waitForSelector('#dom-0');
+  assert.equal(await page.evaluate(() => document.getElementById('dom-0').tagName), 'SELECT', '영역은 드롭다운');
+  const opts = await page.$$eval('#dom-0 option', (os) => os.map((o) => o.textContent.trim()));
+  ['A. 강의 설계', 'B. 교수학습방법', 'C. 평가 및 과제', 'D. 학습성과(CLO)', 'E. 학습 환경', 'F. 디지털·AI 활용', 'G. 종합', 'H. 온라인(비대면) 강의', '서술형']
+    .forEach((d) => assert.ok(opts.includes(d), d + ' 표시(현재 값과 무관하게 전체 목록)'));
+  assert.equal(opts[opts.length - 1], '직접 입력…');
+  // 영역 변경
+  await page.selectOption('#dom-0', 'G. 종합');
+  assert.equal(await page.evaluate(() => document.getElementById('dom-0').value), 'G. 종합');
+  // 직접 입력 → 새 영역 → 다른 문항 목록에도 나타남
+  await page.selectOption('#dom-1', '__custom__');
+  await page.locator('#dom-1[data-domain-edit]').fill('I. 임상실습');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.getElementById('dom-1') && document.getElementById('dom-1').tagName === 'SELECT');
+  assert.equal(await page.evaluate(() => document.getElementById('dom-1').value), 'I. 임상실습');
+  const opts2 = await page.$$eval('#dom-2 option', (os) => os.map((o) => o.textContent.trim()));
+  assert.ok(opts2.includes('I. 임상실습'), '새 영역이 다른 문항 목록에도 표시');
+  await shot(page, 'd31-domain-select');
+});
+
 test('브라우저 콘솔 오류 없음', () => {
   const real = consoleErrors.filter((e) => !/favicon/.test(e));
   assert.deepEqual(real, []);

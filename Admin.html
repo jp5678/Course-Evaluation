@@ -756,7 +756,6 @@
           <span>학생에게 보이는 문항 <strong class="num">${visible.length}</strong>개 · 예상 <strong class="num">${min}</strong>분${hidden ? ` <span class="muted">(이 교과목의 ${esc(course.delivery_mode)}·${esc(course.course_type)} 설정으로 ${hidden}개 숨김)</span>` : ''}</span>
           ${min > 3 ? `<span class="badge warn">${icon('timer')}3분 목표를 넘습니다</span>` : `<span class="badge open">${icon('timer')}3분 이내</span>`}
         </div>
-        <datalist id="domain-list">${DOMAINS.map((d) => `<option value="${esc(d)}">`).join('')}</datalist>
         <div id="item-list">${A.items.map((it, i) => itemRow(it, i, locked, !scopeVisible(it.scope, course))).join('') || `<div class="card empty">${icon('list')}<p>문항이 없습니다.</p></div>`}</div>`;
       CES.icons();
     }
@@ -773,7 +772,10 @@
           <div class="item-fields">
             <div class="line">
               <div class="field"><label class="sr-only" for="dom-${i}">${i + 1}번 영역</label>
-                <input class="input" id="dom-${i}" list="domain-list" data-f="domain" value="${esc(it.domain)}" maxlength="40" placeholder="영역"${dis}></div>
+                ${A.domainEdit === i
+                  ? `<input class="input" id="dom-${i}" data-f="domain" data-domain-edit value="${esc(it.domain)}" maxlength="40" placeholder="새 영역 이름(예: I. 임상실습)"${dis}>`
+                  : `<select class="select" id="dom-${i}" data-f="domain"${dis}>${domainOptions().map((d) => `<option value="${esc(d)}"${it.domain === d ? ' selected' : ''}>${esc(d)}</option>`).join('')}
+                      <option value="${DOMAIN_CUSTOM}">직접 입력…</option></select>`}</div>
               <div class="field"><label class="sr-only" for="txt-${i}">${i + 1}번 문항 내용</label>
                 <textarea class="textarea" id="txt-${i}" data-f="text" rows="2" maxlength="300" style="min-height:48px" placeholder="문항 내용"${dis}>${esc(it.text)}</textarea></div>
               <div class="field"><label class="sr-only" for="typ-${i}">${i + 1}번 유형</label>
@@ -897,12 +899,21 @@
       refresh();
     }
 
+    /** 영역 드롭다운 목록: 기본 영역 + 이 문항 목록에서 쓰는 사용자 영역(입력값으로 거르지 않고 항상 전체 표시) */
+    const DOMAIN_CUSTOM = '__custom__';
+    function domainOptions() {
+      const out = DOMAINS.slice();
+      (A.items || []).forEach((x) => { const d = String(x.domain || '').trim(); if (d && out.indexOf(d) < 0) out.push(d); });
+      return out;
+    }
+
     view.addEventListener('input', (e) => {
       const row = e.target.closest('.item-row');
       if (!row) return;
       const it = A.items[Number(row.dataset.idx)];
       const f = e.target.dataset.f;
       if (!it || !f) return;
+      if (f === 'domain' && e.target.value === DOMAIN_CUSTOM) return; // '직접 입력…'은 change에서 처리
       if (f === 'required' || f === 'reverse') it[f] = e.target.checked;
       else if (f === 'scope') it.scope = e.target.value;
       else if (f === 'options') it.options = e.target.value.split('\n').map((s) => s.trim()).filter(Boolean);
@@ -911,6 +922,20 @@
     });
     view.addEventListener('change', (e) => {
       const row = e.target.closest('.item-row');
+      if (row && e.target.dataset.f === 'domain' && e.target.tagName === 'SELECT') {
+        const idx = Number(row.dataset.idx);
+        if (e.target.value === DOMAIN_CUSTOM) {
+          // 같은 자리에 입력란을 열어 새 영역 이름을 받음(입력을 마치면 다시 드롭다운)
+          A.domainEdit = idx;
+          drawItems();
+          const inp = $(`#dom-${idx}`);
+          if (inp) { inp.focus(); inp.select(); }
+          return;
+        }
+        A.items[idx].domain = e.target.value;
+        markDirty();
+        return;
+      }
       if (row && e.target.dataset.f === 'scope') { A.items[Number(row.dataset.idx)].scope = e.target.value; markDirty(); drawItems(); const sc = $(`#scp-${row.dataset.idx}`); if (sc) sc.focus(); return; }
       if (!row || e.target.dataset.f !== 'type') return;
       const it = A.items[Number(row.dataset.idx)];
@@ -920,6 +945,19 @@
       markDirty();
       drawItems();
       const sel = $(`#typ-${row.dataset.idx}`); if (sel) sel.focus();
+    });
+
+    // 새 영역 입력을 마치면(포커스 이동·Enter) 드롭다운으로 되돌림. 비워 두면 원래 영역 유지
+    view.addEventListener('focusout', (e) => {
+      if (!e.target.matches || !e.target.matches('[data-domain-edit]')) return;
+      const idx = A.domainEdit;
+      A.domainEdit = null;
+      const it = A.items[idx];
+      if (it && !String(it.domain || '').trim()) it.domain = DOMAINS[0];
+      setTimeout(() => { drawItems(); const sel = $(`#dom-${idx}`); if (sel && document.activeElement === document.body) sel.focus(); }, 0);
+    });
+    view.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.target.matches && e.target.matches('[data-domain-edit]')) { e.preventDefault(); e.target.blur(); }
     });
 
     // 드래그 정렬(HTML5 DnD, 손잡이로만 시작) — 키보드·터치는 ↑↓ 버튼 사용
