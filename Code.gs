@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.3.5',
+  VERSION: '1.3.6',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -705,15 +705,15 @@ function cqiPdfBody_(ctx) {
   return { title: 'CQI 요약표', label: 'CQI요약', body: html };
 }
 
-/** 서술형 응답 PDF: 문항별 무작위 순서 + AI 요약 요청 예시 */
+/** 서술형 텍스트(AI 요약용) PDF: TXT 내보내기와 같은 구성(주의 문구·문항별 무작위 순서 응답·AI 요약 요청 예시) */
 function textPdfBody_(ctx) {
-  var html = '<p class="note">응답 순서는 무작위입니다. 이름·학번 등 개인을 식별할 수 있는 내용이 있으면 공유·AI 입력 전에 삭제하세요.</p>';
+  var html = '<p class="note">응답 순서는 무작위입니다. 이름·학번 등 개인을 식별할 수 있는 내용이 있으면 AI에 입력하기 전에 삭제하세요.</p>';
   html += textAnswers_(ctx.items, ctx.rows).map(function (t) {
     return '<h2>' + escHtml_(t.text) + ' <span class="note">(' + t.answers.length + '건)</span></h2>' +
       (t.answers.length ? '<ol>' + t.answers.map(function (a) { return '<li>' + escHtml_(a) + '</li>'; }).join('') + '</ol>' : '<p class="note">응답 없음</p>');
   }).join('') || '<p class="note">서술형 문항이 없습니다.</p>';
   html += '<div class="box"><b>AI 요약 요청 예시</b><br>위 강의평가 서술형 응답을 문항별로 ① 주요 주제 3~5개(빈도 순) ② 대표 의견 요약 ③ 다음 학기 CQI 개선 과제 3가지로 정리해 주세요. 응답에 없는 내용은 추측하지 마세요.</div>';
-  return { title: '서술형 응답', label: '서술형', body: html };
+  return { title: '서술형 텍스트(AI 요약용)', label: '서술형', body: html };
 }
 
 function saveSettings(session, data) {

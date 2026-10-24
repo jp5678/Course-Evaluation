@@ -875,7 +875,7 @@ test('PDF 내보내기: 원자료·CQI 요약표·서술형(잠금 규칙 동일
   assert.match(cqi, /강점/);
   assert.match(cqi, /개선 계획/);
   const text = decode(server.exportPdf(s, dl.course_id, 'text'));
-  assert.match(text, /서술형 응답/);
+  assert.match(text, /서술형 텍스트\(AI 요약용\)/);
   assert.match(text, /AI 요약 요청 예시/);
   assert.match(text, /학교 공식 강의평가가 아닌/);
   assert.equal(server.exportPdf(s, dl.course_id, 'xls').code, 'VALIDATION');

@@ -456,12 +456,14 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·QR·토큰 인�
   await page.getByRole('tab', { name: '결과' }).click();
   const demo = await page.evaluate(() => window.__PREVIEW.courseId);
   await page.selectOption('#res-course', demo);
-  await page.waitForSelector('[data-export="exportCqi"]');
-  const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('[data-export="exportCqi"]').click()]);
-  const file = path.join(OUT, 'export-cqi.csv');
+  await page.waitForSelector('[data-export="exportText"]');
+  // 원자료 CSV·CQI 요약표 CSV 버튼은 삭제(PDF로 대체)
+  assert.equal(await page.locator('[data-export="exportCsv"], [data-export="exportCqi"]').count(), 0);
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('[data-export="exportText"]').click()]);
+  const file = path.join(OUT, 'export-text.txt');
   await dl.saveAs(file);
-  const csv = fs.readFileSync(file, 'utf8');
-  assert.ok(csv.charCodeAt(0) === 0xFEFF && csv.includes('CQI 요약표'), 'BOM 포함 CSV');
+  const txt = fs.readFileSync(file, 'utf8');
+  assert.ok(txt.includes('서술형 응답') && txt.includes('AI 요약 요청 예시'), '서술형 텍스트(AI 요약용) TXT');
 
   // PDF로 저장(원자료·CQI·서술형): base64 → 이진 파일 내려받기
   // 헤드리스 Chromium은 PDF 내려받기의 suggestedFilename을 'download'로 보고하므로, 앵커에 지정한 이름을 직접 확인

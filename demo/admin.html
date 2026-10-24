@@ -2592,16 +2592,12 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
         </section>
 
         <section class="card span-4" aria-labelledby="k9"><div class="row-between"><div class="card-title" id="k9">${icon('clipboard-list')}CQI 요약표</div>
-          <div class="row">
-            <button type="button" class="btn sm" data-export="exportCsv">${icon('file-spreadsheet')}원자료 CSV</button>
-            <button type="button" class="btn sm" data-export="exportCqi">${icon('table')}CQI 요약표</button>
-            <button type="button" class="btn sm primary" data-export="exportText">${icon('sparkles')}서술형 텍스트(AI 요약용)</button>
-          </div></div>
-          <div class="row" style="margin-top:8px;justify-content:flex-end" aria-label="PDF로 저장">
-            <span class="small muted">PDF로 저장</span>
+</div>
+          <div class="row" style="margin-top:8px;justify-content:flex-end" aria-label="내보내기">
             <button type="button" class="btn sm" data-pdf="raw">${icon('file-text')}원자료 PDF</button>
             <button type="button" class="btn sm" data-pdf="cqi">${icon('file-text')}CQI 요약표 PDF</button>
-            <button type="button" class="btn sm" data-pdf="text">${icon('file-text')}서술형 PDF</button>
+            <button type="button" class="btn sm primary" data-export="exportText">${icon('sparkles')}서술형 텍스트(AI 요약용)</button>
+            <button type="button" class="btn sm primary" data-pdf="text">${icon('file-text')}서술형 텍스트(AI 요약용) PDF</button>
           </div>
           <div class="bento" style="margin-top:12px">
             <div class="card span-2" style="box-shadow:none"><h3>${icon('thumbs-up')} 강점</h3><ol class="small" style="padding-left:20px;margin:8px 0 0">
