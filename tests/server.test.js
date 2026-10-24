@@ -24,7 +24,7 @@ test('setup: 탭·헤더·기본 문항 은행·이번 학기 교과목 예시 2
   assert.equal(tpl.find((i) => /유무선 인터넷/.test(i.text)).scope, '', '인터넷 문항은 항상 표시');
   const gender = tpl.find((i) => i.type === 'select');
   assert.deepEqual(gender.options, ['남', '여']);
-  assert.equal(gender.required, false, '성별은 선택 응답');
+  assert.ok(tpl.every((i) => i.required === true), '모든 문항 필수(서술형·성별 포함)');
 
   const s = server.getSettingsMap_();
   assert.equal(s.professor_name, '정종필');
@@ -33,7 +33,8 @@ test('setup: 탭·헤더·기본 문항 은행·이번 학기 교과목 예시 2
   assert.deepEqual(cs.map((c) => [c.course_name, c.grade, c.section, c.department, c.delivery_mode]),
     [['디지털리터러시와 AI활용', '1', 'A', '간호학과', '대면'], ['AI융합 간호정보학', '3', 'A', '간호학과', '혼합']]);
   assert.ok(cs.every((c) => c.course_type === '이론+실습'), '예시 교과목 유형');
-  assert.ok(cs.every((c) => c.year === 2026 && c.semester === '2'), '2026학년도 2학기(오늘 기준)');
+  assert.deepEqual(cs.map((c) => [c.year, c.semester]), [[2026, '1'], [2026, '2']], '디지털리터러시와 AI활용=1학기, AI융합 간호정보학=2학기');
+  assert.ok(cs.every((c) => server.itemsForCourse_(c).every((i) => i.required)), '예시 교과목 문항도 모두 필수');
   assert.equal(server.itemsForCourse_(cs[0]).length, 23, '대면: 온라인 문항 제외 + CLO 2');
   assert.equal(server.itemsForCourse_(cs[1]).length, 27, '혼합: 온라인 문항 포함');
   assert.equal(st.sheets.Responses.protections[0].warningOnly, true, 'Responses 경고 보호');
@@ -458,9 +459,54 @@ test('성별(드롭다운): 소규모 집단이면 비교·인원·CSV 열 모�
   assert.equal(byLabel['여'].overall, 4);
   assert.equal(byLabel['남'].overall, 2.8); // (2 + 3*4) / 5
   assert.equal(server.exportCsv(s, id).omitted, 0);
-  // 미응답 집단이 소규모여도 숨김(전체 평균과의 차로 역산 가능)
-  const a = H.fullAnswers(items, 1); a[g.item_id] = ''; server.submitResponse(id, 'ABC123', a);
-  assert.equal(server.getResults(s, id).groups[0].suppressed, true);
+  // 성별은 필수: 비워 두면 제출 거부
+  const a = H.fullAnswers(items, 1); a[g.item_id] = '';
+  assert.deepEqual(server.submitResponse(id, 'ABC123', a).missing, [g.item_id]);
+
+  // 교수가 성별을 선택 응답으로 바꾼 교과목: 미응답 집단이 소규모여도 숨김(전체 평균과의 차로 역산 가능)
+  const id2 = H.createCourse(server, s);
+  const items2 = server.getItems_(id2).map((x) => (x.type === 'select' ? Object.assign({}, x, { required: false }) : x));
+  assert.equal(server.saveItems(s, id2, items2).ok, true);
+  const its2 = server.itemsForCourse_(server.findCourse_(id2));
+  const g2 = its2.find((i) => i.type === 'select');
+  const sub2 = (sex) => { const x = H.fullAnswers(its2); x[g2.item_id] = sex; return server.submitResponse(id2, 'ABC123', x); };
+  for (let i = 0; i < 5; i++) { sub2('여'); sub2('남'); }
+  assert.equal(server.getResults(s, id2).groups[0].suppressed, false);
+  assert.equal(sub2('').ok, true);
+  assert.equal(server.getResults(s, id2).groups[0].suppressed, true);
+});
+
+test('학기는 1·2학기만(여름·겨울 삭제)', () => {
+  const { server } = H.makeServer({ pin: PIN });
+  const s = H.login(server, PIN);
+  for (const sem of ['여름', '겨울', '3']) {
+    assert.equal(server.saveCourse(s, { course_name: 'X', year: 2026, semester: sem, grade: 1, section: 'A', department: '간호학과', enrollment: 30, start_at: '2026-12-01T09:00', end_at: '2026-12-10T23:59' }).field, 'semester', sem);
+  }
+  assert.deepEqual(server.APP.SEMESTERS, ['1', '2']);
+});
+
+test('이전 버전 시트 업그레이드: 기본 문항 필수화·예시 교과목 1학기(응답 있는 교과목은 그대로)', () => {
+  const { env, server } = H.makeServer({ pin: PIN });
+  const sh = (n) => env.SpreadsheetApp.getActiveSpreadsheet().getSheetByName(n);
+  const items = server.readTable_('Items');
+  const reqCol = items.headers.indexOf('required') + 1;
+  // v1.2.1 상태 재현: 서술형·성별이 선택, 디지털리터러시 교과목이 2학기
+  items.rows.filter((r) => r.type === 'text' || r.type === 'select').forEach((r) => sh('Items').getRange(r._row, reqCol).setValue(false));
+  const courses = server.readTable_('Courses');
+  const semCol = courses.headers.indexOf('semester') + 1;
+  const dl = courses.rows.find((r) => r.course_name === '디지털리터러시와 AI활용');
+  const ai = courses.rows.find((r) => r.course_name === 'AI융합 간호정보학');
+  sh('Courses').getRange(dl._row, semCol).setValue("'2");
+  // AI융합 간호정보학에는 실제 응답 1건(서술형을 비운 응답)이 이미 있음
+  const aiItems = server.itemsForCourse_(server.findCourse_(ai.course_id));
+  const ans = H.fullAnswers(aiItems); aiItems.filter((i) => i.type === 'text').forEach((i) => { ans[i.item_id] = ''; });
+  assert.equal(server.submitResponse(ai.course_id, ai.access_code, ans).ok, true);
+
+  server.setup(); // 새 설치 파일로 setup 재실행
+  assert.ok(server.getItems_('TEMPLATE').every((i) => i.required), '기본 문항 은행 필수화');
+  assert.ok(server.getItems_(dl.course_id).every((i) => i.required), '응답 없는 교과목 필수화');
+  assert.equal(server.findCourse_(dl.course_id).semester, '1');
+  assert.ok(server.getItems_(ai.course_id).filter((i) => i.type === 'text').every((i) => !i.required), '응답 있는 교과목은 그대로');
 });
 
 test('결과 한눈에 보기: 긍정 비율, 핵심 지표(만족도·추천), 워드 클라우드', () => {

@@ -48,8 +48,9 @@ function scenario(name) {
       const items = server.getItems_(id);
       for (let i = 0; i < n; i++) {
         const a = H.fullAnswers(items, Math.max(1, Math.min(5, base + ((i * 7) % 3) - 1)));
-        items.filter((it) => it.type === 'text').forEach((it, k) => { a[it.item_id] = k === 0 && i % 2 ? '실습이 도움이 되었어요 ' + i : ''; });
-        server.submitResponse(id, cred, a);
+        items.filter((it) => it.type === 'text').forEach((it, k) => { a[it.item_id] = k === 0 && i % 2 ? '실습이 도움이 되었어요 ' + i : '특별히 없습니다'; }); // 모든 문항 필수
+        const r = server.submitResponse(id, cred, a);
+        if (!r.ok) throw new Error('미리보기 응답 생성 실패: ' + JSON.stringify(r));
       }
     };
     // 이전 학기는 기간이 지났으므로 응답 기록을 직접 추가

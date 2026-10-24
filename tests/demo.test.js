@@ -70,7 +70,7 @@ test('체험판: 첫 화면 → 학생 응답 제출 → 교수 결과 반영 �
     if (await p.locator('#rv').count()) break;
     const before = await p.locator('.survey-head strong').innerText();
     if (await p.locator('.likert').count()) await p.locator('.chip[data-val="5"]').click();
-    else { if (await p.locator('textarea').count()) await p.locator('textarea').fill('체험판 응답: 실습이 최고'); await p.getByRole('button', { name: /다음|검토하기/ }).click(); }
+    else { if (await p.locator('select[data-select]').count()) await p.locator('select[data-select]').selectOption({ index: 1 }); if (await p.locator('textarea').count()) await p.locator('textarea').fill('체험판 응답: 실습이 최고'); await p.getByRole('button', { name: /다음|검토하기/ }).click(); }
     await p.waitForFunction((b) => document.getElementById('rv') || document.querySelector('.survey-head strong').textContent !== b, before);
   }
   await p.getByRole('button', { name: '제출하기' }).click();

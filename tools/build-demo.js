@@ -24,7 +24,6 @@ const quiet = { log() {}, info() {}, warn: console.warn, error: console.error };
 const env = GasMock.createEnv({ readFile: read, fastSleep: true, console: quiet });
 const server = GasMock.loadServer(env, SOURCES);
 server.setup();
-const settings = server.getSettingsMap_();
 
 const DEMO_CSS = `<style>
 .demo-bar{background:var(--ink);color:var(--bg);font-size:.8125rem;padding:8px 16px;display:flex;gap:10px 16px;flex-wrap:wrap;align-items:center;justify-content:center;text-align:center}
@@ -175,7 +174,6 @@ ${DEMO_CSS}
   <p class="center small" style="margin-top:20px"><button type="button" class="btn ghost sm" onclick="DemoBoot.reset()"><i data-lucide="rotate-ccw" aria-hidden="true"></i>체험 데이터 초기화</button></p>
 </main>
 <footer class="footer">
-  <div class="owner">${settings.professor_name} · ${settings.affiliation}</div>
   <div class="credit">Developed by 정종필 교수 · 청암대학교 간호학과</div>
   <p class="disclaimer">강의평가 Studio는 학교 공식 강의평가를 대체하지 않는 교수자 자율형 형성평가·CQI(지속적 질 개선)용 설문 도구입니다.</p>
 </footer>

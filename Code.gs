@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.2.1',
+  VERSION: '1.2.2',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -36,7 +36,7 @@ var APP = {
   ID_ALPHABET: 'abcdefghjkmnpqrstuvwxyz23456789',
   SUBMIT_DEDUP_SEC: 3600,
   MIN_RESPONSES_FLOOR: 3,
-  SEMESTERS: ['1', '여름', '2', '겨울'],
+  SEMESTERS: ['1', '2'],
   GRADES: [1, 2, 3, 4],
   SECTIONS: ['A', 'B', 'C', 'D', 'E', 'F'],
   DELIVERY: ['대면', '비대면', '혼합'],
@@ -997,7 +997,7 @@ function validateCourse_(d) {
   var year = Math.floor(Number(d.year));
   if (!(year >= 2000 && year <= 2100)) return err('year', '학년도를 확인하세요.');
   var sem = String(d.semester || '');
-  if (APP.SEMESTERS.indexOf(sem) < 0) return err('semester', '학기를 선택하세요.');
+  if (APP.SEMESTERS.indexOf(sem) < 0) return err('semester', '학기(1학기·2학기)를 선택하세요.');
   var grade = Math.floor(Number(d.grade));
   if (APP.GRADES.indexOf(grade) < 0) return err('grade', '학년(1~4)을 선택하세요.');
   var section = String(d.section == null ? '' : d.section).trim().toUpperCase();

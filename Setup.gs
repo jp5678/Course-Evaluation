@@ -32,13 +32,13 @@ var DEFAULT_ITEMS = [
   ['서술형', '이 수업에서 가장 도움이 된 점은 무엇인가요?', 'text'],
   ['서술형', '교수학습방법·평가·과제에서 개선이 필요한 점을 적어 주세요.', 'text'],
   ['서술형', '다음 학기 수업에 바라는 점이 있다면 적어 주세요.', 'text'],
-  ['응답자 정보', '성별', 'select', ['남', '여']]
+  ['응답자 정보', '성별', 'select', ['남', '여']] // 모든 문항은 필수(setup이 기본 문항을 필수로 생성)
 ];
 
 /** 이번 학기 교과목 예시(샘플). 교과목명·학년은 실제 담당 교과목, 수강인원·기간은 예시값입니다. */
 var SAMPLE_COURSES = [
   {
-    course_name: '디지털리터러시와 AI활용', grade: 1, section: 'A', enrollment: 40, delivery_mode: '대면', course_type: '이론+실습',
+    course_name: '디지털리터러시와 AI활용', semester: '1', grade: 1, section: 'A', enrollment: 40, delivery_mode: '대면', course_type: '이론+실습',
     clos: [
       '나는 디지털 도구를 활용하여 학습 자료를 검색·정리할 수 있게 되었다.',
       '나는 생성형 AI를 학습에 윤리적이고 비판적으로 활용할 수 있게 되었다.'
@@ -98,8 +98,8 @@ function setup() {
   // 설정 기본값(없는 키만 추가)
   var s = getSettingsMap_();
   var defaults = [
-    ['professor_name', '정종필', '푸터에 표시되는 교수명([설정] 탭에서 변경)'],
-    ['affiliation', '청암대학교 간호학과', '푸터에 표시되는 소속(학교/학과)'],
+    ['professor_name', '정종필', '교수명([설정] 탭에서 변경)'],
+    ['affiliation', '청암대학교 간호학과', '소속(학교/학과)'],
     ['min_responses', 5, '결과를 공개하는 최소 응답 수(3 이상)'],
     ['departments', '간호학과', '교과목 설정의 학과 드롭다운 목록(줄바꿈으로 구분)'],
     ['webapp_url', '', '학생 응답 링크·QR에 쓰는 웹 앱 주소(/exec). /exec로 접속하면 자동 저장'],
@@ -119,7 +119,7 @@ function setup() {
     var rows = DEFAULT_ITEMS.map(function (d, i) {
       return itemToRow_({
         item_id: 't' + ('0' + (i + 1)).slice(-2), course_id: APP.TEMPLATE_ID, domain: d[0], text: d[1], type: d[2],
-        required: d[2] === 'likert5', order: i + 1, reverse: false, options: d[3] || [], scope: d[4] || ''
+        required: true, order: i + 1, reverse: false, options: d[3] || [], scope: d[4] || ''
       });
     });
     var itemSheet = sheet_(APP.SHEETS.ITEMS);
@@ -133,6 +133,7 @@ function setup() {
     created = true;
   }
 
+  upgradeDefaults_();
   protectSheets_();
   rememberExecUrl_();
   SpreadsheetApp.flush();
@@ -147,7 +148,7 @@ function setup() {
 
 function annotateHeaders_() {
   var notes = {
-    Courses: ['자동 생성 ID', '교과목명', '학년도(예: 2026)', '학기(1/여름/2/겨울)', '학년', '분반', '수강인원',
+    Courses: ['자동 생성 ID', '교과목명', '학년도(예: 2026)', '학기(1/2)', '학년', '분반', '수강인원',
       '응답 시작일시', '응답 종료일시', 'code=접속코드, token=일회용 토큰', '접속코드(비우면 링크만으로 참여)',
       '준비/진행/마감(마감=수동 마감)', '결과공개일(비우면 즉시 공개)', '학과', '수업 방식(대면/비대면/혼합)', '교과목 유형(이론/실습/이론+실습)'],
     Items: ['문항 ID', "교과목 ID('TEMPLATE'=공통 기본 문항)", '영역', '문항', 'likert5|single|multi|select|text',
@@ -189,6 +190,36 @@ function upgradeTemplateScopes_() {
   return n;
 }
 
+/**
+ * 이전 버전 시트 업그레이드(v1.2.2)
+ * ① 기본 문항(문구가 기본값 그대로인 문항)을 모두 '필수'로 — 응답이 아직 없는 교과목과 기본 문항 은행만
+ * ② 예시 교과목의 학기를 SAMPLE_COURSES 값으로(디지털리터러시와 AI활용 → 1학기) — 응답이 없을 때만
+ * 응답이 이미 있는 교과목은 설문 구성이 바뀌므로 건드리지 않습니다.
+ */
+function upgradeDefaults_() {
+  var used = {};
+  readResponses_().forEach(function (r) { used[String(r.course_id)] = true; });
+  var defaults = {};
+  DEFAULT_ITEMS.forEach(function (d) { defaults[d[1]] = true; });
+  var it = readTable_(APP.SHEETS.ITEMS);
+  var reqCol = it.headers.indexOf('required') + 1;
+  var n = 0;
+  it.rows.forEach(function (r) {
+    if (used[String(r.course_id)] || toBool_(r.required) || !defaults[String(r.text)]) return;
+    it.sheet.getRange(r._row, reqCol).setValue(true);
+    n++;
+  });
+  var ct = readTable_(APP.SHEETS.COURSES);
+  var semCol = ct.headers.indexOf('semester') + 1;
+  ct.rows.forEach(function (r) {
+    var id = String(r.course_id);
+    if (id.indexOf('demo') !== 0 || used[id]) return;
+    var spec = SAMPLE_COURSES.filter(function (x) { return x.course_name === String(r.course_name) && x.semester; })[0];
+    if (spec && String(r.semester) !== spec.semester) { ct.sheet.getRange(r._row, semCol).setValue(asTextCell_(spec.semester)); n++; }
+  });
+  return n;
+}
+
 /** 헤더 행에 없는 열만 끝에 추가합니다(이전 버전 시트 자동 확장). */
 function ensureHeaders_(sh, headers) {
   var lastCol = sh.getLastColumn();
@@ -218,7 +249,7 @@ function createDemoCourse_(spec) {
     course_id: 'demo' + randomString_(4, APP.ID_ALPHABET),
     course_name: spec.course_name,
     year: Number(Utilities.formatDate(now, tz_(), 'yyyy')) - (month <= 2 ? 1 : 0),
-    semester: month >= 3 && month <= 8 ? '1' : '2',
+    semester: spec.semester || (month >= 3 && month <= 8 ? '1' : '2'),
     grade: spec.grade,
     section: spec.section,
     enrollment: spec.enrollment,

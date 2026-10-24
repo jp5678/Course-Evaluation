@@ -33,7 +33,6 @@
   <div id="print-area" aria-hidden="true"></div>
 
   <footer class="footer">
-    <div class="owner" id="footer-owner"><?= professorName ?><? if (affiliation) { ?> · <?= affiliation ?><? } ?></div>
     <div class="credit">Developed by 정종필 교수 · 청암대학교 간호학과</div>
     <p class="disclaimer">강의평가 Studio는 학교 공식 강의평가를 대체하지 않는 교수자 자율형 형성평가·CQI(지속적 질 개선)용 설문 도구입니다.</p>
   </footer>
@@ -50,7 +49,7 @@
     const SESSION_KEY = 'ces:admin';
     const DOMAINS = ['A. 강의 설계', 'B. 교수학습방법', 'C. 평가 및 과제', 'D. 학습성과(CLO)', 'E. 학습 환경', 'F. 디지털·AI 활용', 'G. 종합', 'H. 온라인(비대면) 강의', '서술형', '응답자 정보'];
     const TYPES = { likert5: '5점 리커트', single: '단일 선택', multi: '복수 선택', select: '드롭다운', text: '서술형' };
-    const SEMS = ['1', '여름', '2', '겨울'];
+    const SEMS = ['1', '2'];
     const GRADES = [1, 2, 3, 4];
     const SECTIONS = ['A', 'B', 'C', 'D', 'E', 'F'];
     const DELIVERY = ['대면', '비대면', '혼합'];
@@ -1344,7 +1343,6 @@
         }
         Object.assign(A.data.settings, { professor_name: data.professor_name.trim(), affiliation: data.affiliation.trim(), min_responses: Number(data.min_responses),
           departments: data.departments.split('\n').map((x) => x.trim()).filter(Boolean) });
-        $('#footer-owner').textContent = [A.data.settings.professor_name, A.data.settings.affiliation].filter(Boolean).join(' · ');
         await refresh();
         CES.toast('설정을 저장했습니다.');
         if (A.tab === 'settings') renderSettings(); // 그사이 다른 탭으로 옮겼으면 화면을 되돌리지 않음

@@ -56,6 +56,8 @@ async function answerAll(page, opts = {}) {
         if (await card.locator('[aria-checked="true"]').count()) continue;
         if (opts.keyboardFirst && guard === 0 && i === 0) await page.keyboard.press('5');
         else await card.locator('.chip').nth(3).click();
+      } else if (await card.locator('select[data-select]').count()) {
+        await card.locator('select[data-select]').selectOption({ index: 1 });
       } else if (await card.locator('textarea').count()) {
         await card.locator('textarea').fill('실습 위주라 좋았습니다');
       }
@@ -287,6 +289,9 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·QR·토큰 인�
   // 결과: 샘플(30명) → 해제, 비교 차트 2종
   await page.getByRole('tab', { name: '결과' }).click();
   await page.waitForSelector('#radar');
+  // 이전 학기·다른 분반 자료가 있는 교과목(디지털리터러시와 AI활용)을 직접 선택
+  await page.selectOption('#res-course', await page.evaluate(() => window.__PREVIEW.courseId));
+  await page.waitForSelector('#semChart');
   assert.equal(await page.locator('#semChart').count(), 1, '학기 간 비교 차트');
   assert.equal(await page.locator('#secChart').count(), 1, '분반 간 비교 차트');
   const sem = await page.evaluate(() => window.__server); void sem;
