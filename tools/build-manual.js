@@ -270,6 +270,7 @@ code { font-family: "Pretendard", monospace; background: var(--soft); padding: 0
 ${img('a01-login', '그림 3-1. 교수 로그인 화면')}
 ${img('a02-dashboard', '그림 3-2. 대시보드 — 진행 중 교과목, 응답 수, 전체 평균, 긍정 응답률, 마감 임박 교과목')}
 <p>대시보드의 교과목 카드를 누르면 해당 교과목의 결과 화면으로 이동합니다. <b>마감 임박</b> 카드는 72시간 안에 응답 기간이 끝나는 교과목을 알려 줍니다.</p>
+<div class="tip"><b>응답 수와 평균의 기준이 다른 이유:</b> 「응답 수」는 진행 중인 모든 교과목의 합계이고, 「전체 평균」·「긍정 응답률」은 <b>결과가 열린 교과목만</b>으로 계산합니다. 응답이 최소 공개 수 미만이거나 결과 공개일 전인 교과목은 익명성 보호를 위해 평균에서 빠지며, 카드 아래에 「결과가 열린 1개 교과목(30명) 기준 · 1개는 잠김」처럼 기준이 표시됩니다.</div>
 </section>
 
 <section class="chapter">
@@ -384,6 +385,14 @@ ${img('a11-cqi', '그림 8-4. CQI 요약표 — 강점·개선점 자동 추출�
 <tr><td>CQI 요약표</td><td>영역별 평균·표준편차·긍정 응답률·해석, 강점·개선점, 개선 계획 작성란</td></tr>
 <tr><td>서술형 텍스트(AI 요약용)</td><td>서술형 응답 전체와 AI 요약 요청 예시 문구. AI에 넣기 전에 개인 식별 정보가 있는지 확인하세요.</td></tr>
 </table>
+<h3>PDF로 저장</h3>
+<p>CQI 요약표 카드 아래 <b>PDF로 저장</b> 줄의 버튼으로 세 자료를 인쇄·보고용 PDF(A4)로 받습니다. 결과가 잠긴 교과목은 PDF도 만들 수 없습니다.</p>
+<table>
+<tr><th style="width:28%">버튼</th><th>PDF 내용</th></tr>
+<tr><td>원자료 PDF</td><td>문항 번호표(Q1, Q2 …) → 객관식 응답표(12문항씩 나눔, 응답 순서 무작위) → 서술형 응답표(응답 번호별)</td></tr>
+<tr><td>CQI 요약표 PDF</td><td>전체 평균·긍정 응답률, 영역별 결과, 강점·개선점, 문항별 결과, 개선 계획 작성란, 해석 기준</td></tr>
+<tr><td>서술형 PDF</td><td>문항별 서술형 응답(무작위 순서)과 AI 요약 요청 예시</td></tr>
+</table>
 </section>
 
 <section class="chapter">
@@ -444,6 +453,7 @@ ${img('a12-settings', '그림 9-1. [설정] 탭')}
 <tr><td>교수자 로그인 화면에 PIN 입력 상자가 없음</td><td><code>?page=admin</code> 없이 공통 주소로 들어갔습니다. 접속코드 화면 아래 <span class="kbd">교수자 로그인</span> 링크를 누르세요.</td></tr>
 <tr><td>Items 시트에 같은 문항이 여러 번 있음</td><td>정상입니다. 기본 문항 은행(TEMPLATE)과 교과목마다 문항을 따로 복사해 둡니다. 지우면 해당 교과목 설문에서 문항이 사라지므로 지우지 마세요.</td></tr>
 <tr><td>Tokens 시트가 비어 있음</td><td>모든 교과목이 접속코드 방식이면 비어 있는 것이 정상입니다. 앱이 이 시트를 읽으므로 <b>지우지 마세요</b>(지우면 관리자 화면이 열리지 않습니다). 거슬리면 시트 탭을 [숨기기] 하세요.</td></tr>
+<tr><td>Responses 시트에 빈칸이 많음</td><td>정상입니다. 응답 시트는 <b>문항마다 열이 따로</b> 있고 교과목마다 문항 ID가 다르므로, 한 교과목의 응답 행은 다른 교과목의 문항 열에서 비어 있습니다(예: 디지털리터러시와 AI활용 행은 AI융합 간호정보학 문항 열이 빈칸). 각 교과목의 답은 자기 문항 열에 모두 채워져 있습니다. 열 머리글에 마우스를 올리면 문항 문구가 보입니다.</td></tr>
 <tr><td>시트를 고치려는데 경고 창이 뜸</td><td>앱이 관리하는 시트의 보호 경고입니다. 관리자 화면에서 고치는 것이 안전합니다.</td></tr>
 <tr><td>동시에 많은 학생이 제출</td><td>제출은 잠금으로 한 건씩 순서대로 처리되고, 일시적으로 바쁘면 자동으로 다시 시도합니다. 실제 사용 전에 학생 몇 명과 함께 동시에 제출해 보는 것을 권장합니다.</td></tr>
 </table>
@@ -458,7 +468,7 @@ ${img('a12-settings', '그림 9-1. [설정] 탭')}
 <tr><td><b>Courses</b></td><td>교과목 1개 = 1행. 학년도·학기·학년, 응답 기간, 참여 방식·접속코드, 상태(진행·마감), 수업 방식, 교과목 유형</td><td>course_id · course_name · start_at · end_at · access_code · status</td><td>관리자 화면 [교과목] (경고 보호)</td></tr>
 <tr><td><b>Items</b></td><td>문항 1개 = 1행. <code>TEMPLATE</code> 행은 공통 기본 문항 은행, 나머지는 교과목별 복사본</td><td>item_id · course_id · domain · text · type · required · scope</td><td>관리자 화면 [문항] (경고 보호)</td></tr>
 <tr><td><b>Tokens</b></td><td>일회용 토큰의 <b>해시</b>와 사용 여부(토큰 원문은 저장하지 않음). 접속코드 방식만 쓰면 비어 있음</td><td>course_id · token_hash · used</td><td>관리자 화면 [토큰] (경고 보호). 지우지 마세요.</td></tr>
-<tr><td><b>Responses</b></td><td>응답 1건 = 1행(무작위 위치). 제출 날짜만, 문항별 답은 item_id 열에 저장</td><td>response_id · course_id · submitted_date · 문항 ID 열들</td><td>직접 편집 금지(경고 보호). 학기 시작 전 메뉴 「응답 시트 빈 열 정리」</td></tr>
+<tr><td><b>Responses</b></td><td>응답 1건 = 1행(무작위 위치). 제출 날짜만, 문항별 답은 item_id 열에 저장. 모든 교과목이 한 시트를 함께 쓰므로 다른 교과목의 문항 열은 빈칸</td><td>response_id · course_id · submitted_date · 문항 ID 열들</td><td>직접 편집 금지(경고 보호). 학기 시작 전 메뉴 「응답 시트 빈 열 정리」</td></tr>
 </table>
 <div class="tip"><b>백업:</b> 학기가 끝나면 Google 드라이브에서 스프레드시트를 <span class="kbd">사본 만들기</span>로 보관하거나, 결과 화면의 CSV·CQI 요약표를 내려받아 두세요.</div>
 <p style="margin-top:6mm;color:var(--muted);font-size:9pt">본 매뉴얼의 화면은 v${VERSION} 기준이며, 교과목·응답은 예시 자료입니다.</p>

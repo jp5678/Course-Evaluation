@@ -692,7 +692,7 @@ body.page-student { background: var(--bg); position: relative; isolation: isolat
 .hbars .dist > span { transition: flex-grow 1s var(--ease); }
 
 /* ───── 교과목 한눈에(대시보드) ───── */
-.course-pulse { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; }
+.course-pulse { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; align-content: start; } /* 버튼 기본 세로 가운데 정렬 대신 위쪽 정렬(카드끼리 맞춤) */
 .sparkbars { display: grid; gap: 4px; }
 .sparkbars .sb { display: grid; grid-template-columns: 14px 1fr 32px; gap: 6px; align-items: center; font-size: .6875rem; color: var(--muted); }
 .sparkbars .sb .t, .sparkbars .sb b, .sparkbars .sb > span { display: block; }
@@ -1035,6 +1035,28 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
       CES.toast(filename + ' 파일을 내려받았습니다.');
     } catch (e) {
       CES.copyDialog(filename, content);
+    }
+  };
+
+  /** base64로 받은 이진 파일(PDF 등) 내려받기 */
+  CES.downloadBase64 = function (filename, b64, mime) {
+    try {
+      var bin = atob(b64);
+      var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      // PDF 형식의 Blob은 브라우저 PDF 뷰어가 가로채 파일 이름이 'download'로 바뀌는 경우가 있어, 이진 파일로 내려받습니다.
+      void mime;
+      var url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 1500);
+      CES.toast(filename + ' 파일을 내려받았습니다.');
+    } catch (e) {
+      CES.toast('파일을 내려받지 못했습니다. 브라우저의 다운로드 차단 설정을 확인하세요.', 'error');
     }
   };
 
@@ -1701,6 +1723,11 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
       const wN = withMean.reduce((a, c) => a + c.response_count, 0);
       const overall = wN ? withMean.reduce((a, c) => a + c.mean * c.response_count, 0) / wN : null;
       const pos = wN ? withMean.reduce((a, c) => a + (c.pos_pct || 0) * c.response_count, 0) / wN : null;
+      // 평균·긍정 응답률의 기준(결과가 열린 교과목만)과 빠진 교과목을 함께 밝힘
+      const lockedWithResp = cs.filter((c) => c.mean == null && c.response_count > 0).length;
+      const basisNote = withMean.length
+        ? `결과가 열린 ${withMean.length}개 교과목(${wN}명) 기준${lockedWithResp ? ` · ${lockedWithResp}개는 잠김(공개일 전·응답 부족)이라 제외` : ''}`
+        : '결과가 열린 교과목 없음';
       const soon = open.filter((c) => c.hours_left != null && c.hours_left <= 72).sort((a, b) => a.hours_left - b.hours_left);
 
       setView(`
@@ -1721,11 +1748,12 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
           <section class="card rise kpi-ring" style="--i:2" aria-labelledby="d3">
             <div class="card-title" id="d3">${icon('gauge')}전체 평균</div>
             ${CES.ring(overall == null ? 0 : (overall - 1) / 4, overall == null ? '—' : CES.count(overall, 2), '5점 만점', { label: `전체 평균 ${overall == null ? '없음' : fmt(overall)}`, tone: 'ink' })}
-            <p class="sub">${overall == null ? '공개 기준을 충족한 교과목 없음' : '공개 기준 충족 교과목 · 응답 수 가중'}</p>
+            <p class="sub">${esc(basisNote)}</p>
           </section>
           <section class="card rise kpi-ring" style="--i:3" aria-labelledby="d4">
             <div class="card-title" id="d4">${icon('smile')}긍정 응답률</div>
             ${CES.ring(pos == null ? 0 : pos / 100, pos == null ? '—' : CES.count(pos, 0) + '<small style="font-size:.5em">%</small>', '4·5점 비율', { label: `긍정 응답률 ${pos == null ? '없음' : Math.round(pos) + '%'}` })}
+            <p class="sub">${esc(basisNote)}</p>
           </section>
 
           <section class="card span-4 rise" style="--i:4" aria-labelledby="d5">
@@ -1757,7 +1785,7 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
     function pulseCard(c) {
       const doms = (c.domains || []);
       const lock = c.locked_reason === 'MIN_RESPONSES' ? `응답 ${c.response_count}/${A.data.settings.min_responses}명 — 결과 잠김`
-        : c.locked_reason === 'BEFORE_OPEN_DATE' ? `${esc(c.result_open_date)} 공개 예정` : '';
+        : c.locked_reason === 'BEFORE_OPEN_DATE' ? `결과 공개일 ${esc(c.result_open_date)} 전 — 전체 평균에서 제외` : '';
       return `<button type="button" class="card interactive course-pulse" style="text-align:left;box-shadow:none" data-results="${esc(c.course_id)}"
           aria-label="${esc(c.course_name)} ${esc(termFull(c))} 결과 보기">
         ${c.response_rate == null
@@ -2569,6 +2597,12 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
             <button type="button" class="btn sm" data-export="exportCqi">${icon('table')}CQI 요약표</button>
             <button type="button" class="btn sm primary" data-export="exportText">${icon('sparkles')}서술형 텍스트(AI 요약용)</button>
           </div></div>
+          <div class="row" style="margin-top:8px;justify-content:flex-end" aria-label="PDF로 저장">
+            <span class="small muted">PDF로 저장</span>
+            <button type="button" class="btn sm" data-pdf="raw">${icon('file-text')}원자료 PDF</button>
+            <button type="button" class="btn sm" data-pdf="cqi">${icon('file-text')}CQI 요약표 PDF</button>
+            <button type="button" class="btn sm" data-pdf="text">${icon('file-text')}서술형 PDF</button>
+          </div>
           <div class="bento" style="margin-top:12px">
             <div class="card span-2" style="box-shadow:none"><h3>${icon('thumbs-up')} 강점</h3><ol class="small" style="padding-left:20px;margin:8px 0 0">
               ${r.cqi.strengths.map((s) => `<li>${esc(s.text)} <span class="num muted">(${fmt(s.mean)})</span></li>`).join('') || '<li>—</li>'}</ol></div>
@@ -2718,6 +2752,15 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
       }
     }
 
+    async function doPdf(kind, btn) {
+      const restore = CES.busyButton(btn, 'PDF 만드는 중…');
+      const res = await api('exportPdf', [A.resultsCourse, kind]);
+      restore();
+      if (!res.ok) return fail(res);
+      CES.downloadBase64(res.filename, res.base64, res.mime || 'application/pdf');
+      if (res.omitted) CES.toast(`익명성 보호를 위해 소규모 집단이 있는 드롭다운 문항 ${res.omitted}개를 제외했습니다.`);
+    }
+
     async function doExport(fn, btn) {
       const restore = CES.busyButton(btn, '준비 중…');
       const res = await api(fn, [A.resultsCourse]);
@@ -2810,6 +2853,7 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
       if (t.dataset.results) { A.resultsCourse = t.dataset.results; return go('results'); }
       if (t.dataset.items) { A.itemsCourse = t.dataset.items; return go('items'); }
       if (t.dataset.export) return doExport(t.dataset.export, t);
+      if (t.dataset.pdf) return doPdf(t.dataset.pdf, t);
       if (t.dataset.wc) {
         A.wcKey = t.dataset.wc;
         A.wcWord = null;

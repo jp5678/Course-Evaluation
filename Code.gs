@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.3.3',
+  VERSION: '1.3.4',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -515,8 +515,7 @@ function exportCsv(session, courseId) {
     var ctx = resultContext_(courseId);
     if (!ctx.ok) return ctx;
     if (ctx.locked) return lockedResult_(ctx);
-    // 소규모 집단이 생기는 드롭다운(성별 등) 열은 응답자 특정 위험이 있어 제외합니다.
-    var cols = ctx.items.filter(function (it) { return it.type !== 'select' || selectGroups_(it, ctx.rows, ctx.minN).safe; });
+    var cols = rawColumns_(ctx);
     var omitted = ctx.items.length - cols.length;
     var header = ['번호', '제출일'].concat(cols.map(function (it, i) {
       return (i + 1) + '. [' + it.domain + '] ' + it.text + (it.reverse ? ' (역문항·원점수)' : '');
@@ -529,6 +528,11 @@ function exportCsv(session, courseId) {
     });
     return { ok: true, filename: exportName_(ctx.course, '원자료') + '.csv', content: toCsv_(lines), omitted: omitted };
   });
+}
+
+/** 원자료에 넣을 문항 열. 소규모 집단이 생기는 드롭다운(성별 등) 열은 응답자 특정 위험이 있어 제외합니다. */
+function rawColumns_(ctx) {
+  return ctx.items.filter(function (it) { return it.type !== 'select' || selectGroups_(it, ctx.rows, ctx.minN).safe; });
 }
 
 /** CQI 요약표 CSV(영역별 평균·표준편차, 강점·개선점). */
@@ -584,6 +588,132 @@ function exportText(session, courseId) {
     out.push('위 강의평가 서술형 응답을 문항별로 ① 주요 주제 3~5개(빈도 순) ② 대표 의견 요약 ③ 다음 학기 CQI 개선 과제 3가지로 정리해 주세요. 응답에 없는 내용은 추측하지 마세요.');
     return { ok: true, filename: exportName_(ctx.course, '서술형') + '.txt', content: out.join('\n') };
   });
+}
+
+/**
+ * 원자료·CQI 요약표·서술형 응답을 PDF로 내보냅니다(kind: raw | cqi | text).
+ * 보고서 HTML을 PDF로 변환해 base64로 반환합니다. 결과와 같은 잠금 규칙(최소 공개 수·공개일)을 적용합니다.
+ */
+function exportPdf(session, courseId, kind) {
+  return adminApi_(session, function () {
+    var builders = { raw: rawPdfBody_, cqi: cqiPdfBody_, text: textPdfBody_ };
+    if (!builders.hasOwnProperty(kind)) return { ok: false, code: 'VALIDATION', field: 'kind' };
+    var ctx = resultContext_(courseId);
+    if (!ctx.ok) return ctx;
+    if (ctx.locked) return lockedResult_(ctx);
+    var built = builders[kind](ctx);
+    var pdf = HtmlService.createHtmlOutput(pdfDocument_(built.title, ctx, built.body)).getAs('application/pdf');
+    return {
+      ok: true,
+      filename: exportName_(ctx.course, built.label) + '.pdf',
+      base64: Utilities.base64Encode(pdf.getBytes()),
+      mime: 'application/pdf',
+      omitted: built.omitted || 0
+    };
+  });
+}
+
+function escHtml_(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+/** PDF 공통 틀: 제목·교과목 정보·작성일, 끝에 형성평가 안내 */
+function pdfDocument_(title, ctx, body) {
+  var c = ctx.summary;
+  var meta = [c.year + '학년도 ' + c.semester + '학기', c.grade ? c.grade + '학년' : '', c.section ? c.section + '반' : '',
+    c.department, c.delivery_mode, c.course_type, '응답 ' + ctx.rows.length + '명', '작성일 ' + fmtD_(new Date())].filter(String).join(' · ');
+  return '<!doctype html><html lang="ko"><head><meta charset="utf-8"><style>' +
+    'body{font-family:"Noto Sans KR","Malgun Gothic",sans-serif;font-size:10pt;color:#1d2033;line-height:1.5;margin:0}' +
+    'h1{font-size:16pt;margin:0 0 4px}h2{font-size:12pt;margin:18px 0 6px;border-bottom:1px solid #1d2033;padding-bottom:3px}' +
+    '.meta{color:#5b6078;font-size:9pt;margin-bottom:12px}' +
+    'table{width:100%;border-collapse:collapse;margin:6px 0 10px;font-size:8.5pt}' +
+    'th,td{border:1px solid #c9cce0;padding:3px 5px;text-align:left;vertical-align:top}th{background:#eeedfc}' +
+    'td.n,th.n{text-align:center;white-space:nowrap}ol{margin:4px 0 10px;padding-left:22px}li{margin:2px 0}' +
+    '.box{border:1px solid #c9cce0;padding:8px 10px;margin:8px 0;background:#fafafe}.note{color:#5b6078;font-size:8.5pt}' +
+    '.plan{height:90px;border:1px solid #c9cce0}' +
+    '</style></head><body>' +
+    '<h1>' + escHtml_(title) + '</h1>' +
+    '<div class="meta"><b>' + escHtml_(c.course_name) + '</b> · ' + escHtml_(meta) + '</div>' +
+    body +
+    '<p class="note" style="margin-top:16px">※ ' + escHtml_(APP.NAME) + ' — 학교 공식 강의평가가 아닌 교수자 자율형 형성평가·CQI(지속적 질 개선) 자료입니다. 응답자를 식별하는 정보는 수집하지 않았습니다.</p>' +
+    '</body></html>';
+}
+
+/** 원자료 PDF: 객관식은 Q번호 표(12문항씩), 서술형은 응답 번호별 표. 행 순서는 무작위. */
+function rawPdfBody_(ctx) {
+  var cols = rawColumns_(ctx);
+  var rows = shuffle_(ctx.rows.slice());
+  var num = {};
+  cols.forEach(function (it, i) { num[it.item_id] = 'Q' + (i + 1); });
+  var cell = function (r, it) { return escHtml_(r[it.item_id] == null ? '' : r[it.item_id]); };
+  var closed = cols.filter(function (it) { return it.type !== 'text'; });
+  var texts = cols.filter(function (it) { return it.type === 'text'; });
+  var html = '<h2>문항 번호</h2><table><tr><th class="n">번호</th><th>영역</th><th>문항</th></tr>' +
+    cols.map(function (it) {
+      return '<tr><td class="n">' + num[it.item_id] + '</td><td>' + escHtml_(it.domain) + '</td><td>' + escHtml_(it.text) +
+        (it.reverse ? ' (역문항·원점수)' : '') + '</td></tr>';
+    }).join('') + '</table>';
+  html += '<h2>객관식 응답 (리커트 1~5점 원점수)</h2>';
+  for (var k = 0; k < closed.length; k += 12) {
+    var part = closed.slice(k, k + 12);
+    html += '<table><tr><th class="n">응답</th><th class="n">제출일</th>' + part.map(function (it) { return '<th class="n">' + num[it.item_id] + '</th>'; }).join('') + '</tr>' +
+      rows.map(function (r, i) {
+        return '<tr><td class="n">' + (i + 1) + '</td><td class="n">' + escHtml_(dateOnly_(r.submitted_date)) + '</td>' +
+          part.map(function (it) { return '<td class="n">' + cell(r, it) + '</td>'; }).join('') + '</tr>';
+      }).join('') + '</table>';
+  }
+  if (texts.length) {
+    html += '<h2>서술형 응답 (응답 번호별)</h2><table><tr><th class="n">응답</th>' +
+      texts.map(function (it) { return '<th>' + num[it.item_id] + '. ' + escHtml_(it.text) + '</th>'; }).join('') + '</tr>' +
+      rows.map(function (r, i) {
+        return '<tr><td class="n">' + (i + 1) + '</td>' + texts.map(function (it) { return '<td>' + cell(r, it) + '</td>'; }).join('') + '</tr>';
+      }).join('') + '</table>';
+  }
+  var omitted = ctx.items.length - cols.length;
+  if (omitted) html += '<p class="note">익명성 보호를 위해 소규모 집단이 생기는 드롭다운 문항 ' + omitted + '개는 제외했습니다.</p>';
+  return { title: '강의평가 원자료', label: '원자료', body: html, omitted: omitted };
+}
+
+/** CQI 요약표 PDF: 영역별 평균·표준편차·긍정 응답률·해석, 강점·개선점, 개선 계획 작성란 */
+function cqiPdfBody_(ctx) {
+  var stats = computeStats_(ctx.items, ctx.rows);
+  var cqi = cqiSummary_(stats);
+  var f = function (v) { return v == null ? '—' : String(v); };
+  var html = '<div class="box">전체 평균 <b>' + f(stats.overall) + '</b> / 5 · 긍정 응답률 <b>' + f(stats.overall_pos_pct) + '%</b> · 해석: ' +
+    escHtml_(interpretMean_(stats.overall)) + '</div>';
+  html += '<h2>영역별 결과</h2><table><tr><th>영역</th><th class="n">문항 수</th><th class="n">평균</th><th class="n">표준편차</th><th class="n">긍정 응답률(%)</th><th class="n">해석</th></tr>' +
+    stats.domains.map(function (d) {
+      return '<tr><td>' + escHtml_(d.domain) + '</td><td class="n">' + d.item_count + '</td><td class="n">' + f(d.mean) + '</td><td class="n">' + f(d.sd) +
+        '</td><td class="n">' + f(d.pos_pct) + '</td><td class="n">' + escHtml_(interpretMean_(d.mean)) + '</td></tr>';
+    }).join('') + '</table>';
+  var list = function (arr) {
+    return '<table><tr><th>영역</th><th>문항</th><th class="n">평균</th><th class="n">표준편차</th></tr>' + (arr.map(function (x) {
+      return '<tr><td>' + escHtml_(x.domain) + '</td><td>' + escHtml_(x.text) + '</td><td class="n">' + f(x.mean) + '</td><td class="n">' + f(x.sd) + '</td></tr>';
+    }).join('') || '<tr><td colspan="4">—</td></tr>') + '</table>';
+  };
+  html += '<h2>강점 (문항 평균 상위)</h2>' + list(cqi.strengths);
+  html += '<h2>개선점 (문항 평균 하위)</h2>' + list(cqi.improvements);
+  html += '<h2>문항별 결과</h2><table><tr><th class="n">#</th><th>영역</th><th>문항</th><th class="n">n</th><th class="n">평균</th><th class="n">표준편차</th><th class="n">긍정(%)</th></tr>' +
+    stats.items.filter(function (s) { return s.type === 'likert5'; }).map(function (s, i) {
+      return '<tr><td class="n">' + (i + 1) + '</td><td>' + escHtml_(s.domain) + '</td><td>' + escHtml_(s.text) + (s.reverse ? ' (역문항)' : '') +
+        '</td><td class="n">' + s.n + '</td><td class="n">' + f(s.mean) + '</td><td class="n">' + f(s.sd) + '</td><td class="n">' + f(s.pos_pct) + '</td></tr>';
+    }).join('') + '</table>';
+  html += '<h2>개선 계획 (교수 작성)</h2><div class="plan"></div>' +
+    '<p class="note">해석 기준(5점): 4.5 이상 매우 우수 · 4.0 이상 우수 · 3.5 이상 보통 이상 · 3.0 이상 보통 · 3.0 미만 개선 필요. 긍정 응답률 = 4·5점 비율, 역문항은 환산.</p>';
+  return { title: 'CQI 요약표', label: 'CQI요약', body: html };
+}
+
+/** 서술형 응답 PDF: 문항별 무작위 순서 + AI 요약 요청 예시 */
+function textPdfBody_(ctx) {
+  var html = '<p class="note">응답 순서는 무작위입니다. 이름·학번 등 개인을 식별할 수 있는 내용이 있으면 공유·AI 입력 전에 삭제하세요.</p>';
+  html += textAnswers_(ctx.items, ctx.rows).map(function (t) {
+    return '<h2>' + escHtml_(t.text) + ' <span class="note">(' + t.answers.length + '건)</span></h2>' +
+      (t.answers.length ? '<ol>' + t.answers.map(function (a) { return '<li>' + escHtml_(a) + '</li>'; }).join('') + '</ol>' : '<p class="note">응답 없음</p>');
+  }).join('') || '<p class="note">서술형 문항이 없습니다.</p>';
+  html += '<div class="box"><b>AI 요약 요청 예시</b><br>위 강의평가 서술형 응답을 문항별로 ① 주요 주제 3~5개(빈도 순) ② 대표 의견 요약 ③ 다음 학기 CQI 개선 과제 3가지로 정리해 주세요. 응답에 없는 내용은 추측하지 마세요.</div>';
+  return { title: '서술형 응답', label: '서술형', body: html };
 }
 
 function saveSettings(session, data) {

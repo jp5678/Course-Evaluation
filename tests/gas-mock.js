@@ -303,6 +303,18 @@
     };
   }
 
+  /* Node·브라우저 공용 바이트 변환(미리보기 서버는 모의 환경을 브라우저에서 실행) */
+  function utf8Bytes(str) {
+    if (typeof TextEncoder !== 'undefined') return Array.from(new TextEncoder().encode(str));
+    return Array.from(Buffer.from(str, 'utf8'));
+  }
+  function bytesToBase64(bytes) {
+    if (typeof Buffer !== 'undefined') return Buffer.from(bytes).toString('base64');
+    var bin = '';
+    for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i] & 255);
+    return btoa(bin);
+  }
+
   /* ───── HtmlService(템플릿 엔진) ───── */
   function htmlEscape(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -317,7 +329,12 @@
       addMetaTag: function (n, c) { o._meta.push([n, c]); return o; },
       setXFrameOptionsMode: function () { return o; },
       setWidth: function () { return o; },
-      setHeight: function () { return o; }
+      setHeight: function () { return o; },
+      // HTML → PDF 변환 흉내: 내용 확인을 위해 '%PDF-MOCK' 뒤에 원본 HTML을 담은 바이트를 돌려줌
+      getAs: function (mime) {
+        var bytes = utf8Bytes('%PDF-MOCK ' + mime + '\n' + o._content);
+        return { getBytes: function () { return bytes; }, getContentType: function () { return mime; } };
+      }
     };
     return o;
   }
@@ -386,6 +403,7 @@
           return require('crypto').randomUUID();
         },
         sleep: function (ms) { sleep(opts.fastSleep ? Math.min(ms, 5) : ms); },
+        base64Encode: function (bytes) { return bytesToBase64(bytes); },
         formatDate: formatDate,
         parseDate: parseDate
       },

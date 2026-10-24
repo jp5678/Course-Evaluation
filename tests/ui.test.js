@@ -289,6 +289,11 @@ test('교수 360px: PIN 오류 안내→로그인→대시보드→결과(차트
   await page.getByText('진행 중 교과목', { exact: true }).waitFor();
   // 수강인원이 일부 교과목에만 있으면 왜곡된 응답률(예: 0/40명) 대신 응답 수 합계
   assert.equal(await page.locator('#d2').innerText(), '응답 수');
+  // 전체 평균·긍정 응답률의 기준과 제외된(잠긴) 교과목을 밝힘
+  assert.match(await page.locator('section[aria-labelledby="d3"] .sub').innerText(), /^결과가 열린 \d+개 교과목\(\d+명\) 기준/);
+  // 교과목 카드는 모두 위쪽 정렬(잠긴 카드만 가운데로 내려가지 않음)
+  const tops = await page.$$eval('.course-pulse', (els) => els.map((e) => getComputedStyle(e).alignContent));
+  assert.ok(tops.every((v) => v === 'start'), tops.join());
   assert.equal(await page.locator('section[aria-labelledby="d2"] .ring').count(), 0);
   await noHorizontalScroll(page, '대시보드');
   await shot(page, 'm10-admin-dashboard');
@@ -457,6 +462,22 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·QR·토큰 인�
   await dl.saveAs(file);
   const csv = fs.readFileSync(file, 'utf8');
   assert.ok(csv.charCodeAt(0) === 0xFEFF && csv.includes('CQI 요약표'), 'BOM 포함 CSV');
+
+  // PDF로 저장(원자료·CQI·서술형): base64 → 이진 파일 내려받기
+  // 헤드리스 Chromium은 PDF 내려받기의 suggestedFilename을 'download'로 보고하므로, 앵커에 지정한 이름을 직접 확인
+  await page.evaluate(() => {
+    window.__dlNames = [];
+    const orig = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () { if (this.download) window.__dlNames.push(this.download); return orig.call(this); };
+  });
+  for (const [kind, label] of [['raw', '원자료'], ['cqi', 'CQI요약'], ['text', '서술형']]) {
+    const [pd] = await Promise.all([page.waitForEvent('download'), page.locator(`[data-pdf="${kind}"]`).click()]);
+    const names = await page.evaluate(() => window.__dlNames);
+    assert.match(names[names.length - 1], new RegExp('^디지털리터러시와_AI활용_.*_' + label + '\\.pdf$'));
+    const pf = path.join(OUT, 'export-' + kind + '.pdf');
+    await pd.saveAs(pf);
+    assert.match(fs.readFileSync(pf, 'utf8').slice(0, 40), /^%PDF/, kind + ' PDF 바이트');
+  }
 });
 
 test('관리자를 테스트용(/dev) 주소로 연 경우: 원인 안내 → 설정에 /exec 주소 저장 → 링크·QR 정상', async () => {

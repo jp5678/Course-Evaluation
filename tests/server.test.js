@@ -844,3 +844,40 @@ test('시트 보호(경고): Responses·Tokens·Courses·Items, 응답 시트 �
   assert.equal(server.getItems_(next.course_id).length, server.getItems_(dl.course_id).length, '문항 그대로 복사');
   assert.notEqual(next.access_code, dl.access_code, '새 접속코드');
 });
+
+test('PDF 내보내기: 원자료·CQI 요약표·서술형(잠금 규칙 동일, 관리자만, 종류 검증, HTML 이스케이프)', () => {
+  const { server } = H.makeServer({ pin: PIN });
+  const s = H.login(server, PIN);
+  const [dl] = server.getCourses_();
+  assert.equal(server.exportPdf(s, dl.course_id, 'raw').locked, true, '응답 부족이면 잠김');
+  server.generateSampleResponses();
+  // 서술형에 HTML이 들어와도 그대로 출력되지 않음
+  const items = server.itemsForCourse_(server.findCourse_(dl.course_id));
+  const a = H.fullAnswers(items);
+  items.filter((i) => i.type === 'text').forEach((i) => { a[i.item_id] = '<script>x</script> 좋았어요'; });
+  assert.equal(server.submitResponse(dl.course_id, dl.access_code, a).ok, true);
+  const decode = (r) => Buffer.from(r.base64, 'base64').toString('utf8');
+  const raw = server.exportPdf(s, dl.course_id, 'raw');
+  assert.equal(raw.ok, true);
+  assert.equal(raw.mime, 'application/pdf');
+  assert.match(raw.filename, /원자료\.pdf$/);
+  const rawHtml = decode(raw);
+  assert.match(rawHtml, /^%PDF-MOCK application\/pdf/);
+  assert.match(rawHtml, /강의평가 원자료/);
+  assert.match(rawHtml, /디지털리터러시와 AI활용/);
+  assert.match(rawHtml, /Q28/, '28문항 번호표');
+  assert.equal((rawHtml.match(/<tr><td class="n">31<\/td>/g) || []).length >= 1, true, '응답 31행');
+  assert.ok(!rawHtml.includes('<script>x</script>'), 'HTML 이스케이프');
+  assert.ok(rawHtml.includes('&lt;script&gt;'));
+  const cqi = decode(server.exportPdf(s, dl.course_id, 'cqi'));
+  assert.match(cqi, /CQI 요약표/);
+  assert.match(cqi, /영역별 결과/);
+  assert.match(cqi, /강점/);
+  assert.match(cqi, /개선 계획/);
+  const text = decode(server.exportPdf(s, dl.course_id, 'text'));
+  assert.match(text, /서술형 응답/);
+  assert.match(text, /AI 요약 요청 예시/);
+  assert.match(text, /학교 공식 강의평가가 아닌/);
+  assert.equal(server.exportPdf(s, dl.course_id, 'xls').code, 'VALIDATION');
+  assert.equal(server.exportPdf('', dl.course_id, 'raw').code, 'AUTH');
+});

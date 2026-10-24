@@ -262,6 +262,28 @@
     }
   };
 
+  /** base64로 받은 이진 파일(PDF 등) 내려받기 */
+  CES.downloadBase64 = function (filename, b64, mime) {
+    try {
+      var bin = atob(b64);
+      var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      // PDF 형식의 Blob은 브라우저 PDF 뷰어가 가로채 파일 이름이 'download'로 바뀌는 경우가 있어, 이진 파일로 내려받습니다.
+      void mime;
+      var url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 1500);
+      CES.toast(filename + ' 파일을 내려받았습니다.');
+    } catch (e) {
+      CES.toast('파일을 내려받지 못했습니다. 브라우저의 다운로드 차단 설정을 확인하세요.', 'error');
+    }
+  };
+
   CES.copyDialog = function (title, content) {
     var m = CES.modal({
       title: title,

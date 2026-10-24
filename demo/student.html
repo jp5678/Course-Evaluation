@@ -692,7 +692,7 @@ body.page-student { background: var(--bg); position: relative; isolation: isolat
 .hbars .dist > span { transition: flex-grow 1s var(--ease); }
 
 /* ───── 교과목 한눈에(대시보드) ───── */
-.course-pulse { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; }
+.course-pulse { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; align-content: start; } /* 버튼 기본 세로 가운데 정렬 대신 위쪽 정렬(카드끼리 맞춤) */
 .sparkbars { display: grid; gap: 4px; }
 .sparkbars .sb { display: grid; grid-template-columns: 14px 1fr 32px; gap: 6px; align-items: center; font-size: .6875rem; color: var(--muted); }
 .sparkbars .sb .t, .sparkbars .sb b, .sparkbars .sb > span { display: block; }
@@ -1032,6 +1032,28 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
       CES.toast(filename + ' 파일을 내려받았습니다.');
     } catch (e) {
       CES.copyDialog(filename, content);
+    }
+  };
+
+  /** base64로 받은 이진 파일(PDF 등) 내려받기 */
+  CES.downloadBase64 = function (filename, b64, mime) {
+    try {
+      var bin = atob(b64);
+      var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      // PDF 형식의 Blob은 브라우저 PDF 뷰어가 가로채 파일 이름이 'download'로 바뀌는 경우가 있어, 이진 파일로 내려받습니다.
+      void mime;
+      var url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 1500);
+      CES.toast(filename + ' 파일을 내려받았습니다.');
+    } catch (e) {
+      CES.toast('파일을 내려받지 못했습니다. 브라우저의 다운로드 차단 설정을 확인하세요.', 'error');
     }
   };
 

@@ -675,7 +675,7 @@ body.page-student { background: var(--bg); position: relative; isolation: isolat
 .hbars .dist > span { transition: flex-grow 1s var(--ease); }
 
 /* ───── 교과목 한눈에(대시보드) ───── */
-.course-pulse { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; }
+.course-pulse { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; align-content: start; } /* 버튼 기본 세로 가운데 정렬 대신 위쪽 정렬(카드끼리 맞춤) */
 .sparkbars { display: grid; gap: 4px; }
 .sparkbars .sb { display: grid; grid-template-columns: 14px 1fr 32px; gap: 6px; align-items: center; font-size: .6875rem; color: var(--muted); }
 .sparkbars .sb .t, .sparkbars .sb b, .sparkbars .sb > span { display: block; }
