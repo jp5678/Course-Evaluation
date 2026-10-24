@@ -624,11 +624,13 @@ test('링크 점검: 로그인 없는 조건으로 열어 정상·로그인 요�
     WRAPPER: () => ({ code: 200, body: '<iframe id="sandboxFrame" src="https://n-abc-script.googleusercontent.com/userCodeAppPanel">' }),
     LOGIN: () => ({ code: 302, headers: { location: 'https://accounts.google.com/ServiceLogin?continue=x' } }),
     UNAVAILABLE: () => ({ code: 404, body: '현재 파일을 열 수 없습니다. drive.google.com/start/apps' }),
+    // 실제 관찰된 응답: 리디렉션 없이 400 + Page Not Found
+    REAL400: () => ({ code: 400, body: '<html><head><title>Page Not Found</title></head><body>drive.google.com/start/apps</body></html>' }),
     NEED_AUTH: () => { throw new Error('You do not have permission to call UrlFetchApp.fetch. Required permissions: https://www.googleapis.com/auth/script.external_request'); }
   };
   scenarios.UNKNOWN = () => ({ code: 200, body: '<html><title>무언가 다른 페이지</title></html>' });
-  // 관리자 화면이 같은 주소에서 실행 중(배포 살아 있음) → 로그인 요구·열 수 없음은 액세스 권한 문제(ACCESS)
-  const expect = { OK: 'OK', WRAPPER: 'OK', LOGIN: 'ACCESS', UNAVAILABLE: 'ACCESS', NEED_AUTH: 'NEED_AUTH', UNKNOWN: 'UNKNOWN' };
+  // 관리자 주소와 같음 → 로그인 요구는 액세스 권한 문제(ACCESS), 곧바로 '없는 페이지'는 배포 이상(BROKEN)
+  const expect = { OK: 'OK', WRAPPER: 'OK', LOGIN: 'ACCESS', UNAVAILABLE: 'BROKEN', REAL400: 'BROKEN', NEED_AUTH: 'NEED_AUTH', UNKNOWN: 'UNKNOWN' };
   for (const [name, fetch] of Object.entries(scenarios)) {
     const seen = [];
     const { server } = H.makeServer({ pin: PIN, url: EXEC, fetch: (u, p) => { seen.push([u, p]); return fetch(u, p); } });

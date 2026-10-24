@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.2.6',
+  VERSION: '1.2.7',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -1374,8 +1374,11 @@ function checkStudentLink(session, courseId) {
     var base = studentBaseUrl_(getSettingsMap_());
     var current = webAppUrl_();
     var out = base ? probeUrl_(base + '?c=' + encodeURIComponent(course.course_id)) : { result: 'NO_URL' };
-    // 관리자 화면이 바로 이 주소에서 실행 중이면 배포는 살아 있음 → 익명 접속 실패는 액세스 권한 문제
-    if ((out.result === 'UNAVAILABLE' || out.result === 'LOGIN') && base && base === current) out.result = 'ACCESS';
+    // 관리자 주소와 같은데 로그인 요구 → 액세스 권한 문제. 로그인 없이 곧바로 '없는 페이지'(400/404) → 배포 자체 이상
+    if (base && base === current) {
+      if (out.result === 'LOGIN') out.result = 'ACCESS';
+      else if (out.result === 'UNAVAILABLE') out.result = 'BROKEN';
+    }
     out.ok = true;
     out.url = base;
     out.current = APP.EXEC_URL_RE.test(current) ? current : '';
@@ -1413,7 +1416,7 @@ function probeUrl_(url) {
     if (body.indexOf('cesstudentpage') >= 0 || /userCodeAppPanel|goog\.script\.init/.test(body)) return done({ result: 'OK', title: title });
     if (/accounts\.google\.com\/(?:ServiceLogin|v3\/signin|signin)/.test(body)) return done({ result: 'LOGIN', title: title });
     // Google의 「현재 파일을 열 수 없습니다」 페이지 또는 404
-    if (code === 404 || code === 403 || /drive\.google\.com\/start\/apps|unable to open the file|열 수 없습니다/i.test(body)) {
+    if (code === 400 || code === 404 || code === 403 || /drive\.google\.com\/start\/apps|unable to open the file|열 수 없습니다/i.test(body)) {
       return done({ result: 'UNAVAILABLE', status: code, title: title });
     }
     return done({ result: 'UNKNOWN', status: code, title: title });
