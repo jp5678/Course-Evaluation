@@ -47,11 +47,10 @@
     const view = document.getElementById('view');
     const tabsEl = document.getElementById('tabs');
     const SESSION_KEY = 'ces:admin';
-    const DOMAINS = ['A. 강의 설계', 'B. 교수학습방법', 'C. 평가 및 과제', 'D. 학습성과(CLO)', 'E. 학습 환경', 'F. 디지털·AI 활용', 'G. 종합', 'H. 온라인(비대면) 강의', '서술형', '응답자 정보'];
+    const DOMAINS = ['A. 강의 설계', 'B. 교수학습방법', 'C. 평가 및 과제', 'D. 학습성과(CLO)', 'E. 학습 환경', 'F. 디지털·AI 활용', 'G. 종합', 'H. 온라인(비대면) 강의', '서술형'];
     const TYPES = { likert5: '5점 리커트', single: '단일 선택', multi: '복수 선택', select: '드롭다운', text: '서술형' };
     const SEMS = ['1', '2'];
     const GRADES = [1, 2, 3, 4];
-    const SECTIONS = ['A', 'B', 'C', 'D', 'E', 'F'];
     const DELIVERY = ['대면', '비대면', '혼합'];
     const COURSE_TYPES = ['이론', '실습', '이론+실습'];
     const SCOPES = { '': '항상 표시', online: '비대면·혼합 수업만', theory: '이론 있는 교과목만', practice: '실습 있는 교과목만' };
@@ -264,8 +263,10 @@
       const open = cs.filter((c) => c.status === '진행');
       const basis = open.length ? open : cs;
       const resp = basis.reduce((a, c) => a + c.response_count, 0);
-      const enroll = basis.reduce((a, c) => a + c.enrollment, 0);
-      const rate = enroll ? Math.round(resp / enroll * 1000) / 10 : 0;
+      const withEnroll = basis.filter((c) => c.enrollment > 0); // 수강인원을 입력한 교과목만 응답률 계산
+      const enroll = withEnroll.reduce((a, c) => a + c.enrollment, 0);
+      const respE = withEnroll.reduce((a, c) => a + c.response_count, 0);
+      const rate = enroll ? Math.round(respE / enroll * 1000) / 10 : null;
       const withMean = cs.filter((c) => c.mean != null);
       const wN = withMean.reduce((a, c) => a + c.response_count, 0);
       const overall = wN ? withMean.reduce((a, c) => a + c.mean * c.response_count, 0) / wN : null;
@@ -282,8 +283,10 @@
             <p class="small muted" style="margin-top:8px">전체 ${cs.length}개 · 누적 응답 <span class="num">${cs.reduce((a, c) => a + c.response_count, 0)}</span>건</p>
           </section>
           <section class="card rise kpi-ring" style="--i:1" aria-labelledby="d2">
-            <div class="card-title" id="d2">${icon('users')}응답률${open.length ? '' : ' (전체)'}</div>
-            ${CES.ring(rate / 100, CES.count(rate, 1) + '<small style="font-size:.5em">%</small>', `${resp}/${enroll}명`, { label: `응답률 ${rate}%` })}
+            <div class="card-title" id="d2">${icon('users')}${rate == null ? '응답 수' : '응답률'}${open.length ? '' : ' (전체)'}</div>
+            ${rate == null
+              ? `<div class="big-num" style="margin-top:12px">${CES.count(resp, 0)}<span class="unit">명</span></div><p class="sub">${open.length ? '진행 중 교과목' : '전체 교과목'} 응답 합계</p>`
+              : CES.ring(rate / 100, CES.count(rate, 1) + '<small style="font-size:.5em">%</small>', `${respE}/${enroll}명`, { label: `응답률 ${rate}%` })}
           </section>
           <section class="card rise kpi-ring" style="--i:2" aria-labelledby="d3">
             <div class="card-title" id="d3">${icon('gauge')}전체 평균</div>
@@ -306,7 +309,7 @@
             ${soon.length ? `<ul class="feature-list" style="margin-top:12px">${soon.map((c) => `
               <li><span class="badge hot"><span class="dot" aria-hidden="true"></span>${c.hours_left < 24 ? Math.max(0, Math.round(c.hours_left)) + '시간' : Math.round(c.hours_left / 24) + '일'} 남음</span>
               <div class="grow"><strong>${esc(c.course_name)}</strong> <span class="small">${esc(termFull(c))}</span>
-              <div class="small num">응답 ${c.response_count}/${c.enrollment}명 · 마감 ${esc(dt(c.end_at))}</div></div></li>`).join('')}</ul>`
+              <div class="small num">응답 ${c.response_count}${c.enrollment ? '/' + c.enrollment : ''}명 · 마감 ${esc(dt(c.end_at))}</div></div></li>`).join('')}</ul>`
               : '<p class="small muted" style="margin-top:12px">곧 마감되는 교과목이 없습니다.</p>'}
           </section>
           <section class="card span-2 rise" style="--i:6" aria-labelledby="d7">
@@ -327,7 +330,9 @@
         : c.locked_reason === 'BEFORE_OPEN_DATE' ? `${esc(c.result_open_date)} 공개 예정` : '';
       return `<button type="button" class="card interactive course-pulse" style="text-align:left;box-shadow:none" data-results="${esc(c.course_id)}"
           aria-label="${esc(c.course_name)} ${esc(termFull(c))} 결과 보기">
-        ${CES.ring(c.response_rate / 100, Math.round(c.response_rate) + '%', '응답률', { small: true, label: `응답률 ${c.response_rate}%` })}
+        ${c.response_rate == null
+          ? `<span class="count-chip" role="img" aria-label="응답 ${c.response_count}명"><strong>${c.response_count}</strong><span>명 응답</span></span>`
+          : CES.ring(c.response_rate / 100, Math.round(c.response_rate) + '%', '응답률', { small: true, label: `응답률 ${c.response_rate}%` })}
         <span style="min-width:0;display:block">
           <span class="meta" style="margin-bottom:4px;display:flex">${statusBadge(c)}</span>
           <strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.course_name)}</strong>
@@ -361,11 +366,11 @@
           <div class="row-between"><div class="meta">${statusBadge(c)}<span class="badge">${esc(term(c))}</span></div>
             ${c.result_open_date ? `<span class="badge warn" title="결과공개일">${icon('calendar-clock')}${esc(c.result_open_date)}</span>` : ''}</div>
           <div><h2 id="cn-${id}">${esc(c.course_name)}</h2>
-            <p class="small muted">${esc([c.department, c.grade ? c.grade + '학년' : '', c.section ? c.section + '반' : '', c.course_type, c.delivery_mode, '수강 ' + c.enrollment + '명', c.item_count + '문항'].filter(Boolean).join(' · '))}</p></div>
+            <p class="small muted">${esc([c.department, c.grade ? c.grade + '학년' : '', c.section ? c.section + '반' : '', c.course_type, c.delivery_mode, c.enrollment ? '수강 ' + c.enrollment + '명' : '', c.item_count + '문항'].filter(Boolean).join(' · '))}</p></div>
           <p class="small num muted">${icon('calendar')} ${esc(dt(c.start_at))} ~ ${esc(dt(c.end_at))}</p>
           <div>
-            <div class="row-between small"><span>응답</span><span class="num"><strong>${c.response_count}</strong> / ${c.enrollment}명 (${c.response_rate}%)</span></div>
-            <div class="meter" role="img" aria-label="응답률 ${c.response_rate}%"><span style="width:${Math.min(100, c.response_rate)}%"></span></div>
+            <div class="row-between small"><span>응답</span><span class="num"><strong>${c.response_count}</strong>${c.response_rate == null ? '명' : ` / ${c.enrollment}명 (${c.response_rate}%)`}</span></div>
+            ${c.response_rate == null ? '' : `<div class="meter" role="img" aria-label="응답률 ${c.response_rate}%"><span style="width:${Math.min(100, c.response_rate)}%"></span></div>`}
           </div>
           <p class="small">${access}</p>
           <div class="row">
@@ -390,8 +395,8 @@
       const depts = A.data.settings.departments || ['간호학과'];
       c = Object.assign({
         course_name: '', year: now.getMonth() < 2 ? now.getFullYear() - 1 : now.getFullYear(), semester: now.getMonth() >= 2 && now.getMonth() <= 7 ? '1' : '2',
-        grade: 1, section: 'A', department: depts[0], delivery_mode: '대면', course_type: '이론+실습',
-        enrollment: 40, start_at: localDT(start), end_at: localDT(end), access_mode: 'code', access_code: randCode(), result_open_date: ''
+        grade: 1, department: depts[0], delivery_mode: '대면', course_type: '이론+실습',
+        start_at: localDT(start), end_at: localDT(end), access_mode: 'code', access_code: randCode(), result_open_date: ''
       }, c || {});
       const deptList = depts.indexOf(c.department) < 0 && c.department ? depts.concat([c.department]) : depts;
       const sel = (v, x) => (String(v) === String(x) ? ' selected' : '');
@@ -407,8 +412,6 @@
           <div class="field"><label for="f-type">교과목 유형</label>${selectHtml('course_type', 'f-type', COURSE_TYPES, c.course_type)}
             <p class="hint">이론: 실습실 문항 제외 · 실습: 이론 강의실 문항 제외 · 이론+실습: 모두 표시</p></div>
           <div class="field"><label for="f-grade">학년</label>${selectHtml('grade', 'f-grade', GRADES, c.grade, (g) => g + '학년')}</div>
-          <div class="field"><label for="f-sec">반</label>${selectHtml('section', 'f-sec', SECTIONS, c.section, (x) => x + '반')}</div>
-          <div class="field"><label for="f-enr">수강인원</label><input class="input num" id="f-enr" name="enrollment" type="number" min="1" max="1000" value="${esc(c.enrollment)}"></div>
           <div class="field"><label for="f-open">결과공개일 <span class="muted small">(선택)</span></label>
             <input class="input" id="f-open" name="result_open_date" type="date" value="${esc(c.result_open_date)}" aria-describedby="f-open-h">
             <p class="hint" id="f-open-h">이 날짜 전에는 결과를 잠급니다(성적 처리 전 열람 방지).</p></div>
@@ -502,7 +505,6 @@
           <form id="dup-form" class="form-grid two" novalidate>
             <div class="field"><label for="d-year">학년도</label><input class="input num" id="d-year" name="year" type="number" value="${nextSem.y}"></div>
             <div class="field"><label for="d-sem">학기</label><select class="select" id="d-sem" name="semester">${SEMS.map((s) => `<option value="${s}"${s === nextSem.s ? ' selected' : ''}>${s}학기</option>`).join('')}</select></div>
-            <div class="field"><label for="d-sec">반</label>${selectHtml('section', 'd-sec', SECTIONS, c.section, (x) => x + '반')}</div>
             <div class="field"><label for="d-mode">수업 방식</label>${selectHtml('delivery_mode', 'd-mode', DELIVERY, c.delivery_mode)}</div>
             <div class="field"><label for="d-type">교과목 유형</label>${selectHtml('course_type', 'd-type', COURSE_TYPES, c.course_type)}</div>
             <div class="field"><label for="d-open">결과공개일 <span class="muted small">(선택)</span></label><input class="input" id="d-open" name="result_open_date" type="date"></div>
@@ -599,8 +601,8 @@
         html: `<div class="stack">
             <p class="small muted">${esc(c.course_name)} · ${esc(termFull(c))} · 발급 ${c.tokens_total}개 (사용 ${c.tokens_used}개)</p>
             <div class="field"><label for="tk-n">생성할 토큰 수</label>
-              <input class="input num" id="tk-n" type="number" min="1" max="300" value="${Math.max(1, c.enrollment)}" aria-describedby="tk-h">
-              <p class="hint" id="tk-h">1~300개. 수강인원보다 2~3개 여유 있게 만들면 분실에 대비할 수 있습니다.</p></div>
+              <input class="input num" id="tk-n" type="number" min="1" max="300" value="${Math.max(1, c.enrollment || 40)}" aria-describedby="tk-h">
+              <p class="hint" id="tk-h">1~300개. 수강생 수보다 2~3개 여유 있게 만들면 분실에 대비할 수 있습니다.</p></div>
             <div class="callout">${icon('shield-alert')}<p class="small">토큰 원문은 <strong>이 화면에서 한 번만</strong> 보여 줍니다. 서버에는 해시만 저장되므로 창을 닫기 전에 인쇄하거나 내려받으세요. 토큰은 학생 명단 순서가 아닌 <strong>무작위로 섞어</strong> 나눠 주세요.</p></div>
           </div>`,
         footer: `<button type="button" class="btn" data-close>취소</button><button type="button" class="btn primary" data-gen>${icon('ticket')}생성</button>`
@@ -1039,8 +1041,12 @@
 
       return `<div class="section-head"><h2>${icon('sparkles')} 한눈에 보기</h2></div>
       <div class="bento">
-        ${kpiRing(0, 'users', '응답률', c.response_rate / 100, CES.count(c.response_rate, 0) + '<small style="font-size:.5em">%</small>', `${r.n}/${c.enrollment}명`,
-          `${esc(c.course_name)} · ${esc(termFull(c))}`, `응답률 ${c.response_rate}%, ${r.n}명 응답`)}
+        ${c.response_rate == null
+          ? `<section class="card kpi-ring rise" style="--i:0" aria-label="응답 수"><div class="card-title">${icon('users')}응답 수</div>
+              <div class="big-num" style="margin:18px 0 6px">${CES.count(r.n, 0)}<span class="unit">명</span></div>
+              <p class="sub">${esc(c.course_name)} · ${esc(termFull(c))}</p></section>`
+          : kpiRing(0, 'users', '응답률', c.response_rate / 100, CES.count(c.response_rate, 0) + '<small style="font-size:.5em">%</small>', `${r.n}/${c.enrollment}명`,
+            `${esc(c.course_name)} · ${esc(termFull(c))}`, `응답률 ${c.response_rate}%, ${r.n}명 응답`)}
         ${kpiRing(1, 'gauge', '전체 평균', (st.overall - 1) / 4, CES.count(st.overall, 2), '5점 만점',
           `${esc(interpret(st.overall))} · 긍정 ${st.overall_pos_pct}%`, `전체 평균 ${fmt(st.overall)}점`, 'ink')}
         ${pctRing(2, 'smile', '전반적 만족도', k.satisfaction, '만족도 문항이 없습니다')}
@@ -1097,11 +1103,11 @@
             ${compareTable(sem.groups, st.domains)}` : `<p class="small muted" style="margin-top:12px">비교할 이전 학기 자료가 없습니다.</p>`}
           ${sem.excluded ? `<p class="tiny muted">응답 수가 공개 기준 미만이거나 공개일 전인 ${sem.excluded}개 학기는 제외했습니다.</p>` : ''}
         </section>
-        <section class="card span-2" aria-labelledby="k6"><div class="row-between"><div class="card-title" id="k6">${icon('columns-3')}분반 간 비교</div><span class="small muted">같은 학년도·학기</span></div>
-          ${sec.groups.length >= 2 ? `<div class="chart-box" style="min-height:220px;margin-top:8px"><canvas id="secChart" role="img" aria-label="분반별 전체 평균 막대 차트. 아래 표에 같은 값이 있습니다."></canvas></div>
-            ${compareTable(sec.groups, st.domains)}` : `<p class="small muted" style="margin-top:12px">비교할 다른 분반이 없습니다.</p>`}
+        ${sec.groups.length >= 2 ? `<section class="card span-2" aria-labelledby="k6"><div class="row-between"><div class="card-title" id="k6">${icon('columns-3')}분반 간 비교</div><span class="small muted">같은 교과목·학년도·학기</span></div>
+          <div class="chart-box" style="min-height:220px;margin-top:8px"><canvas id="secChart" role="img" aria-label="분반별 전체 평균 막대 차트. 아래 표에 같은 값이 있습니다."></canvas></div>
+          ${compareTable(sec.groups, st.domains)}
           ${sec.excluded ? `<p class="tiny muted">응답 수가 공개 기준 미만인 ${sec.excluded}개 분반은 제외했습니다.</p>` : ''}
-        </section>
+        </section>` : ''}
 
         <section class="card span-4" aria-labelledby="k7"><div class="row-between"><div class="card-title" id="k7">${icon('list-ordered')}문항별 결과</div>${legend}</div>
           <div class="table-wrap" style="margin-top:8px"><table class="data"><caption class="sr-only">문항별 응답 수, 평균, 표준편차, 분포</caption>

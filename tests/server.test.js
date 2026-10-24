@@ -14,16 +14,15 @@ test('setup: 탭·헤더·기본 문항 은행·이번 학기 교과목 예시 2
     assert.deepEqual(st.sheets[name].values[0].slice(0, server.HEADERS[name].length), server.HEADERS[name]);
   }
   const tpl = server.getItems_('TEMPLATE');
-  assert.equal(tpl.length, 25, '리커트 21 + 서술형 3 + 드롭다운 1');
+  assert.equal(tpl.length, 24, '리커트 21 + 서술형 3 (성별 문항 삭제)');
   const doms = [...new Set(tpl.map((i) => i.domain))];
-  assert.deepEqual(doms, ['A. 강의 설계', 'B. 교수학습방법', 'C. 평가 및 과제', 'E. 학습 환경', 'F. 디지털·AI 활용', 'G. 종합', 'H. 온라인(비대면) 강의', '서술형', '응답자 정보']);
+  assert.deepEqual(doms, ['A. 강의 설계', 'B. 교수학습방법', 'C. 평가 및 과제', 'E. 학습 환경', 'F. 디지털·AI 활용', 'G. 종합', 'H. 온라인(비대면) 강의', '서술형']);
   assert.ok(tpl.some((i) => /유무선 인터넷/.test(i.text)) && tpl.some((i) => /실습실의 시설/.test(i.text)) && tpl.some((i) => /이론 강의실/.test(i.text)), '학습 환경 문항');
   assert.equal(tpl.filter((i) => i.scope === 'online').length, 4, '온라인 전용 문항 4개');
   assert.match(tpl.find((i) => i.scope === 'theory').text, /^이론 강의실/);
   assert.match(tpl.find((i) => i.scope === 'practice').text, /^실습실의 시설/);
   assert.equal(tpl.find((i) => /유무선 인터넷/.test(i.text)).scope, '', '인터넷 문항은 항상 표시');
-  const gender = tpl.find((i) => i.type === 'select');
-  assert.deepEqual(gender.options, ['남', '여']);
+  assert.equal(tpl.some((i) => i.type === 'select' || /성별/.test(i.text)), false, '응답자 정보(성별) 문항 없음');
   assert.ok(tpl.every((i) => i.required === true), '모든 문항 필수(서술형·성별 포함)');
 
   const s = server.getSettingsMap_();
@@ -31,17 +30,18 @@ test('setup: 탭·헤더·기본 문항 은행·이번 학기 교과목 예시 2
   assert.equal(s.affiliation, '청암대학교 간호학과');
   const cs = server.getCourses_();
   assert.deepEqual(cs.map((c) => [c.course_name, c.grade, c.section, c.department, c.delivery_mode]),
-    [['디지털리터러시와 AI활용', '1', 'A', '간호학과', '대면'], ['AI융합 간호정보학', '3', 'A', '간호학과', '혼합']]);
+    [['디지털리터러시와 AI활용', '1', '', '간호학과', '대면'], ['AI융합 간호정보학', '3', '', '간호학과', '혼합']]);
+  assert.ok(cs.every((c) => c.enrollment === 0), '수강인원 미입력');
   assert.ok(cs.every((c) => c.course_type === '이론+실습'), '예시 교과목 유형');
   assert.deepEqual(cs.map((c) => [c.year, c.semester]), [[2026, '1'], [2026, '2']], '디지털리터러시와 AI활용=1학기, AI융합 간호정보학=2학기');
   assert.ok(cs.every((c) => server.itemsForCourse_(c).every((i) => i.required)), '예시 교과목 문항도 모두 필수');
-  assert.equal(server.itemsForCourse_(cs[0]).length, 23, '대면: 온라인 문항 제외 + CLO 2');
-  assert.equal(server.itemsForCourse_(cs[1]).length, 27, '혼합: 온라인 문항 포함');
+  assert.equal(server.itemsForCourse_(cs[0]).length, 22, '대면: 온라인 문항 제외 + CLO 2');
+  assert.equal(server.itemsForCourse_(cs[1]).length, 26, '혼합: 온라인 문항 포함');
   assert.equal(st.sheets.Responses.protections[0].warningOnly, true, 'Responses 경고 보호');
   assert.equal(st.sheets.Tokens.protections[0].warningOnly, true, 'Tokens 경고 보호');
 
   server.setup();
-  assert.equal(server.getItems_('TEMPLATE').length, 25, '재실행 시 문항 중복 없음');
+  assert.equal(server.getItems_('TEMPLATE').length, 24, '재실행 시 문항 중복 없음');
   assert.equal(server.getCourses_().length, 2, '재실행 시 교과목 중복 없음');
 });
 
@@ -91,7 +91,7 @@ test('학생: 접속코드 확인 → 제출, 날짜만 저장(시각·식별정
   assert.equal(server.verifyAccess(c.course_id, 'WRONG').code, 'BAD_CODE');
   const v = server.verifyAccess(c.course_id, c.access_code.toLowerCase());
   assert.equal(v.ok, true, '대소문자 무시');
-  assert.equal(v.items.length, 23);
+  assert.equal(v.items.length, 22);
 
   const r = server.submitResponse(c.course_id, c.access_code, H.fullAnswers(v.items), 'nonce-aaaaaaaaaaaaaaaa');
   assert.equal(r.ok, true);
@@ -432,10 +432,17 @@ test('드롭다운 검증: 학년 1~4, 반 A~F, 학과 필수, 수업 방식', (
   assert.deepEqual(server.getAdminBootstrap(s).settings.departments, ['간호학과', '보건행정학과'], '중복 제거');
 });
 
-test('성별(드롭다운): 소규모 집단이면 비교·인원·CSV 열 모두 숨김, 충분하면 집단별 평균', () => {
+/** 교수가 문항 편집기에서 드롭다운 문항(성별)을 직접 추가한 경우 */
+function addGender(server, s, id, required) {
+  const items = server.getItems_(id).concat([{ domain: '응답자 정보', text: '성별', type: 'select', options: ['남', '여'], required: required !== false }]);
+  assert.equal(server.saveItems(s, id, items).ok, true);
+}
+
+test('드롭다운(교수가 추가한 성별 문항): 소규모 집단이면 비교·인원·CSV 열 모두 숨김, 충분하면 집단별 평균', () => {
   const { server } = H.makeServer({ pin: PIN });
   const s = H.login(server, PIN);
   const id = H.createCourse(server, s);
+  addGender(server, s, id);
   const items = server.itemsForCourse_(server.findCourse_(id));
   const g = items.find((i) => i.type === 'select');
   const submit = (sex, v) => { const a = H.fullAnswers(items, v); a[g.item_id] = sex; return server.submitResponse(id, 'ABC123', a); };
@@ -465,8 +472,7 @@ test('성별(드롭다운): 소규모 집단이면 비교·인원·CSV 열 모�
 
   // 교수가 성별을 선택 응답으로 바꾼 교과목: 미응답 집단이 소규모여도 숨김(전체 평균과의 차로 역산 가능)
   const id2 = H.createCourse(server, s);
-  const items2 = server.getItems_(id2).map((x) => (x.type === 'select' ? Object.assign({}, x, { required: false }) : x));
-  assert.equal(server.saveItems(s, id2, items2).ok, true);
+  addGender(server, s, id2, false);
   const its2 = server.itemsForCourse_(server.findCourse_(id2));
   const g2 = its2.find((i) => i.type === 'select');
   const sub2 = (sex) => { const x = H.fullAnswers(its2); x[g2.item_id] = sex; return server.submitResponse(id2, 'ABC123', x); };
@@ -603,4 +609,68 @@ test('학생 링크 주소: /exec로 실행되면 setup·doGet이 주소를 자�
   const s3 = H.GasMock.loadServer(env3, H.SOURCES);
   s3.doGet({ parameter: {} });
   assert.equal(s3.studentBaseUrl_(s3.getSettingsMap_()), 'https://script.google.com/macros/s/OTHER77/exec');
+});
+
+test('교과목 편집에서 반·수강인원 없이 저장, 응답률 대신 응답 수(수강인원 입력 시에만 응답률)', () => {
+  const { server } = H.makeServer({ pin: PIN });
+  const s = H.login(server, PIN);
+  const r = server.saveCourse(s, { course_name: '기본간호학', year: 2026, semester: '2', grade: 1, department: '간호학과', delivery_mode: '대면',
+    start_at: H.iso(new Date(Date.now() - 3600000)), end_at: H.iso(new Date(Date.now() + 86400000)), access_mode: 'code', access_code: 'AB12' });
+  assert.equal(r.ok, true, '반·수강인원 없이 저장');
+  const c = server.getAdminBootstrap(s).courses.find((x) => x.course_id === r.course_id);
+  assert.equal(c.section, '');
+  assert.equal(c.enrollment, 0);
+  assert.equal(c.response_rate, null, '수강인원이 없으면 응답률 없음');
+  const items = server.itemsForCourse_(server.findCourse_(r.course_id));
+  for (let i = 0; i < 5; i++) server.submitResponse(r.course_id, 'AB12', H.fullAnswers(items));
+  const res = server.getResults(s, r.course_id);
+  assert.equal(res.n, 5);
+  assert.equal(res.course.response_rate, null);
+  assert.ok(server.exportCqi(s, r.course_id).content.includes('응답 수,5'));
+  assert.equal(server.saveCourse(s, Object.assign({}, c, { section: 'G' })).field, 'section', '값이 오면 A~F만');
+});
+
+test('학기 간 비교: 반이 없는 새 교과목과 반이 있는 이전 교과목도 교과목명으로 비교', () => {
+  const { server } = H.makeServer({ pin: PIN });
+  const s = H.login(server, PIN);
+  const prev = H.createCourse(server, s, { course_name: '성인간호학', year: 2025, section: 'A' });
+  const cur = H.createCourse(server, s, { course_name: '성인간호학', section: '' });
+  [prev, cur].forEach((id) => {
+    const its = server.itemsForCourse_(server.findCourse_(id));
+    for (let i = 0; i < 5; i++) server.submitResponse(id, 'ABC123', H.fullAnswers(its));
+  });
+  assert.equal(server.getResults(s, cur).semester_compare.groups.length, 2);
+  // 같은 학기의 다른 반은 학기 간 비교에 섞이지 않음
+  const same = H.createCourse(server, s, { course_name: '성인간호학', section: 'B' });
+  const its = server.itemsForCourse_(server.findCourse_(same));
+  for (let i = 0; i < 5; i++) server.submitResponse(same, 'ABC123', H.fullAnswers(its));
+  const r = server.getResults(s, cur);
+  assert.equal(r.semester_compare.groups.length, 2);
+  assert.equal(r.section_compare.groups.length, 2, '같은 학기 다른 반은 분반 간 비교로');
+});
+
+test('이전 버전 시트 업그레이드(v1.2.3): 성별 문항 삭제(응답 있는 교과목 제외), 예시 교과목 임시값(A반·40명) 정리', () => {
+  const { env, server } = H.makeServer({ pin: PIN });
+  const s = H.login(server, PIN);
+  const sh = (n) => env.SpreadsheetApp.getActiveSpreadsheet().getSheetByName(n);
+  const [dl, ai] = server.getCourses_();
+  // v1.2.2 상태 재현: 기본 문항 은행·두 교과목에 성별 문항, 예시 교과목에 A반·40명
+  const g = { domain: '응답자 정보', text: '성별', type: 'select', options: ['남', '여'], required: true };
+  assert.equal(server.saveItems(s, 'TEMPLATE', server.getItems_('TEMPLATE').concat([g])).ok, true);
+  [dl, ai].forEach((c) => assert.equal(server.saveItems(s, c.course_id, server.getItems_(c.course_id).concat([g])).ok, true));
+  const ct = server.readTable_('Courses');
+  ct.rows.forEach((r) => {
+    sh('Courses').getRange(r._row, ct.headers.indexOf('section') + 1).setValue("'A");
+    sh('Courses').getRange(r._row, ct.headers.indexOf('enrollment') + 1).setValue(40);
+  });
+  // AI융합 간호정보학은 이미 응답 1건(성별 포함)
+  const aiItems = server.itemsForCourse_(server.findCourse_(ai.course_id));
+  assert.equal(server.submitResponse(ai.course_id, ai.access_code, H.fullAnswers(aiItems)).ok, true);
+
+  server.setup();
+  const hasGender = (id) => server.getItems_(id).some((i) => i.text === '성별');
+  assert.equal(hasGender('TEMPLATE'), false, '기본 문항 은행에서 삭제');
+  assert.equal(hasGender(dl.course_id), false, '응답 없는 교과목에서 삭제');
+  assert.equal(hasGender(ai.course_id), true, '응답 있는 교과목은 그대로');
+  server.getCourses_().forEach((c) => { assert.equal(c.section, ''); assert.equal(c.enrollment, 0); });
 });

@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.2.2',
+  VERSION: '1.2.3',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -310,11 +310,11 @@ function duplicateCourse(session, sourceId, data) {
     var src = findCourse_(sanitizeId_(sourceId));
     if (!src) return { ok: false, code: 'NOT_FOUND' };
     var merged = {
-      course_name: src.course_name, grade: src.grade, enrollment: src.enrollment,
+      course_name: src.course_name, grade: src.grade, enrollment: 0,
       access_mode: src.access_mode, access_code: randomString_(6, APP.TOKEN_ALPHABET),
       department: src.department, delivery_mode: data.delivery_mode || src.delivery_mode,
       course_type: data.course_type || src.course_type,
-      year: data.year, semester: data.semester, section: data.section != null ? data.section : src.section,
+      year: data.year, semester: data.semester, section: data.section != null ? data.section : '',
       start_at: data.start_at, end_at: data.end_at, result_open_date: data.result_open_date || ''
     };
     var v = validateCourse_(merged);
@@ -496,7 +496,7 @@ function exportCqi(session, courseId) {
     var lines = [
       ['CQI 요약표', c.course_name],
       ['학년도·학기', c.year + '학년도 ' + c.semester + '학기', '학과', c.department, '학년', c.grade, '분반', c.section, '수업 방식', c.delivery_mode, '교과목 유형', c.course_type],
-      ['응답 수', ctx.rows.length, '수강인원', c.enrollment, '응답률(%)', c.response_rate],
+      ['응답 수', ctx.rows.length, '수강인원', c.enrollment || '', '응답률(%)', c.response_rate == null ? '' : c.response_rate],
       ['전체 평균(5점)', stats.overall == null ? '' : stats.overall],
       [],
       ['영역', '문항 수', '평균', '표준편차', '긍정 응답률(%)', '해석']
@@ -524,7 +524,7 @@ function exportText(session, courseId) {
     var c = ctx.summary;
     var out = [];
     out.push('[' + APP.NAME + '] 서술형 응답 — ' + c.course_name + ' (' + c.year + '학년도 ' + c.semester +
-      '학기, ' + c.section + '반) / 응답 ' + ctx.rows.length + '명');
+      '학기' + (c.section ? ', ' + c.section + '반' : '') + ') / 응답 ' + ctx.rows.length + '명');
     out.push('※ 응답 순서는 무작위입니다. 이름·학번 등 개인을 식별할 수 있는 내용이 있으면 AI에 입력하기 전에 삭제하세요.');
     out.push('');
     textAnswers_(ctx.items, ctx.rows).forEach(function (t) {
@@ -801,7 +801,11 @@ function compareGroups_(ctx, kind) {
     if (kind === 'section') {
       return Number(c.year) === Number(ctx.course.year) && String(c.semester) === String(ctx.course.semester);
     }
-    return normName_(c.section) === normName_(ctx.course.section); // 학기 비교는 같은 분반끼리
+    // 학기 간 비교: 교과목명 기준으로 '다른 학기'만(같은 학기의 다른 반은 분반 간 비교에서 다룸).
+    // 두 교과목 모두 반이 지정된 경우(이전 버전 자료)에는 같은 반끼리만 비교
+    if (c.course_id === ctx.course.course_id) return true;
+    if (Number(c.year) === Number(ctx.course.year) && String(c.semester) === String(ctx.course.semester)) return false;
+    return !c.section || !ctx.course.section || normName_(c.section) === normName_(ctx.course.section);
   });
   if (all.length < 2) return { groups: [], excluded: 0 };
   var itemsBy = groupBy_(getAllItems_(), 'course_id');
@@ -1000,16 +1004,17 @@ function validateCourse_(d) {
   if (APP.SEMESTERS.indexOf(sem) < 0) return err('semester', '학기(1학기·2학기)를 선택하세요.');
   var grade = Math.floor(Number(d.grade));
   if (APP.GRADES.indexOf(grade) < 0) return err('grade', '학년(1~4)을 선택하세요.');
+  // 반·수강인원은 교과목 편집에서 입력하지 않습니다(선택 항목: 비우면 '' / 0).
   var section = String(d.section == null ? '' : d.section).trim().toUpperCase();
-  if (APP.SECTIONS.indexOf(section) < 0) return err('section', '반(A~F)을 선택하세요.');
+  if (section && APP.SECTIONS.indexOf(section) < 0) return err('section', '반은 A~F 중 하나여야 합니다.');
   var department = cleanText_(d.department, 40);
   if (!department) return err('department', '학과를 선택하세요.');
   var delivery = String(d.delivery_mode || '대면');
   if (APP.DELIVERY.indexOf(delivery) < 0) return err('delivery_mode', '수업 방식을 선택하세요.');
   var ctype = String(d.course_type || '이론+실습');
   if (APP.COURSE_TYPES.indexOf(ctype) < 0) return err('course_type', '교과목 유형(이론/실습/이론+실습)을 선택하세요.');
-  var enroll = Math.floor(Number(d.enrollment));
-  if (!(enroll >= 1 && enroll <= 1000)) return err('enrollment', '수강인원은 1~1000명입니다.');
+  var enroll = d.enrollment === '' || d.enrollment == null ? 0 : Math.floor(Number(d.enrollment));
+  if (!(enroll >= 0 && enroll <= 1000)) return err('enrollment', '수강인원은 0~1000명입니다.');
   var start = parseDT_(d.start_at), end = parseDT_(d.end_at);
   if (!start) return err('start_at', '시작일시를 입력하세요.');
   if (!end) return err('end_at', '종료일시를 입력하세요.');
@@ -1068,7 +1073,7 @@ function courseSummary_(c, n, now, url) {
     status: status,
     result_open_date: c.result_open_date ? fmtD_(c.result_open_date) : '',
     response_count: n,
-    response_rate: c.enrollment ? Math.round(n / c.enrollment * 1000) / 10 : 0,
+    response_rate: c.enrollment ? Math.round(n / c.enrollment * 1000) / 10 : null, // 수강인원이 없으면 응답률 없음
     department: c.department,
     delivery_mode: c.delivery_mode,
     course_type: c.course_type,
@@ -1588,7 +1593,7 @@ function normName_(s) {
 }
 
 function exportName_(c, kind) {
-  return (c.course_name + '_' + c.year + '-' + c.semester + '_' + c.section + '_' + kind)
+  return [c.course_name, c.year + '-' + c.semester, c.section, kind].filter(String).join('_')
     .replace(/[\\/:*?"<>|\s]+/g, '_');
 }
 

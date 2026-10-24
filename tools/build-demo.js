@@ -185,7 +185,7 @@ ${DEMO_CSS}
   var cs = DemoBoot.courses();
   list.innerHTML = cs.length ? cs.map(function (c) {
     return '<div class="card" style="box-shadow:none;padding:16px"><div class="row-between"><div style="min-width:0"><strong>' + esc(c.course_name) + '</strong>' +
-      '<div class="tiny muted">' + esc(c.grade + '학년 ' + c.section + '반 · ' + c.course_type + ' · ' + c.delivery_mode + ' · ' + c.items + '문항') + '</div>' +
+      '<div class="tiny muted">' + esc(c.grade + '학년' + (c.section ? ' ' + c.section + '반' : '') + ' · ' + c.course_type + ' · ' + c.delivery_mode + ' · ' + c.items + '문항') + '</div>' +
       '<div class="small" style="margin-top:6px">접속코드 <span class="kbd num">' + esc(c.access_code) + '</span></div></div>' +
       '<a class="btn primary sm" href="' + esc(DemoBoot.studentUrl(c.course_id)) + '">응답해 보기</a></div></div>';
   }).join('') : '<p class="small muted">응답 기간인 교과목이 없습니다. 아래 [체험 데이터 초기화]를 눌러 주세요.</p>';

@@ -53,7 +53,7 @@ test('체험판: 첫 화면 → 학생 응답 제출 → 교수 결과 반영 �
   await p.getByRole('heading', { name: '강의평가 Studio 체험하기' }).waitFor();
   const cards = p.locator('#course-list .card');
   assert.equal(await cards.count(), 2, '예시 교과목 2개');
-  assert.match(await cards.first().innerText(), /디지털리터러시와 AI활용[\s\S]*1학년 A반[\s\S]*23문항/);
+  assert.match(await cards.first().innerText(), /디지털리터러시와 AI활용[\s\S]*1학년 · 이론\+실습[\s\S]*22문항/);
   const sw = await p.evaluate(() => document.documentElement.scrollWidth);
   assert.ok(sw <= 360, '첫 화면 가로 스크롤 없음');
   await p.screenshot({ path: path.join(OUT, 'demo-01-landing.png'), fullPage: true });
@@ -84,8 +84,9 @@ test('체험판: 첫 화면 → 학생 응답 제출 → 교수 결과 반영 �
   await p.getByText('교과목 한눈에').waitFor();
   await p.getByRole('tab', { name: '결과' }).click();
   await p.waitForSelector('#wc text');
-  const label = await p.locator('.ring[aria-label^="응답률"]').first().getAttribute('aria-label');
-  assert.match(label, /31명 응답/, '샘플 30 + 방금 제출 1');
+  // 수강인원을 입력하지 않으므로 응답률 대신 응답 수 표시
+  assert.equal(await p.locator('.ring[aria-label^="응답률"]').count(), 0);
+  await p.waitForFunction(() => /^31/.test((document.querySelector('[aria-label="응답 수"] .big-num') || {}).textContent || ''));
   await p.waitForTimeout(800);
   await p.screenshot({ path: path.join(OUT, 'demo-02-admin-results.png'), fullPage: true });
 

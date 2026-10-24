@@ -31,21 +31,20 @@ var DEFAULT_ITEMS = [
   ['H. 온라인(비대면) 강의', '온라인 강의 자료와 공지가 제때 제공되었다.', 'likert5', null, 'online'],
   ['서술형', '이 수업에서 가장 도움이 된 점은 무엇인가요?', 'text'],
   ['서술형', '교수학습방법·평가·과제에서 개선이 필요한 점을 적어 주세요.', 'text'],
-  ['서술형', '다음 학기 수업에 바라는 점이 있다면 적어 주세요.', 'text'],
-  ['응답자 정보', '성별', 'select', ['남', '여']] // 모든 문항은 필수(setup이 기본 문항을 필수로 생성)
+  ['서술형', '다음 학기 수업에 바라는 점이 있다면 적어 주세요.', 'text'] // 모든 문항은 필수(setup이 기본 문항을 필수로 생성)
 ];
 
 /** 이번 학기 교과목 예시(샘플). 교과목명·학년은 실제 담당 교과목, 수강인원·기간은 예시값입니다. */
 var SAMPLE_COURSES = [
   {
-    course_name: '디지털리터러시와 AI활용', semester: '1', grade: 1, section: 'A', enrollment: 40, delivery_mode: '대면', course_type: '이론+실습',
+    course_name: '디지털리터러시와 AI활용', semester: '1', grade: 1, section: '', enrollment: 0, delivery_mode: '대면', course_type: '이론+실습',
     clos: [
       '나는 디지털 도구를 활용하여 학습 자료를 검색·정리할 수 있게 되었다.',
       '나는 생성형 AI를 학습에 윤리적이고 비판적으로 활용할 수 있게 되었다.'
     ]
   },
   {
-    course_name: 'AI융합 간호정보학', grade: 3, section: 'A', enrollment: 40, delivery_mode: '혼합', course_type: '이론+실습',
+    course_name: 'AI융합 간호정보학', grade: 3, section: '', enrollment: 0, delivery_mode: '혼합', course_type: '이론+실습',
     clos: [
       '나는 간호정보시스템(EMR)의 구조와 기능을 설명할 수 있게 되었다.',
       '나는 AI 기반 임상의사결정지원 결과를 간호 근거에 비추어 검토할 수 있게 되었다.'
@@ -148,7 +147,7 @@ function setup() {
 
 function annotateHeaders_() {
   var notes = {
-    Courses: ['자동 생성 ID', '교과목명', '학년도(예: 2026)', '학기(1/2)', '학년', '분반', '수강인원',
+    Courses: ['자동 생성 ID', '교과목명', '학년도(예: 2026)', '학기(1/2)', '학년', '분반(사용 안 함)', '수강인원(선택, 비우면 응답률 미표시)',
       '응답 시작일시', '응답 종료일시', 'code=접속코드, token=일회용 토큰', '접속코드(비우면 링크만으로 참여)',
       '준비/진행/마감(마감=수동 마감)', '결과공개일(비우면 즉시 공개)', '학과', '수업 방식(대면/비대면/혼합)', '교과목 유형(이론/실습/이론+실습)'],
     Items: ['문항 ID', "교과목 ID('TEMPLATE'=공통 기본 문항)", '영역', '문항', 'likert5|single|multi|select|text',
@@ -194,16 +193,21 @@ function upgradeTemplateScopes_() {
  * 이전 버전 시트 업그레이드(v1.2.2)
  * ① 기본 문항(문구가 기본값 그대로인 문항)을 모두 '필수'로 — 응답이 아직 없는 교과목과 기본 문항 은행만
  * ② 예시 교과목의 학기를 SAMPLE_COURSES 값으로(디지털리터러시와 AI활용 → 1학기) — 응답이 없을 때만
- * 응답이 이미 있는 교과목은 설문 구성이 바뀌므로 건드리지 않습니다.
+ * ③ 응답자 정보(성별) 기본 문항 삭제 — 기본 문항 은행과 응답이 없는 교과목만 (v1.2.3)
+ * ④ 예시 교과목에 넣었던 임시값(반 'A', 수강인원 40) 비우기 (v1.2.3)
+ * 응답이 이미 있는 교과목은 설문 구성이 바뀌므로 문항을 건드리지 않습니다.
  */
 function upgradeDefaults_() {
   var used = {};
   readResponses_().forEach(function (r) { used[String(r.course_id)] = true; });
+  var n = filterTable_(APP.SHEETS.ITEMS, function (r) {
+    var gender = String(r.type) === 'select' && /^성별/.test(String(r.text)) && String(r.domain) === '응답자 정보';
+    return !(gender && (String(r.course_id) === APP.TEMPLATE_ID || !used[String(r.course_id)]));
+  });
   var defaults = {};
   DEFAULT_ITEMS.forEach(function (d) { defaults[d[1]] = true; });
   var it = readTable_(APP.SHEETS.ITEMS);
   var reqCol = it.headers.indexOf('required') + 1;
-  var n = 0;
   it.rows.forEach(function (r) {
     if (used[String(r.course_id)] || toBool_(r.required) || !defaults[String(r.text)]) return;
     it.sheet.getRange(r._row, reqCol).setValue(true);
@@ -216,6 +220,12 @@ function upgradeDefaults_() {
     if (id.indexOf('demo') !== 0 || used[id]) return;
     var spec = SAMPLE_COURSES.filter(function (x) { return x.course_name === String(r.course_name) && x.semester; })[0];
     if (spec && String(r.semester) !== spec.semester) { ct.sheet.getRange(r._row, semCol).setValue(asTextCell_(spec.semester)); n++; }
+  });
+  var secCol = ct.headers.indexOf('section') + 1, enrCol = ct.headers.indexOf('enrollment') + 1;
+  ct.rows.forEach(function (r) {
+    if (String(r.course_id).indexOf('demo') !== 0) return;
+    if (String(r.section) === 'A') { ct.sheet.getRange(r._row, secCol).setValue(''); n++; }
+    if (Number(r.enrollment) === 40) { ct.sheet.getRange(r._row, enrCol).setValue(''); n++; }
   });
   return n;
 }
