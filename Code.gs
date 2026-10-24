@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.2.3',
+  VERSION: '1.2.4',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -259,7 +259,7 @@ function getAdminBootstrap(session) {
       },
       courses: list,
       webAppUrl: url,
-      currentUrl: current,
+      currentUrl: APP.EXEC_URL_RE.test(current) ? current : '',
       devMode: isDevUrl_(current),
       now: fmtDT_(now),
       version: APP.VERSION
@@ -1346,15 +1346,67 @@ function studentBaseUrl_(settings) {
   return current && !isDevUrl_(current) ? current : '';
 }
 
-/** 정식 배포 주소(/exec)로 실행되면 그 주소를 설정에 기억합니다(바뀐 경우에만 기록). */
+/**
+ * 정식 배포 주소(/exec)로 실행되면, 저장된 주소가 없을 때만 그 주소를 기억합니다.
+ * (교수가 [설정]에 입력한 주소가 항상 우선합니다. getUrl()이 다른 배포의 주소를 돌려주는 경우가 있어
+ *  저장값을 자동으로 덮어쓰지 않습니다. 다를 때는 관리자 화면이 알려 줍니다.)
+ */
 function rememberExecUrl_(settings) {
   try {
     var current = webAppUrl_();
     if (!APP.EXEC_URL_RE.test(current)) return;
     settings = settings || getSettingsMap_();
     if (!settings.hasOwnProperty('webapp_url') && !settings.hasOwnProperty('token_salt')) return; // setup 이전
-    if (String(settings.webapp_url || '') !== current) setSetting_('webapp_url', current);
+    if (!APP.EXEC_URL_RE.test(String(settings.webapp_url || ''))) setSetting_('webapp_url', current);
   } catch (e) { /* 기록 실패는 화면 표시에 영향 없음 */ }
+}
+
+/**
+ * 학생 링크 점검: 로그인하지 않은 학생과 같은 조건(쿠키 없음)으로 링크를 직접 열어 결과를 판정합니다.
+ * result: OK(열림) | LOGIN(Google 로그인 요구 = 액세스 권한 문제) | UNAVAILABLE(배포를 열 수 없음)
+ *         | NEED_AUTH(점검 권한 미승인) | NO_URL | ERROR
+ */
+function checkStudentLink(session, courseId) {
+  return adminApi_(session, function () {
+    var course = findCourse_(sanitizeId_(courseId));
+    if (!course) return { ok: false, code: 'NOT_FOUND' };
+    var base = studentBaseUrl_(getSettingsMap_());
+    var current = webAppUrl_();
+    var out = base ? probeUrl_(base + '?c=' + encodeURIComponent(course.course_id)) : { result: 'NO_URL' };
+    out.ok = true;
+    out.url = base;
+    out.current = APP.EXEC_URL_RE.test(current) ? current : '';
+    return out;
+  });
+}
+
+function probeUrl_(url) {
+  var u = url;
+  for (var hop = 0; hop < 6; hop++) {
+    if (/^https:\/\/accounts\.google\.com\//.test(u)) return { result: 'LOGIN' };
+    var res;
+    try {
+      res = UrlFetchApp.fetch(u, { followRedirects: false, muteHttpExceptions: true });
+    } catch (e) {
+      var msg = String(e && e.message || e);
+      return /permission|권한|authoriz/i.test(msg) ? { result: 'NEED_AUTH' } : { result: 'ERROR', detail: msg.slice(0, 200) };
+    }
+    var code = res.getResponseCode();
+    if (code >= 300 && code < 400) {
+      var h = res.getHeaders() || {};
+      var loc = String(h.Location || h.location || '');
+      if (!loc) return { result: 'ERROR', detail: 'HTTP ' + code };
+      if (loc.charAt(0) === '/') loc = u.match(/^https?:\/\/[^/]+/)[0] + loc;
+      u = loc;
+      continue;
+    }
+    var body = String(res.getContentText() || '');
+    // 앱 화면(학생 페이지 표식 또는 Apps Script 웹 앱 껍데기)이 오면 정상
+    if (body.indexOf('cesstudentpage') >= 0 || /userCodeAppPanel|goog\.script\.init/.test(body)) return { result: 'OK' };
+    if (/accounts\.google\.com\/(?:ServiceLogin|v3\/signin|signin)/.test(body)) return { result: 'LOGIN' };
+    return { result: 'UNAVAILABLE', status: code };
+  }
+  return { result: 'ERROR', detail: '리디렉션이 너무 많습니다' };
 }
 
 /* ───────────────────────────── 보안 유틸 ───────────────────────────── */

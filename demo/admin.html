@@ -1993,14 +1993,55 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
             ${c.access_mode === 'code' && c.access_code ? `<div class="center"><div class="small muted">접속코드</div><div class="mid-num" style="letter-spacing:.12em">${esc(c.access_code)}</div></div>` : ''}
             ${c.access_mode === 'token' ? `<div class="callout info">${icon('ticket')}<p class="small">토큰 방식입니다. 학생은 이 링크에서 종이 토큰을 입력합니다. 토큰 시트의 QR은 토큰이 미리 입력된 링크입니다.</p></div>` : ''}
             <div class="linkbox"><code>${esc(c.link)}</code><button type="button" class="btn sm" data-copy>${icon('copy')}복사</button></div>
-            <div class="row" style="justify-content:center"><a class="btn sm" href="${esc(c.link)}" target="_blank" rel="noopener" data-open-link>${icon('external-link')}새 창에서 열기(학생 화면 확인)</a></div>
+            <div class="row" style="justify-content:center">
+              <button type="button" class="btn sm primary" data-check-link>${icon('stethoscope')}링크 점검(학생 조건으로 열어 보기)</button>
+              <a class="btn sm" href="${esc(c.link)}" target="_blank" rel="noopener" data-open-link>${icon('external-link')}새 창에서 열기</a>
+            </div>
+            <div id="link-check" aria-live="polite"></div>
+            <p class="tiny muted center">교수님 브라우저에서만 「현재 파일을 열 수 없습니다」가 뜨면 Google 계정이 여러 개 로그인된 탓일 수 있습니다. 링크를 시크릿 창(Ctrl+Shift+N)에 붙여 넣어 확인하거나 [링크 점검]을 누르세요.</p>
           </div>`,
         footer: `<button type="button" class="btn" data-svg>${icon('download')}QR 저장(SVG)</button>
           <button type="button" class="btn primary" data-present>${icon('presentation')}수업 화면에 띄우기</button>`
       });
       $('[data-copy]', m.el).addEventListener('click', () => CES.copy(c.link));
+      $('[data-check-link]', m.el).addEventListener('click', (e) => checkLink(c, e.currentTarget, $('#link-check', m.el)));
       $('[data-svg]', m.el).addEventListener('click', () => CES.download(`QR_${c.course_name}_${term(c)}.svg`.replace(/\s+/g, '_'), svg, 'image/svg+xml'));
       $('[data-present]', m.el).addEventListener('click', () => { m.close(); present(c, svg); });
+    }
+
+    /** 서버가 로그인하지 않은 학생과 같은 조건으로 링크를 열어 본 결과를 안내합니다. */
+    async function checkLink(c, btn, box) {
+      const restore = CES.busyButton(btn, '점검 중…');
+      const res = await api('checkStudentLink', [c.course_id]);
+      restore();
+      if (!res.ok) return fail(res);
+      const useCurrent = res.current && res.current !== res.url
+        ? `<p>지금 관리자 화면이 실행 중인 주소는 <code>${esc(res.current)}</code> 입니다.
+           <button type="button" class="btn sm" data-use-current="${esc(res.current)}">${icon('replace')}이 주소를 학생용으로 저장</button></p>` : '';
+      const msg = {
+        OK: ['shield-check', 'info', '정상: 로그인하지 않은 학생도 이 링크를 열 수 있습니다.',
+          '교수님 브라우저에서만 열리지 않는다면 Google 계정이 여러 개 로그인된 탓입니다. 시크릿 창에서 확인하거나 다른 계정에서 로그아웃하세요. 학생에게는 문제가 없습니다.'],
+        LOGIN: ['lock', '', '문제: 학생이 열면 Google 로그인을 요구합니다(배포 액세스 권한 문제).',
+          'Apps Script ▸ [배포] ▸ [배포 관리] ▸ ✏️ ▸ 「액세스 권한이 있는 사용자」를 <strong>모든 사용자</strong>로 바꾸고 버전: 새 버전 ▸ [배포]를 누르세요.'],
+        UNAVAILABLE: ['triangle-alert', '', '문제: 이 주소의 웹 앱을 열 수 없습니다(삭제·보관된 배포이거나 주소가 다름).',
+          'Apps Script ▸ [배포] ▸ [배포 관리]에 표시된 <strong>현재 웹 앱 URL(…/exec)</strong>을 복사해 [설정] ▸ 「학생용 웹 앱 주소」에 붙여 넣고 저장하세요.' + useCurrent],
+        NEED_AUTH: ['key-round', '', '점검 권한이 아직 승인되지 않았습니다.',
+          'Apps Script 편집기에서 <strong>setup</strong>을 한 번 실행해 권한(외부 주소 접속)을 승인한 뒤, [배포 관리] ▸ 새 버전으로 다시 배포하세요.'],
+        NO_URL: ['triangle-alert', '', '학생용 웹 앱 주소가 없습니다.', '[설정] ▸ 「학생용 웹 앱 주소」에 /exec 주소를 입력하세요.'],
+        ERROR: ['circle-alert', '', '점검하지 못했습니다.', esc(res.detail || '잠시 후 다시 시도하세요.')]
+      }[res.result] || ['circle-alert', '', '점검하지 못했습니다.', ''];
+      box.innerHTML = `<div class="callout ${msg[1]}" role="status" style="margin-top:4px">${icon(msg[0])}<div class="small stack" style="margin:0">
+        <p><strong>${msg[2]}</strong></p><p>${msg[3]}</p></div></div>`;
+      CES.icons();
+      const b = $('[data-use-current]', box);
+      if (b) b.addEventListener('click', async () => {
+        const s = A.data.settings;
+        const r = await api('saveSettings', [{ professor_name: s.professor_name, affiliation: s.affiliation, min_responses: s.min_responses,
+          departments: (s.departments || []).join('\n'), webapp_url: b.dataset.useCurrent }]);
+        if (!r.ok) return fail(r);
+        await refresh();
+        CES.toast('학생용 주소를 바꿨습니다. [링크·QR]을 다시 여세요.');
+      });
     }
 
     function present(c, svg) {
@@ -2739,7 +2780,8 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
               <div class="field"><label for="s-url">학생용 웹 앱 주소 (/exec)</label>
                 <input class="input" id="s-url" name="webapp_url" type="url" inputmode="url" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec"
                   value="${esc(s.webapp_url || '')}" aria-describedby="s-url-h">
-                <p class="hint" id="s-url-h">학생 링크·QR에 쓰는 주소입니다. [배포] ▸ [배포 관리]의 웹 앱 URL을 붙여 넣으세요. /exec 주소로 관리자 화면에 접속하면 자동으로 채워집니다. 테스트용 /dev 주소는 학생이 열 수 없어 저장되지 않습니다.</p></div>
+                <p class="hint" id="s-url-h">학생 링크·QR에 쓰는 주소입니다. [배포] ▸ [배포 관리]의 웹 앱 URL을 붙여 넣으세요. 비어 있으면 /exec 주소로 관리자 화면에 접속할 때 자동으로 채워지고, 입력한 주소는 자동으로 바뀌지 않습니다. 테스트용 /dev 주소는 학생이 열 수 없어 저장되지 않습니다.</p>
+                ${A.data.currentUrl && s.webapp_url && A.data.currentUrl !== s.webapp_url ? `<p class="hint" style="color:var(--danger-ink)">${icon('info')} 지금 관리자 화면은 다른 주소(<code>${esc(A.data.currentUrl)}</code>)로 실행 중입니다. 학생 링크가 열리지 않으면 [배포 관리]의 현재 주소로 바꾸세요.</p>` : ''}</div>
               <div class="field"><label for="s-min">최소 공개 응답 수</label>
                 <input class="input num" id="s-min" name="min_responses" type="number" min="3" max="50" value="${s.min_responses}" aria-describedby="s-min-h">
                 <p class="hint" id="s-min-h">응답이 이 수보다 적으면 결과·비교·서술형을 숨깁니다(3~50, 권장 5 이상).</p></div>

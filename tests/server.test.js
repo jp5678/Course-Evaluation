@@ -595,20 +595,55 @@ test('학생 링크 주소: 테스트용 /dev로 접속하면 링크를 만들�
   assert.equal(server.saveSettings(s, Object.assign({}, base, { webapp_url: 'https://script.google.com/a/macros/cheongam.ac.kr/s/AKfyc123/exec' })).ok, true);
 });
 
-test('학생 링크 주소: /exec로 실행되면 setup·doGet이 주소를 자동 기억', () => {
+test('학생 링크 주소: 비어 있을 때만 /exec 주소를 자동 기억, 저장된 주소는 덮어쓰지 않음', () => {
   const EXEC = 'https://script.google.com/macros/s/NEWDEPLOY9/exec';
   const { env, server } = H.makeServer({ url: EXEC });
   assert.equal(server.getSettingsMap_().webapp_url, EXEC, 'setup 시 기억');
-  // 배포를 새로 만들어 주소가 바뀌면 다음 접속 때 갱신
-  const env2 = H.GasMock.createEnv({ state: env.__store.read(), url: 'https://script.google.com/macros/s/OTHER77/exec', fastSleep: true, readFile: H.readFile, console: { log() {}, error() {} } });
+  // getUrl()이 다른 배포 주소를 돌려주더라도 저장된 주소는 그대로
+  const quiet = { log() {}, error() {} };
+  const env2 = H.GasMock.createEnv({ state: env.__store.read(), url: 'https://script.google.com/macros/s/OTHER77/exec', fastSleep: true, readFile: H.readFile, console: quiet });
   const s2 = H.GasMock.loadServer(env2, H.SOURCES);
   s2.doGet({ parameter: { page: 'admin' } });
-  assert.equal(s2.getSettingsMap_().webapp_url, 'https://script.google.com/macros/s/OTHER77/exec');
-  // /dev로 접속해도 기억된 /exec 주소는 지워지지 않음
-  const env3 = H.GasMock.createEnv({ state: env2.__store.read(), url: 'https://script.google.com/macros/s/OTHER77/dev', fastSleep: true, readFile: H.readFile, console: { log() {}, error() {} } });
+  assert.equal(s2.getSettingsMap_().webapp_url, EXEC, '덮어쓰지 않음');
+  s2.storePin_('123456');
+  const b = s2.getAdminBootstrap(s2.adminLogin('123456').session);
+  assert.equal(b.webAppUrl, EXEC);
+  assert.equal(b.currentUrl, 'https://script.google.com/macros/s/OTHER77/exec', '현재 실행 주소는 따로 알려 줌');
+  // /dev로 접속해도 기억된 /exec 주소 사용
+  const env3 = H.GasMock.createEnv({ state: env2.__store.read(), url: 'https://script.google.com/macros/s/OTHER77/dev', fastSleep: true, readFile: H.readFile, console: quiet });
   const s3 = H.GasMock.loadServer(env3, H.SOURCES);
   s3.doGet({ parameter: {} });
-  assert.equal(s3.studentBaseUrl_(s3.getSettingsMap_()), 'https://script.google.com/macros/s/OTHER77/exec');
+  assert.equal(s3.studentBaseUrl_(s3.getSettingsMap_()), EXEC);
+});
+
+test('링크 점검: 로그인 없는 조건으로 열어 정상·로그인 요구·열 수 없음·권한 미승인을 판정', () => {
+  const EXEC = 'https://script.google.com/macros/s/ABC/exec';
+  const scenarios = {
+    OK: (u) => (u.startsWith(EXEC) ? { code: 302, headers: { Location: 'https://script.googleusercontent.com/macros/echo?x=1' } }
+      : { code: 200, body: '<html><body class="page-student cesstudentpage">' }),
+    WRAPPER: () => ({ code: 200, body: '<iframe id="sandboxFrame" src="https://n-abc-script.googleusercontent.com/userCodeAppPanel">' }),
+    LOGIN: () => ({ code: 302, headers: { location: 'https://accounts.google.com/ServiceLogin?continue=x' } }),
+    UNAVAILABLE: () => ({ code: 404, body: '현재 파일을 열 수 없습니다. drive.google.com/start/apps' }),
+    NEED_AUTH: () => { throw new Error('You do not have permission to call UrlFetchApp.fetch. Required permissions: https://www.googleapis.com/auth/script.external_request'); }
+  };
+  const expect = { OK: 'OK', WRAPPER: 'OK', LOGIN: 'LOGIN', UNAVAILABLE: 'UNAVAILABLE', NEED_AUTH: 'NEED_AUTH' };
+  for (const [name, fetch] of Object.entries(scenarios)) {
+    const seen = [];
+    const { server } = H.makeServer({ pin: PIN, url: EXEC, fetch: (u, p) => { seen.push([u, p]); return fetch(u, p); } });
+    const s = H.login(server, PIN);
+    const c = server.getCourses_()[0];
+    const r = server.checkStudentLink(s, c.course_id);
+    assert.equal(r.ok, true);
+    assert.equal(r.result, expect[name], name);
+    if (seen.length) {
+      assert.equal(seen[0][0], EXEC + '?c=' + c.course_id, '학생 링크 그대로 점검');
+      assert.equal(seen[0][1].followRedirects, false, '리디렉션을 직접 따라가며 판정');
+    }
+  }
+  const { server } = H.makeServer({ pin: PIN, url: 'https://script.google.com/macros/s/ABC/dev' });
+  const s = H.login(server, PIN);
+  assert.equal(server.checkStudentLink(s, server.getCourses_()[0].course_id).result, 'NO_URL');
+  assert.equal(server.checkStudentLink('', 'x').code, 'AUTH', '관리자만');
 });
 
 test('교과목 편집에서 반·수강인원 없이 저장, 응답률 대신 응답 수(수강인원 입력 시에만 응답률)', () => {

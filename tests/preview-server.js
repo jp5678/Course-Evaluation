@@ -83,7 +83,9 @@ function render(query) {
 <script>${MOCK_SRC.replace(/<\/script/gi, '<\\/script')}</script>
 <script>
 (function(){
-  var env = GasMock.createEnv({ state: GasMock.revive(window.__GAS_STATE), url: ${JSON.stringify(URL_NOW)}, fastSleep: true });
+  var env = GasMock.createEnv({ state: GasMock.revive(window.__GAS_STATE), url: ${JSON.stringify(URL_NOW)}, fastSleep: true,
+    // 링크 점검 모의 응답: 정식 /exec 주소는 학생 화면, 그 밖은 Google 오류 페이지
+    fetch: function (u) { return u.indexOf(${JSON.stringify(URL_BASE)}) === 0 ? { code: 200, body: '<body class="page-student cesstudentpage">' } : { code: 404, body: 'drive.google.com/start/apps' }; } });
   var server = GasMock.loadServer(env, ${JSON.stringify(H.SOURCES).replace(/<\/script/gi, '<\\/script')});
   window.__server = server; window.__env = env;
   window.__runOpt = { latency: 60, failNext: {}, calls: [] , onCall: function(n){ window.__runOpt.calls.push(n); } };

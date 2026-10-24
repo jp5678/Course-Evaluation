@@ -385,6 +385,18 @@
       },
       Session: { getScriptTimeZone: function () { return 'Asia/Seoul'; } },
       ScriptApp: { getService: function () { return { getUrl: function () { return opts.url || 'https://script.google.com/macros/s/TEST/exec'; } }; } },
+      // opts.fetch(url, params) → { code, headers, body } 로 외부 응답을 흉내 냅니다(기본: 네트워크 차단).
+      UrlFetchApp: {
+        fetch: function (url, params) {
+          if (!opts.fetch) throw new Error('UrlFetchApp: 테스트에서 fetch가 설정되지 않았습니다');
+          var r = opts.fetch(url, params || {});
+          return {
+            getResponseCode: function () { return r.code; },
+            getHeaders: function () { return r.headers || {}; },
+            getContentText: function () { return r.body || ''; }
+          };
+        }
+      },
       HtmlService: makeHtmlService(opts.readFile || function () { throw new Error('readFile not configured'); }, function () { return serverRef.current; }),
       console: opts.console || console
     };

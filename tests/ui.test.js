@@ -329,6 +329,8 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·QR·토큰 인�
   const open = page.locator('[data-open-link]');
   assert.equal(await open.getAttribute('target'), '_blank', '새 창에서 열기');
   assert.match(await open.getAttribute('href'), /^https:\/\/script\.google\.com\/macros\/s\/PREVIEW\/exec\?c=/);
+  await page.getByRole('button', { name: /링크 점검/ }).click();
+  await page.getByText('정상: 로그인하지 않은 학생도 이 링크를 열 수 있습니다.').waitFor();
   await shot(page, 'd13-qr-modal');
   await page.keyboard.press('Escape');
 
