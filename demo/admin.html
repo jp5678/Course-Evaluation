@@ -1997,75 +1997,14 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
               ${c.base_url ? `<button type="button" class="btn sm" data-copy-base style="margin-top:8px">${icon('copy')}공통 주소 복사(LMS 공지용)</button>` : ''}
             </div></div>` : ''}
             ${c.access_mode === 'token' ? `<div class="callout info">${icon('ticket')}<p class="small">토큰 방식: 학생은 종이 토큰을 입력합니다(토큰 시트의 QR은 입력 없이 시작).</p></div>` : ''}
-            <div class="linkbox"><code>${esc(c.link)}</code><button type="button" class="btn sm" data-copy>${icon('copy')}복사</button></div>
-            <div class="row" style="justify-content:center">
-              <button type="button" class="btn sm primary" data-check-link>${icon('stethoscope')}링크 점검(학생 조건으로 열어 보기)</button>
-              <a class="btn sm" href="${esc(c.link)}" target="_blank" rel="noopener" data-open-link>${icon('external-link')}새 창에서 열기</a>
-            </div>
-            <div id="link-check" aria-live="polite"></div>
-            <p class="tiny muted center">교수님 브라우저에서만 열리지 않으면 시크릿 창(Ctrl+Shift+N)에서 확인하세요.</p>
           </div>`,
         footer: `<button type="button" class="btn" data-svg>${icon('download')}QR 저장(SVG)</button>
           <button type="button" class="btn primary" data-present>${icon('presentation')}수업 화면에 띄우기</button>`
       });
-      $('[data-copy]', m.el).addEventListener('click', () => CES.copy(c.link));
       const copyBase = $('[data-copy-base]', m.el);
       if (copyBase) copyBase.addEventListener('click', () => CES.copy(c.base_url));
-      $('[data-check-link]', m.el).addEventListener('click', (e) => checkLink(c, e.currentTarget, $('#link-check', m.el)));
       $('[data-svg]', m.el).addEventListener('click', () => CES.download(`QR_${c.course_name}_${term(c)}.svg`.replace(/\s+/g, '_'), svg, 'image/svg+xml'));
       $('[data-present]', m.el).addEventListener('click', () => { m.close(); present(c, svg); });
-    }
-
-    /** 서버가 로그인하지 않은 학생과 같은 조건으로 링크를 열어 본 결과를 안내합니다. */
-    async function checkLink(c, btn, box) {
-      const restore = CES.busyButton(btn, '점검 중…');
-      const res = await api('checkStudentLink', [c.course_id]);
-      restore();
-      if (!res.ok) return fail(res);
-      const useCurrent = res.current && res.current !== res.url
-        ? `<p>지금 관리자 화면이 실행 중인 주소는 <code>${esc(res.current)}</code> 입니다.
-           <button type="button" class="btn sm" data-use-current="${esc(res.current)}">${icon('replace')}이 주소를 학생용으로 저장</button></p>` : '';
-      const msg = {
-        OK: ['shield-check', 'info', '정상: 로그인하지 않은 학생도 이 링크를 열 수 있습니다.',
-          '교수님 브라우저에서만 열리지 않는다면 Google 계정이 여러 개 로그인된 탓입니다. 시크릿 창에서 확인하거나 다른 계정에서 로그아웃하세요. 학생에게는 문제가 없습니다.'],
-        ACCESS: ['lock', '', '주의: 서버에서 로그인 없이 열어 보았을 때 열리지 않았습니다.',
-          '관리자 화면이 바로 이 주소에서 실행 중이므로 배포는 살아 있습니다. <strong>먼저 시크릿 창이나 로그인하지 않은 휴대폰에서 링크를 직접 열어 확인하세요.</strong> ' +
-          '직접 열리면 이 점검의 오판(Google 서버 간 요청의 한계)이며 학생에게는 문제가 없습니다.<br>' +
-          '직접 열어도 안 되고 [배포 관리]의 액세스 권한이 「모든 사용자」가 아니라면 아래처럼 바꾸세요.<br>' +
-          'Apps Script ▸ [배포] ▸ [배포 관리] ▸ ✏️(편집) ▸ 「액세스 권한이 있는 사용자」를 <strong>모든 사용자</strong>로 바꾸고, 버전: <strong>새 버전</strong> ▸ [배포]를 누르세요. ' +
-          '이 항목을 바꿀 수 없으면 [배포] ▸ <strong>새 배포</strong>(실행: 나 / 액세스: 모든 사용자)를 만들고, 새 웹 앱 URL을 [설정] ▸ 「학생용 웹 앱 주소」에 넣으세요(QR이 바뀝니다).'],
-        BROKEN: ['triangle-alert', '', '문제: Google이 이 배포 주소를 로그인 없는 사용자에게 「없는 페이지」로 응답합니다(권한 설정 문제가 아님).',
-          '액세스가 「모든 사용자」여도 이 배포는 익명 접속에서 열리지 않습니다. 배포를 새로 만드는 것이 가장 확실합니다.<br>' +
-          '① Apps Script 편집기에서 <strong>setup</strong> 실행 → 권한 승인 ' +
-          '② [배포] ▸ <strong>새 배포</strong> ▸ ⚙️ 웹 앱 ▸ 실행: <strong>나</strong> / 액세스: <strong>모든 사용자</strong> ▸ [배포] ' +
-          '③ 표시된 웹 앱 URL을 [복사] 버튼으로 복사해 <strong>시크릿 창</strong>에서 열리는지 확인 ' +
-          '④ 열리면 그 URL로 관리자 화면에 들어가 [설정] ▸ 「학생용 웹 앱 주소」에 저장(QR이 바뀝니다). 기존 배포는 [배포 관리]에서 보관 처리하세요.'],
-        LOGIN: ['lock', '', '문제: 학생이 열면 Google 로그인을 요구합니다(배포 액세스 권한 문제).',
-          'Apps Script ▸ [배포] ▸ [배포 관리] ▸ ✏️ ▸ 「액세스 권한이 있는 사용자」를 <strong>모든 사용자</strong>로 바꾸고 버전: 새 버전 ▸ [배포]를 누르세요.'],
-        UNAVAILABLE: ['triangle-alert', '', '문제: 이 주소의 웹 앱을 열 수 없습니다(삭제·보관된 배포이거나 주소가 다름).',
-          'Apps Script ▸ [배포] ▸ [배포 관리]에 표시된 <strong>현재 웹 앱 URL(…/exec)</strong>을 복사해 [설정] ▸ 「학생용 웹 앱 주소」에 붙여 넣고 저장하세요.' + useCurrent],
-        UNKNOWN: ['circle-help', 'info', '자동 판정을 하지 못했습니다.',
-          '아래 세부 정보를 확인하시고, 링크를 시크릿 창(Ctrl+Shift+N)이나 로그인하지 않은 휴대폰 브라우저에서 직접 열어 확인하세요.'],
-        NEED_AUTH: ['key-round', '', '점검 권한이 아직 승인되지 않았습니다.',
-          'Apps Script 편집기에서 <strong>setup</strong>을 한 번 실행해 권한(외부 주소 접속)을 승인한 뒤, [배포 관리] ▸ 새 버전으로 다시 배포하세요.'],
-        NO_URL: ['triangle-alert', '', '학생용 웹 앱 주소가 없습니다.', '[설정] ▸ 「학생용 웹 앱 주소」에 /exec 주소를 입력하세요.'],
-        ERROR: ['circle-alert', '', '점검하지 못했습니다.', esc(res.detail || '잠시 후 다시 시도하세요.')]
-      }[res.result] || ['circle-alert', '', '점검하지 못했습니다.', ''];
-      const hops = (res.hops || []).map((h) => `${esc(h.host)} → ${esc(String(h.status))}`).join('<br>');
-      box.innerHTML = `<div class="callout ${msg[1]}" role="status" style="margin-top:4px">${icon(msg[0])}<div class="small stack" style="margin:0">
-        <p><strong>${msg[2]}</strong></p><p>${msg[3]}</p>
-        ${hops || res.title ? `<details open><summary class="tiny" style="text-decoration:underline">점검 세부 정보(문제 신고 시 함께 보내 주세요)</summary>
-          <p class="tiny num" style="margin-top:6px">${hops}${res.title ? `<br>페이지 제목: ${esc(res.title)}` : ''}</p></details>` : ''}</div></div>`;
-      CES.icons();
-      const b = $('[data-use-current]', box);
-      if (b) b.addEventListener('click', async () => {
-        const s = A.data.settings;
-        const r = await api('saveSettings', [{ professor_name: s.professor_name, affiliation: s.affiliation, min_responses: s.min_responses,
-          departments: (s.departments || []).join('\n'), webapp_url: b.dataset.useCurrent }]);
-        if (!r.ok) return fail(r);
-        await refresh();
-        CES.toast('학생용 주소를 바꿨습니다. [링크·QR]을 다시 여세요.');
-      });
     }
 
     function present(c, svg) {

@@ -359,11 +359,11 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·QR·토큰 인�
   await page.getByRole('tab', { name: '교과목' }).click();
   await page.locator('[data-act="qr"]').first().click();
   await page.waitForSelector('.qr-box svg');
-  const open = page.locator('[data-open-link]');
-  assert.equal(await open.getAttribute('target'), '_blank', '새 창에서 열기');
-  assert.match(await open.getAttribute('href'), /^https:\/\/script\.google\.com\/macros\/s\/PREVIEW\/exec\?c=/);
-  await page.getByRole('button', { name: /링크 점검/ }).click();
-  await page.getByText('정상: 로그인하지 않은 학생도 이 링크를 열 수 있습니다.').waitFor();
+  // 학생 링크 복사·링크 점검·새 창에서 열기는 삭제, 공통 주소 복사만 남김
+  for (const sel of ['[data-open-link]', '[data-check-link]', '[data-copy]', '.modal-body .linkbox']) {
+    assert.equal(await page.locator(sel).count(), 0, sel + ' 없음');
+  }
+  assert.equal(await page.getByText('시크릿 창').count(), 0, '시크릿 창 안내 문구 없음');
   await shot(page, 'd13-qr-modal');
   const ov = await page.$eval('.modal-body', (el) => [el.scrollWidth, el.clientWidth]);
   assert.ok(ov[0] <= ov[1], 'QR 모달 가로 넘침 없음: ' + ov);
@@ -473,7 +473,9 @@ test('관리자를 테스트용(/dev) 주소로 연 경우: 원인 안내 → �
   await page.getByRole('tab', { name: '교과목' }).click();
   await page.locator('[data-act="qr"]').first().click();
   await page.waitForSelector('.qr-box svg');
-  assert.match(await page.locator('[data-open-link]').getAttribute('href'), /PREVIEW\/exec\?c=/);
+  // QR에 담긴 학생 링크가 저장한 /exec 주소를 사용
+  const links = await page.evaluate(() => window.__server.getCourses_().map((c) => window.__server.courseSummary_(c, 0, new Date(), window.__server.studentBaseUrl_(window.__server.getSettingsMap_())).link));
+  assert.ok(links.every((l) => /PREVIEW\/exec\?c=/.test(l)), links.join(','));
 });
 
 test('교수 360px: 링크·QR 모달 가로 넘침 없음(짧은 안내·공통 주소 복사 버튼)', async () => {
