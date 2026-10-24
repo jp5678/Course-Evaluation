@@ -158,6 +158,8 @@
       store.write(d.st);
     };
     S.prototype.setFrozenRows = function () { return this; };
+    S.prototype.setFrozenColumns = function (n) { var d = data(this.name); d.sh.frozenCols = n; store.write(d.st); return this; };
+    S.prototype.getFrozenColumns = function () { return data(this.name).sh.frozenCols || 0; };
     S.prototype.setTabColor = function () { return this; };
     S.prototype.protect = function () {
       var name = this.name;
@@ -221,8 +223,19 @@
       for (var i = 0; i < this.nr; i++) vals.push(new Array(this.nc).fill(''));
       return this.setValues(vals);
     };
-    ['setFontWeight', 'setBackground', 'setFontColor', 'setNumberFormat', 'setNote', 'setNotes', 'clearNote'].forEach(function (m) {
+    ['setFontWeight', 'setBackground', 'setFontColor', 'setNumberFormat', 'setNote', 'clearNote'].forEach(function (m) {
       R.prototype[m] = function () { return this; };
+    });
+    // 머리글 메모·배경색은 검증할 수 있도록 시트에 기록(키: "행,열")
+    ['setNotes', 'setBackgrounds'].forEach(function (m) {
+      var key = m === 'setNotes' ? 'notes' : 'bgs';
+      R.prototype[m] = function (grid) {
+        var d = data(this.n), self = this;
+        d.sh[key] = d.sh[key] || {};
+        grid.forEach(function (row, i) { row.forEach(function (v, j) { d.sh[key][(self.r + i) + ',' + (self.c + j)] = v; }); });
+        store.write(d.st);
+        return this;
+      };
     });
 
     return {

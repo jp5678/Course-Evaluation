@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.3.4',
+  VERSION: '1.3.5',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -1116,11 +1116,37 @@ function ensureResponseColumns_(sh, items) {
     if (need > sh.getMaxColumns()) sh.insertColumnsAfter(sh.getMaxColumns(), need - sh.getMaxColumns());
     var range = sh.getRange(1, start, 1, missing.length);
     range.setValues([missing.map(function (it) { return it.item_id; })]);
-    range.setNotes([missing.map(function (it) { return '[' + it.domain + '] ' + it.text; })]);
     range.setFontWeight('bold');
     headers = headers.concat(missing.map(function (it) { return it.item_id; }));
+    styleResponseHeaders_();
   }
   return headers;
+}
+
+var RESPONSE_HEADER_COLORS = ['#E8E5FF', '#DDF3E8', '#FFF1D6', '#E0EEFF', '#FCE4EC', '#EDE7F6'];
+
+/**
+ * 응답 시트 머리글 꾸미기: 모든 교과목이 한 시트를 쓰므로(다른 교과목 문항 열은 빈칸)
+ * 문항 열 머리글을 교과목별 색으로 칠하고, 메모에 [교과목명] [영역] 문항을 적고, A~C열을 고정합니다.
+ */
+function styleResponseHeaders_() {
+  var sh = sheet_(APP.SHEETS.RESPONSES);
+  var base = HEADERS.Responses.length;
+  sh.setFrozenColumns(base);
+  var last = sh.getLastColumn();
+  if (last <= base) return;
+  var headers = sh.getRange(1, 1, 1, last).getValues()[0].map(function (h) { return String(h).trim(); });
+  var items = {}, courses = {};
+  getAllItems_().forEach(function (it) { items[it.item_id] = it; });
+  getCourses_().forEach(function (c, i) { courses[c.course_id] = { name: c.course_name, color: RESPONSE_HEADER_COLORS[i % RESPONSE_HEADER_COLORS.length] }; });
+  var notes = [], bgs = [];
+  for (var i = base; i < last; i++) {
+    var it = items[headers[i]];
+    var c = it && courses[it.course_id];
+    notes.push(it ? '[' + (c ? c.name : it.course_id) + '] [' + it.domain + '] ' + it.text : '');
+    bgs.push(c ? c.color : '#F4F4F5');
+  }
+  sh.getRange(1, base + 1, 1, last - base).setNotes([notes]).setBackgrounds([bgs]);
 }
 
 function readResponses_(courseId) {

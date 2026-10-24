@@ -1,6 +1,6 @@
 /**
  * ============================================================
- *  강의평가 Studio v1.3.4 — 정식 설치 파일(단일 파일)
+ *  강의평가 Studio v1.3.5 — 정식 설치 파일(단일 파일)
  * ============================================================
  *  설치 방법
  *  1) 스프레드시트 ▸ [확장 프로그램] ▸ [Apps Script]
@@ -42,7 +42,7 @@ function __template_(name) {
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.3.4',
+  VERSION: '1.3.5',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -1148,11 +1148,37 @@ function ensureResponseColumns_(sh, items) {
     if (need > sh.getMaxColumns()) sh.insertColumnsAfter(sh.getMaxColumns(), need - sh.getMaxColumns());
     var range = sh.getRange(1, start, 1, missing.length);
     range.setValues([missing.map(function (it) { return it.item_id; })]);
-    range.setNotes([missing.map(function (it) { return '[' + it.domain + '] ' + it.text; })]);
     range.setFontWeight('bold');
     headers = headers.concat(missing.map(function (it) { return it.item_id; }));
+    styleResponseHeaders_();
   }
   return headers;
+}
+
+var RESPONSE_HEADER_COLORS = ['#E8E5FF', '#DDF3E8', '#FFF1D6', '#E0EEFF', '#FCE4EC', '#EDE7F6'];
+
+/**
+ * 응답 시트 머리글 꾸미기: 모든 교과목이 한 시트를 쓰므로(다른 교과목 문항 열은 빈칸)
+ * 문항 열 머리글을 교과목별 색으로 칠하고, 메모에 [교과목명] [영역] 문항을 적고, A~C열을 고정합니다.
+ */
+function styleResponseHeaders_() {
+  var sh = sheet_(APP.SHEETS.RESPONSES);
+  var base = HEADERS.Responses.length;
+  sh.setFrozenColumns(base);
+  var last = sh.getLastColumn();
+  if (last <= base) return;
+  var headers = sh.getRange(1, 1, 1, last).getValues()[0].map(function (h) { return String(h).trim(); });
+  var items = {}, courses = {};
+  getAllItems_().forEach(function (it) { items[it.item_id] = it; });
+  getCourses_().forEach(function (c, i) { courses[c.course_id] = { name: c.course_name, color: RESPONSE_HEADER_COLORS[i % RESPONSE_HEADER_COLORS.length] }; });
+  var notes = [], bgs = [];
+  for (var i = base; i < last; i++) {
+    var it = items[headers[i]];
+    var c = it && courses[it.course_id];
+    notes.push(it ? '[' + (c ? c.name : it.course_id) + '] [' + it.domain + '] ' + it.text : '');
+    bgs.push(c ? c.color : '#F4F4F5');
+  }
+  sh.getRange(1, base + 1, 1, last - base).setNotes([notes]).setBackgrounds([bgs]);
 }
 
 function readResponses_(courseId) {
@@ -1989,6 +2015,7 @@ function setup() {
   }
 
   upgradeDefaults_();
+  styleResponseHeaders_();
   protectSheets_();
   rememberExecUrl_();
   SpreadsheetApp.flush();
@@ -2300,11 +2327,21 @@ function generateSampleResponses() {
       made += 30;
       names.push(course.course_name);
     });
-    return { ok: true };
+    styleResponseHeaders_();
+    // 교과목별로 응답이 들어간 열 범위(시트에서 찾기 쉽게 안내)
+    var headers = readTable_(APP.SHEETS.RESPONSES).headers;
+    var where = demos.map(function (course) {
+      var idx = itemsForCourse_(course).map(function (it) { return headers.indexOf(it.item_id); }).filter(function (i) { return i >= 0; });
+      return { course: course.course_name, from: colLetter_(Math.min.apply(null, idx) + 1), to: colLetter_(Math.max.apply(null, idx) + 1) };
+    });
+    return { ok: true, where: where };
   });
   if (result.ok) result.created = made;
   notify_('샘플 응답 생성', result.ok
-    ? names.join(', ') + '에 교과목마다 샘플 응답 30건(총 ' + made + '건)을 만들었습니다.\n\n⚠ 실제 강의평가를 시작하기 전에 메뉴 ▸ [테스트] 샘플 데이터 모두 삭제를 실행하세요.'
+    ? names.join(', ') + '에 교과목마다 샘플 응답 30건(총 ' + made + '건)을 만들었습니다.\n\n' +
+      'Responses 시트에서 응답이 들어간 열(머리글 색으로 구분):\n' +
+      result.where.map(function (w) { return '· ' + w.course + ' 30건 → ' + w.from + '~' + w.to + '열'; }).join('\n') +
+      '\n(다른 교과목의 문항 열은 빈칸이 정상입니다.)\n\n⚠ 실제 강의평가를 시작하기 전에 메뉴 ▸ [테스트] 샘플 데이터 모두 삭제를 실행하세요.'
     : '다른 작업이 진행 중입니다. 잠시 후 다시 실행하세요.');
   return result;
 }
@@ -2418,14 +2455,8 @@ function pruneResponseColumns_(dropAllEmpty) {
   sh.getRange(1, 1, 1, keep.length).setValues([keep]).setFontWeight('bold');
   var body = t.rows.map(function (r) { return keep.map(function (h) { return r[h] == null ? '' : r[h]; }); });
   if (body.length) sh.getRange(2, 1, body.length, keep.length).setValues(body);
-  var itemsById = {};
-  getAllItems_().forEach(function (it) { itemsById[it.item_id] = it; });
-  var notes = keep.map(function (h, i) {
-    if (i < HEADERS.Responses.length) return '';
-    var it = itemsById[h];
-    return it ? '[' + it.domain + '] ' + it.text : '';
-  });
-  sh.getRange(1, 1, 1, keep.length).setNotes([notes]);
+  if (width > keep.length) sh.getRange(1, keep.length + 1, 1, width - keep.length).setBackground(null);
+  styleResponseHeaders_();
   return removed;
 }
 
@@ -2440,6 +2471,13 @@ function cleanResponseSheet() {
 }
 
 /* ───────────────────────────── 보조 ───────────────────────────── */
+
+/** 열 번호(1부터) → 시트 열 이름(A, B, …, Z, AA, …) */
+function colLetter_(n) {
+  var s = '';
+  while (n > 0) { var m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); }
+  return s;
+}
 
 function getUiOrNull_() {
   try { return SpreadsheetApp.getUi(); } catch (e) { return null; }

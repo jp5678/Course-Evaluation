@@ -881,3 +881,35 @@ test('PDF 내보내기: 원자료·CQI 요약표·서술형(잠금 규칙 동일
   assert.equal(server.exportPdf(s, dl.course_id, 'xls').code, 'VALIDATION');
   assert.equal(server.exportPdf('', dl.course_id, 'raw').code, 'AUTH');
 });
+
+test('샘플 응답: 두 교과목 모두 생성, 교과목별 열 범위 안내, 응답 시트 머리글 교과목별 색·메모, A~C열 고정', () => {
+  const { env, server } = H.makeServer({ pin: PIN });
+  const r = server.generateSampleResponses();
+  assert.equal(r.created, 60);
+  // 안내 메시지용 열 범위: 두 교과목이 서로 겹치지 않는 연속 범위
+  assert.equal(r.where.length, 2);
+  const [dl, ai] = r.where;
+  assert.equal(dl.course, '디지털리터러시와 AI활용');
+  assert.equal(dl.from, 'D');
+  const colNum = (s) => s.split('').reduce((a, ch) => a * 26 + ch.charCodeAt(0) - 64, 0);
+  assert.equal(colNum(dl.to) - colNum(dl.from) + 1, 28, '대면 28문항');
+  assert.equal(colNum(ai.from), colNum(dl.to) + 1, 'AI융합 열은 바로 오른쪽부터');
+  assert.equal(colNum(ai.to) - colNum(ai.from) + 1, 32, '혼합 32문항');
+  // 실제 값: 각 교과목 행은 자기 범위에서 모두 채워짐
+  const t = server.readTable_('Responses');
+  server.getCourses_().forEach((c, k) => {
+    const w = r.where[k];
+    const cols = t.headers.slice(colNum(w.from) - 1, colNum(w.to));
+    const rows = t.rows.filter((x) => x.course_id === c.course_id);
+    assert.equal(rows.length, 30);
+    assert.ok(rows.every((x) => cols.every((h) => x[h] !== '' && x[h] != null)), c.course_name + ' 값 채움');
+  });
+  // 머리글: 교과목별 색이 다르고 메모에 교과목명
+  const sh = env.__store.read().sheets.Responses;
+  assert.equal(sh.frozenCols, 3, 'A~C열 고정');
+  assert.match(sh.notes['1,4'], /^\[디지털리터러시와 AI활용\] \[A\. 강의 설계\]/);
+  assert.match(sh.notes['1,' + colNum(ai.from)], /^\[AI융합 간호정보학\]/);
+  assert.notEqual(sh.bgs['1,4'], sh.bgs['1,' + colNum(ai.from)], '교과목별 머리글 색');
+  assert.equal(server.colLetter_(28), 'AB');
+  assert.equal(server.colLetter_(63), 'BK');
+});
