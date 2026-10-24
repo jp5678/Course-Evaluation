@@ -39,6 +39,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/lucide@0.460.0/dist/umd/lucide.min.js" defer onload="window.CES && CES.icons()"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js" defer></script>
+  <?!= include('Manual'); ?>
   <?!= include('Scripts'); ?>
   <script>
   (function () {
@@ -62,7 +63,8 @@
       ['courses', 'book-open', '교과목'],
       ['items', 'list-checks', '문항'],
       ['results', 'chart-column', '결과'],
-      ['settings', 'settings', '설정']
+      ['settings', 'settings', '설정'],
+      ['manual', 'book-open-text', '사용 매뉴얼']
     ];
 
     const A = {
@@ -241,7 +243,7 @@
         b.tabIndex = on ? 0 : -1;
       });
       view.setAttribute('aria-labelledby', 'tab-' + tab);
-      ({ dashboard: renderDashboard, courses: renderCourses, items: renderItems, results: renderResults, settings: renderSettings })[tab]();
+      ({ dashboard: renderDashboard, courses: renderCourses, items: renderItems, results: renderResults, settings: renderSettings, manual: renderManual })[tab]();
     }
 
     tabsEl.addEventListener('click', (e) => {
@@ -1313,6 +1315,28 @@
       if (!res.ok) return fail(res);
       CES.download(res.filename, res.content, fn === 'exportText' ? 'text/plain' : 'text/csv');
       if (res.omitted) CES.toast(`익명성 보호를 위해 소규모 집단이 있는 드롭다운 문항 ${res.omitted}개 열을 제외했습니다.`);
+    }
+
+    /* ───── 사용 매뉴얼(Manual.html의 템플릿) ───── */
+    function renderManual() {
+      const tpl = document.getElementById('manual-tpl');
+      setView(tpl ? tpl.innerHTML : '<p class="muted">매뉴얼을 불러오지 못했습니다.</p>');
+      const all = () => $$('details', view);
+      const toggle = $('[data-manual-toggle]', view);
+      const sync = () => { if (toggle) toggle.textContent = all().every((d) => d.open) ? '모두 접기' : '모두 펼치기'; };
+      if (toggle) toggle.addEventListener('click', () => { const open = !all().every((d) => d.open); all().forEach((d) => { d.open = open; }); sync(); });
+      all().forEach((d) => d.addEventListener('toggle', sync));
+      // 차례: 웹 앱 iframe에서는 #이동 대신 해당 장을 펼치고 스크롤
+      $$('.manual-toc a', view).forEach((a) => a.addEventListener('click', (e) => {
+        e.preventDefault();
+        const d = $(a.getAttribute('href'), view);
+        if (!d) return;
+        d.open = true;
+        sync();
+        d.scrollIntoView({ behavior: CES.reducedMotion() ? 'auto' : 'smooth', block: 'start' });
+        const s = $('summary', d);
+        if (s) s.focus({ preventScroll: true });
+      }));
     }
 
     /* ───── 설정 ───── */

@@ -524,6 +524,27 @@ test('교수 360px: 링크·QR 모달 가로 넘침 없음(짧은 안내·공통
   await shot(page, 'm13-qr-modal');
 });
 
+test('사용 매뉴얼 탭: 맨 위 메뉴 끝, 12개 장, 차례로 펼치기·모두 펼치기, 360px 넘침 없음', async () => {
+  const page = await newPage();
+  await page.goto(base + '?scenario=admin&page=admin');
+  await page.locator('#pin').fill('123456');
+  await page.getByRole('button', { name: '로그인' }).click();
+  await page.getByText('진행 중 교과목', { exact: true }).waitFor();
+  const tabs = await page.$$eval('#tabs .tab', (els) => els.map((e) => e.textContent.trim()));
+  assert.equal(tabs[tabs.length - 1], '사용 매뉴얼', '메뉴 끝에 사용 매뉴얼');
+  await page.getByRole('tab', { name: '사용 매뉴얼' }).click();
+  await page.getByRole('heading', { name: '사용 매뉴얼' }).waitFor();
+  assert.equal(await page.locator('.manual details').count(), 12);
+  assert.equal(await page.locator('#mn-6').getAttribute('open'), null);
+  await page.locator('.manual-toc a[href="#mn-6"]').click();
+  assert.notEqual(await page.locator('#mn-6').getAttribute('open'), null, '차례로 해당 장 펼침');
+  await page.locator('[data-manual-toggle]').click();
+  assert.equal(await page.locator('.manual details:not([open])').count(), 0, '모두 펼치기');
+  assert.equal(await page.locator('[data-manual-toggle]').innerText(), '모두 접기');
+  await noHorizontalScroll(page, '사용 매뉴얼');
+  await shot(page, 'm14-manual');
+});
+
 test('브라우저 콘솔 오류 없음', () => {
   const real = consoleErrors.filter((e) => !/favicon/.test(e));
   assert.deepEqual(real, []);

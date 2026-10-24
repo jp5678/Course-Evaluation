@@ -38,6 +38,7 @@ Google 스프레드시트 하나와 Apps Script만으로 동작하며 외부 서
 - **서술형 워드 클라우드**: 전체 또는 문항별로 볼 수 있습니다. 단어를 누르면 그 단어가 들어간 응답만 강조해서 모아 보여 줍니다.
 - 상세 분석: 문항별 평균·표준편차·분포, 영역 레이더 차트, 학기 간 비교(교과목명 기준, 다른 학기끼리), 서술형 응답(무작위 순서)을 제공합니다. 같은 교과목이 같은 학기에 여러 개(이전 버전의 분반 자료)일 때만 분반 간 비교가 나타납니다.
 - 내보내기: 원자료 PDF, CQI 요약표 PDF, 서술형 텍스트(AI 요약용, TXT·PDF)를 내려받을 수 있습니다.
+- 사용 매뉴얼: 관리자 화면 맨 위 메뉴의 **사용 매뉴얼** 탭에서 장별 요약을 볼 수 있습니다(전체 PDF: `docs/강의평가Studio_사용자매뉴얼.pdf`).
 - **응답이 최소 공개 수(기본 5명) 미만이면 결과를 잠급니다.** 결과공개일을 지정하면 그 이전에도 잠깁니다(성적 처리 전 열람 방지).
 
 ### 기본 문항 은행 (5점 리커트, 교수가 수정 가능)
@@ -253,9 +254,11 @@ Courses·Items·Tokens·Responses 탭에는 직접 편집하면 경고가 뜨도
 | `Student.html` | 학생 화면 (`?c=교과목ID`). 루트의 체험판 `index.html`과 대소문자 충돌을 피하려고 이 이름을 씁니다 |
 | `Admin.html` | 교수 화면 (`?page=admin`) |
 | `Styles.html` | 디자인 시스템 *Cloud Dancer Bento* (라이트/다크 토큰) |
+| `Manual.html` | 교수 화면 **사용 매뉴얼** 탭 본문(PDF 매뉴얼의 화면용 요약) |
 | `Scripts.html` | 공통 JS: 서버 호출(재시도·로딩), 모달, 다운로드, 링 게이지·카운트업, 워드 클라우드 배치(나선형), 내장 QR 인코더, confetti |
 | `appsscript.json` | V8, Asia/Seoul, 웹 앱(실행: 소유자 / 액세스: 모든 사용자) |
 | `tests/` | 로컬 테스트(Apps Script에는 올리지 않음) |
+| `tools/build-manual.js` | 사용자 매뉴얼 PDF(`docs/강의평가Studio_사용자매뉴얼.pdf`) 생성 — 실제 화면을 캡처해 만듭니다 |
 | `dist/Code.gs`, `dist/CourseEvaluationStudio.gs` | **정식 설치 파일**(단일 파일, 두 파일은 내용 동일. `tools/build-installer.js`로 생성 — 직접 수정하지 마세요) |
 | `index.html`, `demo/` | GitHub Pages 체험판(`tools/build-demo.js`로 생성 — 직접 수정하지 마세요) |
 | `.github/workflows/pages.yml` | 푸시마다 테스트·체험판 최신 여부 검사, 기본 브랜치면 Pages 배포 |

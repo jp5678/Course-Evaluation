@@ -685,6 +685,25 @@ body.page-student { background: var(--bg); position: relative; isolation: isolat
 .hbars .dist > span { transition: flex-grow 1s var(--ease); }
 
 /* ───── 교과목 한눈에(대시보드) ───── */
+/* 사용 매뉴얼 탭 */
+.manual details { border-top: 1px solid var(--line); padding: 12px 0; }
+.manual details:first-of-type { margin-top: 12px; }
+.manual summary { cursor: pointer; font-weight: 700; font-size: 1rem; padding: 4px 0; list-style: none; display: flex; gap: 8px; align-items: baseline; }
+.manual summary::-webkit-details-marker { display: none; }
+.manual summary::before { content: '▸'; color: var(--primary); font-size: .9em; width: 1em; flex: none; }
+.manual details[open] > summary::before { content: '▾'; }
+.manual summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 6px; }
+.manual details > *:not(summary) { margin-top: 10px; }
+.manual ol, .manual ul { padding-left: 22px; }
+.manual li + li { margin-top: 6px; }
+.manual table { width: 100%; border-collapse: collapse; font-size: .875rem; }
+.manual th, .manual td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+.manual th { background: var(--primary-soft); white-space: nowrap; width: 1%; }
+.manual code { font-size: .85em; background: var(--line); padding: 1px 5px; border-radius: 4px; word-break: break-all; }
+.manual-toc { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.manual-toc a { font-size: .8125rem; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink); text-decoration: none; }
+.manual-toc a:hover, .manual-toc a:focus-visible { border-color: var(--primary); color: var(--primary); }
+@media (max-width: 520px) { .manual th { white-space: normal; width: 34%; } }
 .course-pulse { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; align-content: start; } /* 버튼 기본 세로 가운데 정렬 대신 위쪽 정렬(카드끼리 맞춤) */
 .sparkbars { display: grid; gap: 4px; }
 .sparkbars .sb { display: grid; grid-template-columns: 14px 1fr 32px; gap: 6px; align-items: center; font-size: .6875rem; color: var(--muted); }

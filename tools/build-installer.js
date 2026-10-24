@@ -13,7 +13,7 @@ const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
 const version = /VERSION:\s*'([^']+)'/.exec(read('Code.gs'))[1];
 
 const files = {};
-['Student', 'Admin', 'Styles', 'Scripts'].forEach((n) => { files[n] = read(n + '.html'); });
+['Student', 'Admin', 'Styles', 'Scripts', 'Manual'].forEach((n) => { files[n] = read(n + '.html'); });
 
 function rewrite(src, name) {
   const before = src;
@@ -47,7 +47,7 @@ const out = `/**
  * @OnlyCurrentDoc
  */
 
-/* ───── 화면 파일(HTML) — 원본: Student.html, Admin.html, Styles.html, Scripts.html ───── */
+/* ───── 화면 파일(HTML) — 원본: Student.html, Admin.html, Styles.html, Scripts.html, Manual.html ───── */
 var __FILES__ = ${JSON.stringify(files, null, 1)};
 
 function __template_(name) {
