@@ -797,3 +797,50 @@ test('샘플 응답: 필수 문항은 모두 채움(두 교과목 30건씩), 교
   assert.equal(sum.est_minutes, 5);
   assert.equal(typeof server.checkStudentLink, 'undefined', '외부 접속(UrlFetch) 기능 제거');
 });
+
+test('시트 보호(경고): Responses·Tokens·Courses·Items, 응답 시트 빈 열 정리, 수동 마감 → 2027 복제로 재시작', () => {
+  const { env, server } = H.makeServer({ pin: PIN });
+  const s = H.login(server, PIN);
+  const ss = env.SpreadsheetApp.getActiveSpreadsheet();
+  ['Responses', 'Tokens', 'Courses', 'Items'].forEach((n) => {
+    const p = ss.getSheetByName(n).getProtections(env.SpreadsheetApp.ProtectionType.SHEET);
+    assert.equal(p.length, 1, n + ' 보호');
+    assert.equal(p[0].isWarningOnly(), true, n + ' 경고만(편집 가능)');
+  });
+  server.setup();
+  assert.equal(ss.getSheetByName('Items').getProtections(env.SpreadsheetApp.ProtectionType.SHEET).length, 1, '재실행해도 보호 중복 없음');
+
+  // 샘플 응답 → 삭제 후, 응답 없는 열이 남은 상태(교수님 시트와 같은 상황) 재현
+  const [dl, ai] = server.getCourses_();
+  server.generateSampleResponses();
+  server.withLock_(() => { server.filterTable_('Responses', () => false); return { ok: true }; });
+  const before = server.readTable_('Responses').headers.filter(String).length;
+  assert.ok(before > 3, '빈 문항 열이 남아 있음');
+  const r = server.cleanResponseSheet();
+  assert.equal(r.ok, true);
+  assert.equal(r.removed, before - 3);
+  assert.deepEqual(server.readTable_('Responses').headers.filter(String), ['response_id', 'course_id', 'submitted_date']);
+  assert.equal(server.cleanResponseSheet().removed, 0, '두 번째 실행은 정리할 열 없음');
+  // 정리 후에도 제출 정상(필요한 열 자동 생성), 데이터 있는 열은 정리하지 않음
+  assert.equal(server.submitResponse(ai.course_id, ai.access_code, H.fullAnswers(server.itemsForCourse_(server.findCourse_(ai.course_id)))).ok, true);
+  const cols = server.readTable_('Responses').headers.filter(String).length;
+  assert.equal(server.cleanResponseSheet().removed, 0);
+  assert.equal(server.readTable_('Responses').headers.filter(String).length, cols);
+
+  // 디지털리터러시와 AI활용: 수동 마감 → 학생 차단, 2027-1학기 복제로 다시 시작
+  const c = server.findCourse_(dl.course_id);
+  const form = { course_id: c.course_id, course_name: c.course_name, year: c.year, semester: c.semester, grade: c.grade, department: c.department,
+    delivery_mode: c.delivery_mode, course_type: c.course_type, start_at: server.fmtDT_(c.start_at), end_at: server.fmtDT_(c.end_at),
+    access_mode: c.access_mode, access_code: c.access_code, result_open_date: '', manual_close: true };
+  assert.equal(server.saveCourse(s, form).ok, true);
+  assert.equal(server.getCourseForStudent(dl.course_id).state, '마감');
+  assert.equal(server.verifyAccess(dl.course_id, dl.access_code).code, 'CLOSED');
+  const sum = server.getAdminBootstrap(s).courses.find((x) => x.course_id === dl.course_id);
+  assert.equal(sum.manual_close, true, '관리자 화면에 수동 마감 표시');
+  const dup = server.duplicateCourse(s, dl.course_id, { year: 2027, semester: '1', start_at: '2027-03-02T09:00', end_at: '2027-03-20T23:59' });
+  assert.equal(dup.ok, true);
+  const next = server.findCourse_(dup.course_id);
+  assert.equal(next.course_name, '디지털리터러시와 AI활용');
+  assert.equal(server.getItems_(next.course_id).length, server.getItems_(dl.course_id).length, '문항 그대로 복사');
+  assert.notEqual(next.access_code, dl.access_code, '새 접속코드');
+});

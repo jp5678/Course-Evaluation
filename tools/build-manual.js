@@ -202,6 +202,7 @@ code { font-family: "Pretendard", monospace; background: var(--soft); padding: 0
     <li>설정 · 버전 업데이트</li>
     <li>익명성 보호 원칙</li>
     <li>자주 묻는 질문과 문제 해결</li>
+    <li>부록: 스프레드시트 구조</li>
   </ol>
 </div>
 
@@ -265,6 +266,7 @@ code { font-family: "Pretendard", monospace; background: var(--soft); padding: 0
 <section class="chapter">
 <h2 class="ch"><span>3</span>로그인과 대시보드</h2>
 <p>관리자 주소(<code>…/exec?page=admin</code>)로 접속해 PIN을 입력합니다. PIN을 5회 틀리면 10분 동안 잠깁니다.</p>
+<div class="tip"><b>PIN 입력 상자가 안 보이면</b> 주소 끝에 <code>?page=admin</code>이 빠진 것입니다. <code>…/exec</code>만 열면 학생용 「접속코드 입력」 화면이 나옵니다. 그 화면 맨 아래 <span class="kbd">교수자 로그인</span> 링크를 누르거나 주소에 <code>?page=admin</code>을 붙이세요. 관리자 주소는 즐겨찾기에 저장해 두면 편리합니다.</div>
 ${img('a01-login', '그림 3-1. 교수 로그인 화면')}
 ${img('a02-dashboard', '그림 3-2. 대시보드 — 진행 중 교과목, 응답 수, 전체 평균, 긍정 응답률, 마감 임박 교과목')}
 <p>대시보드의 교과목 카드를 누르면 해당 교과목의 결과 화면으로 이동합니다. <b>마감 임박</b> 카드는 72시간 안에 응답 기간이 끝나는 교과목을 알려 줍니다.</p>
@@ -290,6 +292,19 @@ ${img('a04-course-form', '그림 4-2. 교과목 편집 창')}
 <h3>4-2. 다음 학기에 다시 쓰기</h3>
 <p><span class="kbd">복제</span>를 누르고 새 학년도·학기·기간을 입력하면 문항이 그대로 복사됩니다. 응답과 토큰은 복사되지 않으며, 새 접속코드가 자동으로 만들어집니다. 같은 교과목명의 다른 학기와는 결과 화면에서 자동으로 비교됩니다.</p>
 <p>응답이 없는 교과목만 <span class="kbd">삭제</span>할 수 있습니다.</p>
+<h3>4-3. 설문 중지와 다시 시작</h3>
+<p>응답 기간 중에 설문을 멈추려면 <b>수동 마감</b>을 씁니다. 응답·문항·접속코드는 그대로 보관되고, 학생에게는 「응답이 마감되었습니다」 화면이 나옵니다.</p>
+<ol class="steps">
+  <li>[교과목] 탭에서 해당 교과목의 <span class="kbd">편집</span>을 누릅니다.</li>
+  <li>맨 아래 <b>「지금 수동으로 마감(기간과 관계없이 응답 차단)」</b>을 체크하고 <span class="kbd">저장</span>합니다.</li>
+  <li>교과목 카드에 <b>수동 마감</b> 배지가 표시됩니다.</li>
+</ol>
+<table>
+<tr><th style="width:28%">다시 시작하는 방법</th><th>절차</th><th style="width:30%">언제 쓰나</th></tr>
+<tr><td>새 학기로 복제(권장)</td><td><span class="kbd">복제</span> ▸ 새 학년도·학기(예: 2027학년도 1학기)와 응답 기간 입력 ▸ 새 접속코드·QR로 안내</td><td>다음 해·다음 학기에 다시 평가할 때. 이전 학기와 결과가 자동 비교됩니다.</td></tr>
+<tr><td>마감 해제</td><td><span class="kbd">편집</span> ▸ 「지금 수동으로 마감」 체크 해제 ▸ 응답 기간을 새로 입력 ▸ 저장</td><td>같은 학기 안에서 잠시 멈췄다가 이어 받을 때</td></tr>
+</table>
+<div class="tip"><b>예시:</b> 「디지털리터러시와 AI활용」을 2026년에 멈추고 2027년 1학기에 다시 평가하려면, 지금은 <b>수동 마감</b>만 해 두고 2027년 학기 초에 <b>복제</b>로 2027학년도 1학기 교과목을 만드세요. 2026년 응답과 섞이지 않고, 결과 화면의 학기 간 비교에 2026년 결과가 함께 나타납니다.</div>
 </section>
 
 <section class="chapter">
@@ -386,6 +401,17 @@ ${img('a12-settings', '그림 9-1. [설정] 탭')}
   <li><span class="kbd">배포 ▸ 배포 관리 ▸ ✏️(편집) ▸ 버전: 새 버전 ▸ 배포</span>를 누릅니다.</li>
 </ol>
 <div class="warnbox"><b>「새 배포」를 만들지 마세요.</b> 새 배포를 만들면 웹 앱 주소가 바뀌어, 이미 안내한 QR·공통 주소가 열리지 않습니다. 업데이트는 항상 「배포 관리 ▸ 새 버전」으로 합니다.</div>
+<h3>스프레드시트 메뉴</h3>
+<table>
+<tr><th style="width:40%">메뉴(강의평가 Studio ▸)</th><th>기능</th></tr>
+<tr><td>① 초기 설정 실행</td><td>시트·기본 문항 만들기, 새 버전 반영(업데이트 후 실행)</td></tr>
+<tr><td>② 관리자 PIN 설정·재설정</td><td>관리자 PIN 설정(PIN을 잊었을 때도 사용)</td></tr>
+<tr><td>웹 앱 주소 확인</td><td>현재 웹 앱 주소 표시</td></tr>
+<tr><td>응답 시트 빈 열 정리(학기 시작 전)</td><td>Responses 시트에서 <b>데이터가 없는 문항 열</b>을 지웁니다. 응답 데이터는 그대로이고, 새 응답이 들어오면 필요한 열은 자동으로 다시 만들어집니다.</td></tr>
+<tr><td>[테스트] 샘플 응답 생성 / 샘플 데이터 모두 삭제</td><td>결과 화면 연습용 무작위 응답 30건(교과목별) 생성·삭제</td></tr>
+</table>
+<h3>시트 보호</h3>
+<p>Courses·Items·Tokens·Responses 시트에는 <b>「직접 편집 시 경고」</b> 보호가 걸려 있습니다. 셀을 고치려 하면 경고 창이 먼저 뜹니다. 교과목과 문항은 시트가 아니라 <b>관리자 화면</b>에서 고치세요. 앱의 동작에는 영향이 없습니다.</p>
 <h3>테스트용 샘플 응답</h3>
 <p>스프레드시트 메뉴 <span class="kbd">강의평가 Studio ▸ [테스트] 샘플 응답 생성</span>을 실행하면 예시 교과목마다 무작위 응답 30건이 만들어져 결과 화면을 미리 볼 수 있습니다. 실제 평가 전에는 반드시 <span class="kbd">[테스트] 샘플 데이터 모두 삭제</span>를 실행하세요.</p>
 </section>
@@ -415,8 +441,26 @@ ${img('a12-settings', '그림 9-1. [설정] 탭')}
 <tr><td>문항을 고칠 수 없음</td><td>응답이 들어온 교과목은 문항이 잠깁니다. [복제]로 새 교과목을 만들어 고치세요.</td></tr>
 <tr><td>PIN을 잊었음</td><td>스프레드시트 메뉴 <span class="kbd">② 관리자 PIN 설정·재설정</span>에서 다시 정합니다(스프레드시트 소유자만 가능).</td></tr>
 <tr><td>PIN 입력이 잠김</td><td>5회 틀리면 10분간 잠깁니다. 10분 뒤 다시 시도하세요.</td></tr>
+<tr><td>교수자 로그인 화면에 PIN 입력 상자가 없음</td><td><code>?page=admin</code> 없이 공통 주소로 들어갔습니다. 접속코드 화면 아래 <span class="kbd">교수자 로그인</span> 링크를 누르세요.</td></tr>
+<tr><td>Items 시트에 같은 문항이 여러 번 있음</td><td>정상입니다. 기본 문항 은행(TEMPLATE)과 교과목마다 문항을 따로 복사해 둡니다. 지우면 해당 교과목 설문에서 문항이 사라지므로 지우지 마세요.</td></tr>
+<tr><td>Tokens 시트가 비어 있음</td><td>모든 교과목이 접속코드 방식이면 비어 있는 것이 정상입니다. 앱이 이 시트를 읽으므로 <b>지우지 마세요</b>(지우면 관리자 화면이 열리지 않습니다). 거슬리면 시트 탭을 [숨기기] 하세요.</td></tr>
+<tr><td>시트를 고치려는데 경고 창이 뜸</td><td>앱이 관리하는 시트의 보호 경고입니다. 관리자 화면에서 고치는 것이 안전합니다.</td></tr>
 <tr><td>동시에 많은 학생이 제출</td><td>제출은 잠금으로 한 건씩 순서대로 처리되고, 일시적으로 바쁘면 자동으로 다시 시도합니다. 실제 사용 전에 학생 몇 명과 함께 동시에 제출해 보는 것을 권장합니다.</td></tr>
 </table>
+</section>
+
+<section class="chapter">
+<h2 class="ch"><span>12</span>부록: 스프레드시트 구조</h2>
+<p>모든 데이터는 교수 본인의 스프레드시트 한 개에 저장됩니다. 시트 5개의 역할은 다음과 같습니다. <b>시트를 지우거나 이름을 바꾸면 앱이 동작하지 않습니다.</b></p>
+<table>
+<tr><th style="width:16%">시트</th><th style="width:34%">저장하는 내용</th><th style="width:22%">주요 열</th><th>관리 방법</th></tr>
+<tr><td><b>Settings</b></td><td>교수명·소속, 학과 목록, 최소 공개 수, 학생용 웹 앱 주소, PIN 해시·salt, 설치 버전</td><td>key · value · description</td><td>관리자 화면 [설정]. PIN·salt 행은 직접 고치지 마세요.</td></tr>
+<tr><td><b>Courses</b></td><td>교과목 1개 = 1행. 학년도·학기·학년, 응답 기간, 참여 방식·접속코드, 상태(진행·마감), 수업 방식, 교과목 유형</td><td>course_id · course_name · start_at · end_at · access_code · status</td><td>관리자 화면 [교과목] (경고 보호)</td></tr>
+<tr><td><b>Items</b></td><td>문항 1개 = 1행. <code>TEMPLATE</code> 행은 공통 기본 문항 은행, 나머지는 교과목별 복사본</td><td>item_id · course_id · domain · text · type · required · scope</td><td>관리자 화면 [문항] (경고 보호)</td></tr>
+<tr><td><b>Tokens</b></td><td>일회용 토큰의 <b>해시</b>와 사용 여부(토큰 원문은 저장하지 않음). 접속코드 방식만 쓰면 비어 있음</td><td>course_id · token_hash · used</td><td>관리자 화면 [토큰] (경고 보호). 지우지 마세요.</td></tr>
+<tr><td><b>Responses</b></td><td>응답 1건 = 1행(무작위 위치). 제출 날짜만, 문항별 답은 item_id 열에 저장</td><td>response_id · course_id · submitted_date · 문항 ID 열들</td><td>직접 편집 금지(경고 보호). 학기 시작 전 메뉴 「응답 시트 빈 열 정리」</td></tr>
+</table>
+<div class="tip"><b>백업:</b> 학기가 끝나면 Google 드라이브에서 스프레드시트를 <span class="kbd">사본 만들기</span>로 보관하거나, 결과 화면의 CSV·CQI 요약표를 내려받아 두세요.</div>
 <p style="margin-top:6mm;color:var(--muted);font-size:9pt">본 매뉴얼의 화면은 v${VERSION} 기준이며, 교과목·응답은 예시 자료입니다.</p>
 </section>
 </body></html>`;

@@ -170,7 +170,13 @@
       save();
       return api;
     };
-    S.prototype.getProtections = function () { return (data(this.name).sh.protections || []).slice(); };
+    S.prototype.getProtections = function () {
+      // 실제 Protection 객체처럼 isWarningOnly()·getDescription() 제공
+      return (data(this.name).sh.protections || []).map(function (p) {
+        return { warningOnly: p.warningOnly, description: p.description,
+          isWarningOnly: function () { return p.warningOnly; }, getDescription: function () { return p.description; } };
+      });
+    };
     S.prototype.getRange = function (row, col, numRows, numCols) {
       numRows = numRows || 1; numCols = numCols || 1;
       if (row < 1 || col < 1) throw new Error('Range out of bounds');

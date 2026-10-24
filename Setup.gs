@@ -70,6 +70,7 @@ function onOpen() {
     .addItem('① 초기 설정 실행', 'setup')
     .addItem('② 관리자 PIN 설정·재설정', 'setAdminPinFromMenu')
     .addItem('웹 앱 주소 확인', 'showWebAppUrl')
+    .addItem('응답 시트 빈 열 정리(학기 시작 전)', 'cleanResponseSheet')
     .addSeparator()
     .addItem('[테스트] 샘플 응답 생성(교과목별 30건)', 'generateSampleResponses')
     .addItem('[테스트] 샘플 데이터 모두 삭제', 'deleteSampleData')
@@ -169,14 +170,18 @@ function annotateHeaders_() {
   });
 }
 
+/** 앱이 관리하는 시트에 「직접 편집 시 경고」 보호(편집은 가능, 저장 전 경고)를 겁니다. 스크립트 동작에는 영향이 없습니다. */
 function protectSheets_() {
-  [APP.SHEETS.RESPONSES, APP.SHEETS.TOKENS].forEach(function (name) {
+  var desc = {};
+  desc[APP.SHEETS.RESPONSES] = '강의평가 Studio: 직접 편집하면 익명성·토큰 검증이 깨질 수 있습니다.';
+  desc[APP.SHEETS.TOKENS] = '강의평가 Studio: 직접 편집하면 익명성·토큰 검증이 깨질 수 있습니다.';
+  desc[APP.SHEETS.COURSES] = '강의평가 Studio: 교과목은 관리자 화면 [교과목] 탭에서 수정하세요. 직접 편집하면 접속코드·기간 검증이 깨질 수 있습니다.';
+  desc[APP.SHEETS.ITEMS] = '강의평가 Studio: 문항은 관리자 화면 [문항] 탭에서 수정하세요. 직접 편집하면 응답과 문항의 연결이 깨질 수 있습니다.';
+  Object.keys(desc).forEach(function (name) {
     var sh = sheet_(name);
     var existing = sh.getProtections(SpreadsheetApp.ProtectionType.SHEET);
     if (existing.length) return;
-    sh.protect()
-      .setDescription('강의평가 Studio: 직접 편집하면 익명성·토큰 검증이 깨질 수 있습니다.')
-      .setWarningOnly(true);
+    sh.protect().setDescription(desc[name]).setWarningOnly(true);
   });
 }
 
@@ -543,18 +548,23 @@ function deleteSampleData(skipConfirm) {
   return result;
 }
 
-/** 더 이상 존재하지 않는 문항이면서 데이터가 비어 있는 응답 열을 정리합니다. */
-function pruneResponseColumns_() {
+/**
+ * 응답 시트의 문항 열 정리. 데이터가 있는 열은 항상 남깁니다.
+ * dropAllEmpty=false: 지워진 문항의 빈 열만 / true: 데이터가 없는 문항 열 모두(응답이 들어오면 필요한 열은 자동으로 다시 생김)
+ * 정리한 열 수를 반환합니다.
+ */
+function pruneResponseColumns_(dropAllEmpty) {
   var t = readTable_(APP.SHEETS.RESPONSES);
   var live = {};
   getAllItems_().forEach(function (it) { live[it.item_id] = true; });
   var keep = t.headers.filter(function (h, i) {
     if (i < HEADERS.Responses.length) return true;
     if (!h) return false;
-    if (live[h]) return true;
-    return t.rows.some(function (r) { return r[h] !== '' && r[h] != null; });
+    if (t.rows.some(function (r) { return r[h] !== '' && r[h] != null; })) return true;
+    return !dropAllEmpty && !!live[h];
   });
-  if (keep.length === t.headers.length) return;
+  var removed = t.headers.filter(String).length - keep.length;
+  if (keep.length === t.headers.length) return 0;
   var sh = t.sheet;
   var width = sh.getLastColumn();
   sh.getRange(1, 1, Math.max(1, sh.getLastRow()), width).clearContent();
@@ -570,6 +580,17 @@ function pruneResponseColumns_() {
     return it ? '[' + it.domain + '] ' + it.text : '';
   });
   sh.getRange(1, 1, 1, keep.length).setNotes([notes]);
+  return removed;
+}
+
+/** 메뉴: 학기 시작 전 응답 시트에서 데이터가 없는 문항 열을 정리합니다(응답 데이터는 그대로). */
+function cleanResponseSheet() {
+  var result = withLock_(function () { return { ok: true, removed: pruneResponseColumns_(true) }; });
+  notify_('응답 시트 빈 열 정리', result.ok
+    ? (result.removed ? '데이터가 없는 문항 열 ' + result.removed + '개를 정리했습니다.' : '정리할 빈 열이 없습니다.') +
+      '\n\n응답 데이터는 그대로이며, 새 응답이 들어오면 필요한 열이 자동으로 만들어집니다.'
+    : '다른 작업이 진행 중입니다. 잠시 후 다시 실행하세요.');
+  return result;
 }
 
 /* ───────────────────────────── 보조 ───────────────────────────── */
