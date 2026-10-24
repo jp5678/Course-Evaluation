@@ -133,6 +133,10 @@ test('간단 접속: 공통 주소에서 코드만 입력 → 바로 시작, QR(
   await page.goto(base + '?scenario=student&c=');
   await page.getByRole('heading', { name: '접속코드 입력' }).waitFor();
   await noHorizontalScroll(page, '공통 주소 코드 입력');
+  // 공통 주소로 들어온 교수를 위한 관리자 로그인 링크
+  const adm = page.getByRole('link', { name: '교수자 로그인' });
+  assert.match(await adm.getAttribute('href'), /^https:\/\/script\.google\.com\/macros\/s\/PREVIEW\/exec\?page=admin$/);
+  assert.equal(await adm.getAttribute('target'), '_top');
   await shot(page, 'm00-code-entry');
   await page.locator('#code').fill('NOPE99');
   await page.getByRole('button', { name: '시작하기' }).click();

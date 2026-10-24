@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.3.1',
+  VERSION: '1.3.2',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -70,6 +70,10 @@ function doGet(e) {
   t.courseId = sanitizeId_(p.c);
   t.tokenPrefill = normalizeToken_(p.t || '');
   t.codePrefill = String(p.k || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+  // 공통 주소(학생 접속코드 화면)에서 교수자 로그인으로 가는 주소: 저장된 학생용 /exec 주소 우선
+  var base = '';
+  try { base = studentBaseUrl_(settings) || webAppUrl_(); } catch (err) { base = ''; }
+  t.adminUrl = base ? base + '?page=admin' : '';
   t.professorName = String(settings.professor_name || '');
   t.affiliation = String(settings.affiliation || '');
   return t.evaluate()

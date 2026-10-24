@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css">
   <?!= include('Styles'); ?>
 </head>
-<body class="page-student cesstudentpage" data-course="<?= courseId ?>" data-token="<?= tokenPrefill ?>" data-code="<?= codePrefill ?>">
+<body class="page-student cesstudentpage" data-course="<?= courseId ?>" data-token="<?= tokenPrefill ?>" data-code="<?= codePrefill ?>" data-admin-url="<?= adminUrl ?>">
   <a class="skip-link" href="#main">본문 바로가기</a>
   <div class="deco" aria-hidden="true"><span class="s1"></span><span class="s2"></span><span class="s3"></span><span class="s4"></span></div>
 
@@ -74,6 +74,7 @@
       cheered: {}
     };
     var DRAFT_KEY, DONE_KEY;
+    var ADMIN_URL = document.body.getAttribute('data-admin-url') || '';
     function setCourseId(id) {
       S.courseId = id;
       DRAFT_KEY = 'ces:draft:' + id;
@@ -162,6 +163,7 @@
         (errorMsg ? '<p class="error" id="code-err">' + icon('circle-alert') + ' ' + esc(errorMsg) + '</p>' : '') +
         '</div>' +
         '<button type="submit" class="btn primary block" id="code-btn">시작하기' + icon('arrow-right') + '</button>' +
+        (ADMIN_URL ? '<p class="tiny muted center"><a href="' + esc(ADMIN_URL) + '" target="_top">교수자 로그인</a></p>' : '') +
         '</form>',
         '#code'
       );

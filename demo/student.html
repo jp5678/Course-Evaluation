@@ -740,7 +740,7 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
 </style>
 
 </head>
-<body class="page-student cesstudentpage" data-course="" data-token="" data-code="">
+<body class="page-student cesstudentpage" data-course="" data-token="" data-code="" data-admin-url="https://script.google.com/macros/s/TEST/exec?page=admin">
 <div class="demo-bar" role="note">🧪 체험용 데모 · 데이터는 이 브라우저에만 저장됩니다
   <span id="demo-hint"></span><a href="../index.html">체험 처음으로</a><button type="button" onclick="DemoBoot.reset()">초기화</button></div>
 <script>DemoBoot.applyBody('student')</script>
@@ -1503,6 +1503,7 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
       cheered: {}
     };
     var DRAFT_KEY, DONE_KEY;
+    var ADMIN_URL = document.body.getAttribute('data-admin-url') || '';
     function setCourseId(id) {
       S.courseId = id;
       DRAFT_KEY = 'ces:draft:' + id;
@@ -1591,6 +1592,7 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
         (errorMsg ? '<p class="error" id="code-err">' + icon('circle-alert') + ' ' + esc(errorMsg) + '</p>' : '') +
         '</div>' +
         '<button type="submit" class="btn primary block" id="code-btn">시작하기' + icon('arrow-right') + '</button>' +
+        (ADMIN_URL ? '<p class="tiny muted center"><a href="' + esc(ADMIN_URL) + '" target="_top">교수자 로그인</a></p>' : '') +
         '</form>',
         '#code'
       );
