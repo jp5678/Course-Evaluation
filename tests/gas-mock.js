@@ -239,6 +239,7 @@
     });
 
     return {
+      getId: function () { return store.read().sheetId || 'SHEET-ORIGINAL'; },
       getSheetByName: function (name) { return store.read().sheets[name] ? new S(name) : null; },
       insertSheet: function (name) {
         var st = store.read();

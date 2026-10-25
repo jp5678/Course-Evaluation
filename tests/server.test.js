@@ -958,3 +958,29 @@ test('대시보드: 교과목별 오늘(한국 시간) 새 응답 수', () => {
   assert.equal(cs.find((c) => c.course_id === dl.course_id).today_count, 3);
   assert.equal(cs.find((c) => c.course_id === ai.course_id).today_count, 0);
 });
+
+test('스프레드시트 사본에서 setup: 원본 배포의 학생용 주소를 비우고, 사본의 새 /exec 주소를 자동 저장(데이터·PIN 유지)', () => {
+  const OLD = 'https://script.google.com/macros/s/AKfycbwOLDDEPLOY/exec';
+  const NEW = 'https://script.google.com/macros/s/AKfycbwNEWCOPY/exec';
+  const { env, server } = H.makeServer({ pin: PIN, url: OLD });
+  server.doGet({ parameter: { page: 'admin' } });
+  assert.equal(server.getSettingsMap_().webapp_url, OLD);
+  server.setup();
+  assert.equal(server.getSettingsMap_().sheet_id, 'SHEET-ORIGINAL');
+  assert.equal(server.getSettingsMap_().webapp_url, OLD, '원본에서 setup 재실행은 주소 유지');
+  const courses = server.getCourses_().map((c) => c.course_id + ':' + c.access_code);
+  // 사본 만들기 재현: 같은 데이터, 다른 스프레드시트 ID, 사본 프로젝트는 아직 정식 배포 전(/dev만)
+  const st = H.GasMock.revive(H.GasMock.serialize(env.__store.read())); st.sheetId = 'SHEET-COPY';
+  const { env: cenv, server: cs } = H.makeServer({ setup: false, state: st, url: 'https://script.google.com/macros/s/AKfycbwNEWCOPY/dev' });
+  cs.setup();
+  assert.equal(cs.getSettingsMap_().webapp_url, '', '사본: 원본 배포 주소 비움');
+  assert.equal(cs.getSettingsMap_().sheet_id, 'SHEET-COPY');
+  assert.deepEqual(cs.getCourses_().map((c) => c.course_id + ':' + c.access_code), courses, '교과목·접속코드 유지');
+  assert.equal(cs.adminLogin(PIN).ok, true, 'PIN 유지');
+  // 사본에서 새 배포 주소로 첫 접속 → 자동 저장 → QR이 새 주소
+  const { server: copy } = H.makeServer({ setup: false, state: H.GasMock.revive(H.GasMock.serialize(cenv.__store.read())), url: NEW });
+  copy.doGet({ parameter: { page: 'admin' } });
+  assert.equal(copy.getSettingsMap_().webapp_url, NEW);
+  const s2 = H.login(copy, PIN);
+  assert.ok(copy.getAdminBootstrap(s2).courses.every((c) => c.link.indexOf(NEW + '?c=') === 0), 'QR이 새 주소');
+});
