@@ -1162,7 +1162,7 @@
           <div class="row wrap" style="gap:8px;align-items:center">
             <div class="field" style="min-width:min(100%,360px)"><label class="sr-only" for="res-course">교과목 선택</label>
               <select class="select" id="res-course">${courseOptions(A.resultsCourse, false)}</select></div>
-            <button type="button" class="btn" data-act="screen-pdf">${icon('file-down')}화면 그대로 PDF</button>
+            <button type="button" class="btn primary" data-act="report-pdf">${icon('file-down')}결과 보고서 PDF</button>
           </div>
         </div>
         <div id="res-body"><div class="bento"><div class="skeleton span-2"></div><div class="skeleton span-2"></div></div></div>`, true);
@@ -1552,83 +1552,59 @@
       if (res.omitted) CES.toast(`익명성 보호를 위해 소규모 집단이 있는 드롭다운 문항 ${res.omitted}개를 제외했습니다.`);
     }
 
-    /* ───── 결과 분석 화면 그대로 PDF(브라우저에서 화면을 이미지로 찍어 A4로 나눔) ───── */
-    const PDF_LIBS = [
-      'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js',
-      'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js'
-    ];
-    function loadScript(src) {
-      return new Promise((ok, no) => {
-        const old = document.querySelector(`script[src="${src}"]`);
-        if (old && old.dataset.loaded) return ok();
-        const s = old || document.createElement('script');
-        s.addEventListener('load', () => { s.dataset.loaded = '1'; ok(); });
-        s.addEventListener('error', () => no(new Error('스크립트를 불러오지 못했습니다: ' + src)));
-        if (!old) { s.src = src; document.head.appendChild(s); }
+    /* ───── 결과 보고서 PDF(매뉴얼처럼 인쇄용으로 설계, 서버에서 생성 — 글자 검색 가능) ───── */
+    /** 차트 캔버스 → 카드 배경을 깐 PNG(투명 배경이 PDF에서 어색하지 않게) */
+    function canvasPng(el) {
+      if (!el || !el.width) return '';
+      const c = document.createElement('canvas');
+      c.width = el.width; c.height = el.height;
+      const g = c.getContext('2d');
+      g.fillStyle = getComputedStyle(el.closest('.card') || document.body).backgroundColor || '#fff';
+      g.fillRect(0, 0, c.width, c.height);
+      g.drawImage(el, 0, 0);
+      try { return c.toDataURL('image/png'); } catch (e) { return ''; }
+    }
+    /** 워드 클라우드 SVG → PNG(글자 색을 인라인으로 옮겨 CSS 없이도 같은 색) */
+    function svgPng(svg) {
+      return new Promise((done) => {
+        if (!svg) return done('');
+        const box = svg.getBoundingClientRect();
+        const w = Math.max(1, Math.round(box.width)), h = Math.max(1, Math.round(box.height));
+        const clone = svg.cloneNode(true);
+        const src = svg.querySelectorAll('text'), dst = clone.querySelectorAll('text');
+        src.forEach((t, i) => {
+          const cs = getComputedStyle(t);
+          dst[i].setAttribute('fill', cs.fill);
+          dst[i].setAttribute('font-family', cs.fontFamily);
+          dst[i].setAttribute('font-weight', cs.fontWeight);
+        });
+        clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        clone.setAttribute('width', w); clone.setAttribute('height', h);
+        const im = new Image();
+        im.onload = () => {
+          const c = document.createElement('canvas');
+          c.width = w * 2; c.height = h * 2;
+          const g = c.getContext('2d');
+          g.fillStyle = getComputedStyle(svg.closest('.card') || document.body).backgroundColor || '#fff';
+          g.fillRect(0, 0, c.width, c.height);
+          g.drawImage(im, 0, 0, c.width, c.height);
+          try { done(c.toDataURL('image/png')); } catch (e) { done(''); }
+        };
+        im.onerror = () => done('');
+        im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(clone));
       });
     }
-    /** 링·막대·숫자 애니메이션을 끝난 상태로 맞춥니다(찍는 순간 0으로 나오지 않게). */
-    function finishAnimations(root) {
-      $$('.ring-fg[data-off]', root).forEach((el) => { el.style.strokeDashoffset = el.getAttribute('data-off'); });
-      $$('[data-w]', root).forEach((el) => { el.style.width = el.getAttribute('data-w'); });
-      $$('[data-grow]', root).forEach((el) => { el.style.flexGrow = el.getAttribute('data-grow'); });
-      $$('[data-count]', root).forEach((el) => { el.textContent = Number(el.getAttribute('data-count')).toFixed(Number(el.getAttribute('data-dec') || 0)); });
-    }
-    async function screenPdf(btn) {
-      const c = courseById(A.resultsCourse);
-      if (!$('#res-body .section-head')) return CES.toast('결과를 불러온 뒤에 저장하세요(응답 수가 최소 공개 수 이상이어야 합니다).', 'error');
-      const restore = CES.busyButton(btn, 'PDF 만드는 중…');
-      view.classList.add('pdf-capture');
+    async function reportPdf(btn) {
+      if (!$('#res-body .section-head')) return CES.toast('결과가 열린 교과목에서 저장할 수 있습니다(응답 수가 최소 공개 수 이상).', 'error');
+      const restore = CES.busyButton(btn, '보고서 만드는 중…');
       try {
-        await Promise.all(PDF_LIBS.map(loadScript));
-        finishAnimations(view);
-        if (document.fonts && document.fonts.ready) await document.fonts.ready;
-        await new Promise((r) => setTimeout(r, 650)); // 차트 애니메이션 종료 대기
-        const scale = 2;
-        const canvas = await window.html2canvas(view, {
-          scale, useCORS: true, logging: false,
-          backgroundColor: getComputedStyle(document.body).backgroundColor,
-          ignoreElements: (el) => el.tagName === 'BUTTON' || el.hasAttribute('data-pdf-skip')
-        });
-        // A4(여백 10mm)에 맞춰 나누되, 가능하면 카드 경계에서 자릅니다.
-        const { jsPDF } = window.jspdf;
-        const pdf = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
-        const margin = 10, wMm = 210 - margin * 2, hMm = 297 - margin * 2;
-        const pxPerMm = canvas.width / wMm, pageH = Math.floor(hMm * pxPerMm);
-        const top = view.getBoundingClientRect().top;
-        // 자를 수 있는 곳: 카드 아래(간격 포함)와 소제목 바로 위(소제목이 쪽 끝에 홀로 남지 않게)
-        const cuts = $$('.card, section, .bento', view)
-          .map((el) => Math.round((el.getBoundingClientRect().bottom - top) * scale) + 12 * scale)
-          .concat($$('.section-head', view).map((el) => Math.round((el.getBoundingClientRect().top - top) * scale) - 4 * scale))
-          .filter((y) => y > 0 && y < canvas.height).sort((a, b) => a - b);
-        let y = 0, page = 0;
-        while (y < canvas.height - 2) {
-          let end = Math.min(y + pageH, canvas.height);
-          if (end < canvas.height) {
-            const fit = cuts.filter((v) => v > y + pageH * 0.45 && v <= y + pageH).pop();
-            if (fit) end = fit;
-          }
-          const part = document.createElement('canvas');
-          part.width = canvas.width; part.height = end - y;
-          const g = part.getContext('2d');
-          g.fillStyle = getComputedStyle(document.body).backgroundColor; g.fillRect(0, 0, part.width, part.height);
-          g.drawImage(canvas, 0, y, canvas.width, end - y, 0, 0, canvas.width, end - y);
-          if (page++) pdf.addPage();
-          pdf.addImage(part.toDataURL('image/jpeg', 0.92), 'JPEG', margin, margin, wMm, (end - y) / pxPerMm);
-          y = end;
-        }
-        const name = c ? `${c.course_name}_${term(c)}` : '결과';
-        const bytes = new Uint8Array(pdf.output('arraybuffer'));
-        let bin = '';
-        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-        CES.downloadBase64(`결과분석_${name}.pdf`.replace(/\s+/g, '_'), btoa(bin), 'application/pdf');
-        CES.toast(`화면 그대로 PDF ${page}쪽을 저장했습니다.`);
-      } catch (e) {
-        // 라이브러리를 못 불러오면 브라우저 인쇄 창의 「PDF로 저장」으로 안내
-        CES.toast('PDF를 바로 만들지 못해 인쇄 창을 엽니다. 대상에서 「PDF로 저장」을 고르세요.', 'error');
-        setTimeout(() => window.print(), 300);
+        const images = { radar: canvasPng($('#radar')), semester: canvasPng($('#semChart')), section: canvasPng($('#secChart')), wordcloud: await svgPng($('#wc svg')) };
+        Object.keys(images).forEach((k) => { if (!images[k]) delete images[k]; });
+        const res = await api('exportPdf', [A.resultsCourse, 'report', { images, aiSummary: ($('#ai-summary') || {}).value || '' }]);
+        if (!res.ok) return fail(res);
+        CES.downloadBase64(res.filename, res.base64, 'application/pdf');
+        CES.toast('결과 보고서 PDF를 저장했습니다.');
       } finally {
-        view.classList.remove('pdf-capture');
         restore();
       }
     }
@@ -1775,7 +1751,7 @@
         case 'del-course': return deleteCourse(c);
         case 'access': return openAccessFresh(t.dataset.id, t);
         case 'tokens': return openTokens(c);
-        case 'screen-pdf': return screenPdf(t);
+        case 'report-pdf': return reportPdf(t);
         case 'new-term': return openNewTerm();
         case 'add-item':
           A.items.push({ domain: A.items.length ? A.items[A.items.length - 1].domain : DOMAINS[0], text: '', type: 'likert5', required: true, reverse: false, options: [] });

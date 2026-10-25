@@ -1158,3 +1158,28 @@ test('단축 주소 기능 삭제: setup이 short_url·short_url_target 행을 �
   const s = H.login(server, '246810');
   assert.ok(!('short_url' in server.getAdminBootstrap(s).settings));
 });
+
+test('결과 보고서 PDF(매뉴얼형): 장 구성·강점/개선점 상자·안전한 차트 그림만 포함', () => {
+  const { server } = H.makeServer({ pin: '246810' });
+  const s = H.login(server, '246810');
+  server.generateSampleResponses();
+  const demo = H.demoCourse(server);
+  const png = 'data:image/png;base64,' + Buffer.from('fakepng').toString('base64');
+  const r = server.exportPdf(s, demo.course_id, 'report', {
+    images: { radar: png, wordcloud: png, semester: 'javascript:alert(1)', section: 'data:image/svg+xml;base64,PHN2Zz4=', evil: png },
+    aiSummary: '<b>주요 주제</b>: 실습 확대'
+  });
+  assert.equal(r.ok, true);
+  assert.match(r.filename, /_결과보고서\.pdf$/);
+  const html = Buffer.from(r.base64, 'base64').toString('utf8');
+  for (const t of ['강의평가 결과 보고서', '담당 교수', '한눈에 보기', '영역별 결과', '문항별 결과', '서술형 응답', 'CQI 요약', 'class="good"', 'class="improve"', '다음 학기 개선 계획']) assert.ok(html.includes(t), t);
+  assert.equal((html.match(/<img src="data:image\/png;base64,/g) || []).length, 2, '형식이 맞는 그림 2개만');
+  assert.ok(!html.includes('javascript:') && !html.includes('svg+xml'), '위험한 그림 제외');
+  assert.ok(html.includes('&lt;b&gt;주요 주제&lt;/b&gt;'), 'AI 요약 이스케이프');
+  // 그림 없이도 생성(차트가 없는 교과목)
+  assert.equal(server.exportPdf(s, demo.course_id, 'report').ok, true);
+  // 너무 큰 그림은 제외
+  const big = 'data:image/png;base64,' + 'A'.repeat(3 * 1024 * 1024 + 10);
+  const r2 = server.exportPdf(s, demo.course_id, 'report', { images: { radar: big } });
+  assert.ok(!Buffer.from(r2.base64, 'base64').toString('utf8').includes('<img'), '3MB 초과 제외');
+});
