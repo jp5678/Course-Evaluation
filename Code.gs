@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.4.10',
+  VERSION: '1.4.11',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -672,7 +672,7 @@ function scopedTexts_(ctx, itemId) {
  */
 function exportPdf(session, courseId, kind, opts) {
   return adminApi_(session, function () {
-    var builders = { raw: rawPdfBody_, cqi: cqiPdfBody_, text: textPdfBody_ };
+    var builders = { raw: rawPdfBody_, cqi: cqiPdfBody_, text: textPdfBody_, report: reportPdfBody_ };
     if (!builders.hasOwnProperty(kind)) return { ok: false, code: 'VALIDATION', field: 'kind' };
     var ctx = resultContext_(courseId);
     if (!ctx.ok) return ctx;
@@ -711,6 +711,12 @@ function pdfDocument_(title, ctx, body) {
     'td.n,th.n{text-align:center;white-space:nowrap}ol{margin:4px 0 10px;padding-left:22px}li{margin:2px 0}' +
     '.box{border:1px solid #c9cce0;padding:8px 10px;margin:8px 0;background:#fafafe}.note{color:#5b6078;font-size:8.5pt}' +
     '.plan{height:90px;border:1px solid #c9cce0}' +
+    'h2 .no{display:inline-block;background:#5B4BFF;color:#fff;border-radius:3px;padding:0 6px;margin-right:4px}h3{font-size:10.5pt;margin:12px 0 4px}' +
+    'table.info th{width:22%;background:#f3f2fb}table.kpis td.kpi{text-align:center;width:25%;padding:8px 4px;background:#fafafe}' +
+    '.kt{color:#5b6078;font-size:8.5pt}.kb{font-size:20pt;font-weight:bold;color:#3d2fd6;line-height:1.2}.kb small{font-size:9pt;color:#5b6078}.ks{font-size:8pt;color:#5b6078}' +
+    '.bar{background:#ebeaf3;height:8px;width:100%}.bar div{height:8px}.dist{height:8px;width:100%;background:#f1f0ec;white-space:nowrap;font-size:0}.dist div{display:inline-block;height:8px}' +
+    'td.nw{white-space:nowrap}.fig{text-align:center;margin:8px 0 12px;page-break-inside:avoid}.fig img{max-width:100%;max-height:300px}.cap{font-size:8.5pt;color:#5b6078;margin-top:2px}' +
+    '.good{background:#DDF3E4;padding:8px 10px;margin:8px 0}.improve{background:#FFE8A3;padding:8px 10px;margin:8px 0}' +
     '</style></head><body>' +
     '<h1>' + escHtml_(title) + '</h1>' +
     '<div class="meta"><b>' + escHtml_(c.course_name) + '</b> · ' + escHtml_(meta) + '</div>' +
@@ -752,6 +758,129 @@ function rawPdfBody_(ctx) {
   var omitted = ctx.items.length - cols.length;
   if (omitted) html += '<p class="note">익명성 보호를 위해 소규모 집단이 생기는 드롭다운 문항 ' + omitted + '개는 제외했습니다.</p>';
   return { title: '강의평가 원자료', label: '원자료', body: html, omitted: omitted };
+}
+
+/** 결과 보고서 PDF에 넣을 차트 그림(브라우저가 만든 PNG). 형식·크기를 확인해 안전한 것만 씁니다. */
+var REPORT_IMAGE_KEYS = ['radar', 'semester', 'section', 'wordcloud'];
+var REPORT_IMAGE_MAX = 3 * 1024 * 1024; // 그림 1개 최대 3MB(base64 길이)
+
+function reportImages_(opts) {
+  var src = opts && opts.images && typeof opts.images === 'object' ? opts.images : {};
+  var out = {};
+  REPORT_IMAGE_KEYS.forEach(function (k) {
+    var v = src[k];
+    if (typeof v === 'string' && v.length <= REPORT_IMAGE_MAX && /^data:image\/(png|jpeg);base64,[A-Za-z0-9+\/=]+$/.test(v)) out[k] = v;
+  });
+  return out;
+}
+
+/** 5점 척도 막대(평균) — PDF 표 안에 그리는 단순 막대 */
+function meanBar_(m, color) {
+  var w = m == null ? 0 : Math.max(0, Math.min(100, Math.round(m / 5 * 100)));
+  return '<div class="bar"><div style="width:' + w + '%;background:' + (color || '#5B4BFF') + '"></div></div>';
+}
+
+/** 응답 분포 막대(1~5점 비율) */
+function distBar_(dist) {
+  var n = (dist || []).reduce(function (a, b) { return a + b; }, 0);
+  if (!n) return '';
+  var colors = ['#E5484D', '#F2A08A', '#C9C6BE', '#9E95FF', '#5B4BFF'];
+  return '<div class="dist">' + dist.map(function (c, i) {
+    var w = Math.round(c / n * 1000) / 10;
+    return w ? '<div style="width:' + w + '%;background:' + colors[i] + '"></div>' : '';
+  }).join('') + '</div>';
+}
+
+/**
+ * 결과 보고서 PDF(매뉴얼처럼 인쇄용으로 설계): 보고서 정보 → 1 한눈에 보기 → 2 영역별 결과 → 3 학기·분반 비교
+ * → 4 문항별 결과 → 5 서술형 응답 → 6 CQI(강점·개선점·AI 요약·개선 계획). 차트는 opts.images(PNG)로 받습니다.
+ */
+function reportPdfBody_(ctx, opts) {
+  opts = opts || {};
+  var img = reportImages_(opts);
+  var stats = computeStats_(ctx.items, ctx.rows);
+  var cqi = cqiSummary_(stats);
+  var c = ctx.summary;
+  var settings = getSettingsMap_();
+  var f = function (v) { return v == null ? '—' : String(v); };
+  var figure = function (key, caption) {
+    return img[key] ? '<div class="fig"><img src="' + img[key] + '"><div class="cap">' + escHtml_(caption) + '</div></div>' : '';
+  };
+  var no = 0;
+  var h2 = function (t) { no++; return '<h2><span class="no">' + no + '</span> ' + escHtml_(t) + '</h2>'; };
+
+  // 보고서 정보
+  var info = [
+    ['교과목', c.course_name], ['학년도·학기', c.year + '학년도 ' + c.semester + '학기'], ['학년', c.grade ? c.grade + '학년' : '—'],
+    ['학과', c.department || '—'], ['수업 방식', c.delivery_mode], ['교과목 유형', c.course_type],
+    ['응답 기간', (ctx.course.start_at ? fmtD_(ctx.course.start_at) : '') + ' ~ ' + (ctx.course.end_at ? fmtD_(ctx.course.end_at) : '')],
+    ['응답 수', ctx.rows.length + '명' + (c.enrollment ? ' (수강 ' + c.enrollment + '명, 응답률 ' + c.response_rate + '%)' : '')],
+    ['담당 교수', [settings.professor_name, settings.affiliation].filter(String).join(' · ') || '—'], ['작성일', fmtD_(new Date())]
+  ];
+  var html = '<table class="info">' + info.map(function (r) { return '<tr><th>' + escHtml_(r[0]) + '</th><td>' + escHtml_(r[1]) + '</td></tr>'; }).join('') + '</table>';
+
+  // 1. 한눈에 보기
+  var k = stats.kpis || {};
+  var kpi = function (title, big, sub) { return '<td class="kpi"><div class="kt">' + escHtml_(title) + '</div><div class="kb">' + big + '</div><div class="ks">' + sub + '</div></td>'; };
+  html += h2('한눈에 보기') + '<table class="kpis"><tr>' +
+    kpi('응답 수', ctx.rows.length + '<small>명</small>', escHtml_(c.year + '-' + c.semester + '학기')) +
+    kpi('전체 평균', f(stats.overall) + '<small>/5</small>', escHtml_(interpretMean_(stats.overall)) + ' · 긍정 ' + f(stats.overall_pos_pct) + '%') +
+    kpi('전반적 만족도', k.satisfaction ? f(k.satisfaction.pos_pct) + '<small>%</small>' : '—', k.satisfaction ? '긍정(4·5점) · 평균 ' + f(k.satisfaction.mean) : '문항 없음') +
+    kpi('추천 의향', k.recommend ? f(k.recommend.pos_pct) + '<small>%</small>' : '—', k.recommend ? '긍정(4·5점) · 평균 ' + f(k.recommend.mean) : '문항 없음') +
+    '</tr></table>';
+
+  // 2. 영역별 결과
+  html += h2('영역별 결과') + '<table><tr><th>영역</th><th class="n">문항</th><th class="n">평균</th><th style="width:28%">평균(5점)</th><th class="n">표준편차</th><th class="n">긍정(%)</th><th class="n">해석</th></tr>' +
+    stats.domains.map(function (d) {
+      return '<tr><td>' + escHtml_(d.domain) + '</td><td class="n">' + d.item_count + '</td><td class="n"><b>' + f(d.mean) + '</b></td><td>' +
+        meanBar_(d.mean, d.mean != null && d.mean < 3 ? '#E5484D' : '#5B4BFF') + '</td><td class="n">' + f(d.sd) + '</td><td class="n">' + f(d.pos_pct) +
+        '</td><td class="n">' + escHtml_(interpretMean_(d.mean)) + '</td></tr>';
+    }).join('') + '</table>' + figure('radar', '그림. 영역별 평균(레이더 차트)');
+
+  // 3. 학기·분반 비교
+  var cmpTable = function (g, label) {
+    if (!g || !g.groups || g.groups.length < 2) return '';
+    var doms = g.groups[0].domains.map(function (d) { return d.domain; });
+    return '<h3>' + escHtml_(label) + '</h3><table><tr><th>구분</th><th class="n">응답</th><th class="n">전체</th>' +
+      doms.map(function (d) { return '<th class="n">' + escHtml_(String(d).charAt(0)) + '</th>'; }).join('') + '</tr>' +
+      g.groups.map(function (x) {
+        return '<tr><td>' + escHtml_(x.label) + '</td><td class="n">' + x.n + '</td><td class="n"><b>' + f(x.overall) + '</b></td>' +
+          doms.map(function (d) { var m = (x.domains.filter(function (y) { return y.domain === d; })[0] || {}).mean; return '<td class="n">' + f(m) + '</td>'; }).join('') + '</tr>';
+      }).join('') + '</table>';
+  };
+  var sem = compareGroups_(ctx, 'semester'), sec = compareGroups_(ctx, 'section');
+  var cmp = cmpTable(sem, '학기 간 비교 (같은 교과목명)') + figure('semester', '그림. 학기 간 비교') + cmpTable(sec, '분반 간 비교 (같은 학기)') + figure('section', '그림. 분반 간 비교');
+  if (cmp) html += h2('학기·분반 비교') + cmp + '<p class="note">영역 머리글은 영역 기호(A~I)입니다. 응답이 최소 공개 수 미만인 학기·분반은 제외됩니다.</p>';
+
+  // 4. 문항별 결과
+  html += h2('문항별 결과') + '<table><tr><th class="n">#</th><th>영역</th><th>문항</th><th class="n">n</th><th class="n">평균</th><th class="n">SD</th><th class="n">긍정(%)</th><th style="width:16%">분포(1→5점)</th></tr>' +
+    stats.items.filter(function (s) { return s.type === 'likert5'; }).map(function (s, i) {
+      return '<tr><td class="n">' + (i + 1) + '</td><td class="nw">' + escHtml_(String(s.domain).replace(/\s.*$/, '')) + '</td><td>' + escHtml_(s.text) + (s.reverse ? ' (역문항)' : '') +
+        '</td><td class="n">' + s.n + '</td><td class="n"><b>' + f(s.mean) + '</b></td><td class="n">' + f(s.sd) + '</td><td class="n">' + f(s.pos_pct) + '</td><td>' + distBar_(s.sdist) + '</td></tr>';
+    }).join('') + '</table><p class="note">분포 색: 빨강 1점 · 주황 2점 · 회색 3점 · 연보라 4점 · 보라 5점(역문항은 환산 점수).</p>';
+
+  // 5. 서술형 응답
+  var texts = textAnswers_(ctx.items, ctx.rows);
+  var wc = wordCloudData_(ctx.items, ctx.rows);
+  html += h2('서술형 응답') + figure('wordcloud', '그림. 서술형 응답 워드 클라우드') +
+    (wc.all && wc.all.length ? '<p><b>자주 나온 단어</b> ' + wc.all.slice(0, 15).map(function (x) { return escHtml_(x.w) + '(' + x.n + ')'; }).join(' · ') + '</p>' : '') +
+    (texts.map(function (t) {
+      return '<h3>' + escHtml_(t.text) + ' <span class="note">(' + t.answers.length + '건)</span></h3>' +
+        (t.answers.length ? '<ol>' + t.answers.map(function (a) { return '<li>' + escHtml_(a) + '</li>'; }).join('') + '</ol>' : '<p class="note">응답 없음</p>');
+    }).join('') || '<p class="note">서술형 문항이 없습니다.</p>');
+
+  // 6. CQI
+  var list = function (arr) {
+    return '<ol>' + (arr.map(function (x) { return '<li>' + escHtml_(x.text) + ' <b>(' + f(x.mean) + ')</b> <span class="note">' + escHtml_(x.domain) + '</span></li>'; }).join('') || '<li>—</li>') + '</ol>';
+  };
+  var summary = String(opts.aiSummary == null ? '' : opts.aiSummary).replace(/\r\n?/g, '\n').trim().slice(0, 5000);
+  html += h2('CQI 요약') +
+    '<div class="good"><b>강점</b> (문항 평균 상위)' + list(cqi.strengths) + '</div>' +
+    '<div class="improve"><b>개선점</b> (문항 평균 하위)' + list(cqi.improvements) + '</div>' +
+    (summary ? '<h3>서술형 AI 요약 (교수 검토)</h3><div class="box">' + escHtml_(summary).replace(/\n/g, '<br>') + '</div>' : '') +
+    '<h3>다음 학기 개선 계획 (교수 작성)</h3><div class="plan"></div>' +
+    '<p class="note">해석 기준(5점): 4.5 이상 매우 우수 · 4.0 이상 우수 · 3.5 이상 보통 이상 · 3.0 이상 보통 · 3.0 미만 개선 필요. 긍정 응답률 = 4·5점 비율, 역문항은 환산.</p>';
+  return { title: '강의평가 결과 보고서', label: '결과보고서', body: html };
 }
 
 /** CQI 요약표 PDF: 영역별 평균·표준편차·긍정 응답률·해석, 강점·개선점, 개선 계획 작성란 */
