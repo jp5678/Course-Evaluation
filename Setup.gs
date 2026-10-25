@@ -157,6 +157,7 @@ function setup() {
   // v1.5 독립형 시험 설치의 흔적 정리: 학생용 주소가 독립형 배포를 가리킬 수 있으므로 비우고(이 프로젝트의 /exec로
   // 관리자 화면에 접속하면 다시 자동 저장), 더 쓰지 않는 설정 행은 지웁니다.
   if (removeSettings_(OBSOLETE_SETTINGS) > 0) setSetting_('webapp_url', '');
+  removeSettings_(OBSOLETE_SHORT_SETTINGS);
 
   // 접속코드가 비어 있는 접속코드 방식 교과목(이전 버전의 「링크만으로 참여」)에 코드를 만들어 줍니다.
   fillMissingAccessCodes_();
@@ -679,6 +680,8 @@ function notify_(title, message) {
 
 /** 더 이상 쓰지 않는 설정 키(v1.5 독립형 설치에서 추가) */
 var OBSOLETE_SETTINGS = ['script_id', 'webapp_script_id'];
+/** v1.4.4~1.4.7 단축 주소 기능의 설정(기능 삭제) — 학생 주소와 무관하므로 행만 지웁니다. */
+var OBSOLETE_SHORT_SETTINGS = ['short_url', 'short_url_target'];
 
 /** Settings 시트에서 주어진 키의 행을 지우고, 지운 행 수를 돌려줍니다. */
 function removeSettings_(keys) {
