@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.4.12',
+  VERSION: '1.4.13',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -672,7 +672,7 @@ function scopedTexts_(ctx, itemId) {
  */
 function exportPdf(session, courseId, kind, opts) {
   return adminApi_(session, function () {
-    var builders = { raw: rawPdfBody_, cqi: cqiPdfBody_, text: textPdfBody_, report: reportPdfBody_ };
+    var builders = { raw: rawPdfBody_, text: textPdfBody_, report: reportPdfBody_ };
     if (!builders.hasOwnProperty(kind)) return { ok: false, code: 'VALIDATION', field: 'kind' };
     var ctx = resultContext_(courseId);
     if (!ctx.ok) return ctx;
@@ -871,7 +871,7 @@ function reportPdfBody_(ctx, opts) {
 
   // 6. CQI
   var list = function (arr) {
-    return '<ol>' + (arr.map(function (x) { return '<li>' + escHtml_(x.text) + ' <b>(' + f(x.mean) + ')</b> <span class="note">' + escHtml_(x.domain) + '</span></li>'; }).join('') || '<li>—</li>') + '</ol>';
+    return '<ol>' + (arr.map(function (x) { return '<li>' + escHtml_(x.text) + ' <b>(평균 ' + f(x.mean) + ', SD ' + f(x.sd) + ')</b> <span class="note">' + escHtml_(x.domain) + '</span></li>'; }).join('') || '<li>—</li>') + '</ol>';
   };
   var summary = String(opts.aiSummary == null ? '' : opts.aiSummary).replace(/\r\n?/g, '\n').trim().slice(0, 5000);
   html += h2('CQI 요약') +
@@ -881,35 +881,6 @@ function reportPdfBody_(ctx, opts) {
     '<h3>다음 학기 개선 계획 (교수 작성)</h3><div class="plan"></div>' +
     '<p class="note">해석 기준(5점): 4.5 이상 매우 우수 · 4.0 이상 우수 · 3.5 이상 보통 이상 · 3.0 이상 보통 · 3.0 미만 개선 필요. 긍정 응답률 = 4·5점 비율, 역문항은 환산.</p>';
   return { title: '강의평가 결과 보고서', label: '결과보고서', body: html };
-}
-
-/** CQI 요약표 PDF: 영역별 평균·표준편차·긍정 응답률·해석, 강점·개선점, 개선 계획 작성란 */
-function cqiPdfBody_(ctx) {
-  var stats = computeStats_(ctx.items, ctx.rows);
-  var cqi = cqiSummary_(stats);
-  var f = function (v) { return v == null ? '—' : String(v); };
-  var html = '<div class="box">전체 평균 <b>' + f(stats.overall) + '</b> / 5 · 긍정 응답률 <b>' + f(stats.overall_pos_pct) + '%</b> · 해석: ' +
-    escHtml_(interpretMean_(stats.overall)) + '</div>';
-  html += '<h2>영역별 결과</h2><table><tr><th>영역</th><th class="n">문항 수</th><th class="n">평균</th><th class="n">표준편차</th><th class="n">긍정 응답률(%)</th><th class="n">해석</th></tr>' +
-    stats.domains.map(function (d) {
-      return '<tr><td>' + escHtml_(d.domain) + '</td><td class="n">' + d.item_count + '</td><td class="n">' + f(d.mean) + '</td><td class="n">' + f(d.sd) +
-        '</td><td class="n">' + f(d.pos_pct) + '</td><td class="n">' + escHtml_(interpretMean_(d.mean)) + '</td></tr>';
-    }).join('') + '</table>';
-  var list = function (arr) {
-    return '<table><tr><th>영역</th><th>문항</th><th class="n">평균</th><th class="n">표준편차</th></tr>' + (arr.map(function (x) {
-      return '<tr><td>' + escHtml_(x.domain) + '</td><td>' + escHtml_(x.text) + '</td><td class="n">' + f(x.mean) + '</td><td class="n">' + f(x.sd) + '</td></tr>';
-    }).join('') || '<tr><td colspan="4">—</td></tr>') + '</table>';
-  };
-  html += '<h2>강점 (문항 평균 상위)</h2>' + list(cqi.strengths);
-  html += '<h2>개선점 (문항 평균 하위)</h2>' + list(cqi.improvements);
-  html += '<h2>문항별 결과</h2><table><tr><th class="n">#</th><th>영역</th><th>문항</th><th class="n">n</th><th class="n">평균</th><th class="n">표준편차</th><th class="n">긍정(%)</th></tr>' +
-    stats.items.filter(function (s) { return s.type === 'likert5'; }).map(function (s, i) {
-      return '<tr><td class="n">' + (i + 1) + '</td><td>' + escHtml_(s.domain) + '</td><td>' + escHtml_(s.text) + (s.reverse ? ' (역문항)' : '') +
-        '</td><td class="n">' + s.n + '</td><td class="n">' + f(s.mean) + '</td><td class="n">' + f(s.sd) + '</td><td class="n">' + f(s.pos_pct) + '</td></tr>';
-    }).join('') + '</table>';
-  html += '<h2>개선 계획 (교수 작성)</h2><div class="plan"></div>' +
-    '<p class="note">해석 기준(5점): 4.5 이상 매우 우수 · 4.0 이상 우수 · 3.5 이상 보통 이상 · 3.0 이상 보통 · 3.0 미만 개선 필요. 긍정 응답률 = 4·5점 비율, 역문항은 환산.</p>';
-  return { title: 'CQI 요약표', label: 'CQI요약', body: html };
 }
 
 /**
