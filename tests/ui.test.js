@@ -549,13 +549,24 @@ test('교수 360px: 접속 주소 창 가로 넘침 없음(주소·안내문 복
   await page.locator(`[data-act="access"][data-id="${cid}"]`).click();
   await page.waitForSelector('[data-access-addr]');
   await page.getByRole('button', { name: /안내문 복사/ }).waitFor();
-  // 단축 주소 만들기 → 창이 단축 주소로 다시 열림
+  // 단축 주소 만들기 → 창에 단축 주소가 보조로 표시
   await page.getByRole('button', { name: '단축 주소 만들기' }).click();
   await page.locator('.addr-short').waitFor();
   assert.equal(await page.locator('.addr-short').innerText(), 'https://tinyurl.com/ces-demo');
+  // 주소 복사·안내문은 원래(긴) 주소, 단축 주소 복사는 따로
+  await page.evaluate(() => { window.__copied = []; CES.copy = (t) => { window.__copied.push(t); return Promise.resolve(true); }; });
+  await page.getByRole('button', { name: '주소 복사', exact: true }).click();
+  await page.getByRole('button', { name: /안내문 복사/ }).click();
+  await page.getByRole('button', { name: '단축 주소 복사' }).click();
+  const copied = await page.evaluate(() => window.__copied);
+  assert.match(copied[0], /^https:\/\/script\.google\.com\/macros\/s\/PREVIEW\/exec$/, '주소 복사 = 원래 주소');
+  assert.match(copied[1], /주소: https:\/\/script\.google\.com\/macros\/s\/PREVIEW\/exec/, '안내문 = 원래 주소');
+  assert.ok(!/tinyurl/.test(copied[1]), '안내문에 단축 주소 없음');
+  assert.equal(copied[2], 'https://tinyurl.com/ces-demo');
   await page.getByRole('button', { name: '수업 화면에 띄우기' }).click();
   await page.locator('.present .addr-big').waitFor();
-  assert.equal(await page.locator('.present .addr-big').innerText(), 'https://tinyurl.com/ces-demo', '수업 화면도 단축 주소');
+  assert.match(await page.locator('.present .addr-big').innerText(), /PREVIEW\/exec$/, '수업 화면은 원래 주소');
+  await page.locator('.present').getByText('tinyurl.com/ces-demo').waitFor();
   await noHorizontalScroll(page, '수업 화면 접속 안내');
   await page.keyboard.press('Escape');
   await page.locator(`[data-act="access"][data-id="${cid}"]`).click();
@@ -564,6 +575,9 @@ test('교수 360px: 접속 주소 창 가로 넘침 없음(주소·안내문 복
   assert.ok(ov[0] <= ov[1], '접속 주소 창 가로 넘침 없음(360px): ' + ov);
   await noHorizontalScroll(page, '접속 주소 창');
   await shot(page, 'm13-access-modal');
+  // 단축 주소 지우기 → 다시 만들기 버튼
+  await page.getByRole('button', { name: '단축 주소 지우기' }).click();
+  await page.getByRole('button', { name: '단축 주소 만들기' }).waitFor();
 });
 
 test('새 학기 준비: 대상 교과목 표시 → 준비하기 → 새 접속코드 요약, 360px 넘침 없음', async () => {
