@@ -30,7 +30,11 @@ test('설치 파일: 단일 파일로 setup 완료(파일 접근 없음), 메뉴
   for (const fn of ['doGet', 'onOpen', 'setup', 'setAdminPinFromMenu', 'showWebAppUrl', 'generateSampleResponses', 'deleteSampleData']) {
     assert.equal(typeof server[fn], 'function', fn);
   }
-  assert.match(BUNDLE, /@OnlyCurrentDoc/);
+  // 독립형 설치 설정(CES_SHEET_ID·CES_NEW_PIN)은 긴 HTML 데이터보다 앞, 파일 맨 위에 한 번만
+  const cfg = BUNDLE.indexOf("var CES_SHEET_ID = '';"), files = BUNDLE.indexOf('var __FILES__');
+  assert.ok(cfg > 0 && cfg < files, '설정 블록이 맨 위');
+  assert.equal(BUNDLE.split('var CES_SHEET_ID').length, 2, '설정은 한 번만');
+  assert.ok(BUNDLE.indexOf("var CES_NEW_PIN = '';") < files);
   assert.match(BUNDLE, new RegExp('강의평가 Studio v' + server.APP.VERSION.replace(/\./g, '\\.')));
   assert.equal(server.tz_(), 'Asia/Seoul', '프로젝트 시간대와 무관하게 한국 시간');
 });

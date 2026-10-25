@@ -984,3 +984,47 @@ test('스프레드시트 사본에서 setup: 원본 배포의 학생용 주소�
   const s2 = H.login(copy, PIN);
   assert.ok(copy.getAdminBootstrap(s2).courses.every((c) => c.link.indexOf(NEW + '?c=') === 0), 'QR이 새 주소');
 });
+
+test('독립형 설치: 기존 데이터 시트 연결(주소로)·이전 연결형 주소 비움·새 /exec 자동 저장, 새 시트 자동 생성·편집기 PIN 설정', () => {
+  // 1) 기존 연결형 설치(데이터·PIN·예전 배포 주소)
+  const OLD = 'https://script.google.com/macros/s/AKfycbwBOUND/exec';
+  const NEW = 'https://script.google.com/macros/s/AKfycbwSTANDALONE/exec';
+  const { env, server } = H.makeServer({ pin: PIN, url: OLD });
+  server.doGet({ parameter: { page: 'admin' } });
+  server.setup();
+  const before = server.getCourses_().map((c) => c.course_id + ':' + c.access_code);
+  const state = H.GasMock.serialize(env.__store.read());
+
+  // 2) 독립형 프로젝트(다른 스크립트 ID, 활성 시트 없음)에서 CES_SHEET_ID에 시트 주소를 넣고 setup
+  const mk = (extra) => H.makeServer(Object.assign({ setup: false, state: H.GasMock.revive(state), standalone: true, scriptId: 'SCRIPT-STANDALONE',
+    url: 'https://script.google.com/macros/s/AKfycbwSTANDALONE/dev' }, extra));
+  const a = mk();
+  assert.throws(() => a.server.ss_(), /SETUP_REQUIRED/, '시트 미지정이면 설정 필요');
+  // CES_SHEET_ID 상수 대신 스크립트 속성으로 지정(setup이 CES_SHEET_ID 값을 이 속성에 저장하므로 같은 효과)
+  const b = mk({ scriptProps: { CES_SHEET_ID: 'SHEET-ORIGINAL' } });
+  b.server.setup();
+  const set = b.server.getSettingsMap_();
+  assert.equal(set.webapp_url, '', '이전 연결형 배포 주소 비움');
+  assert.equal(set.script_id, 'SCRIPT-STANDALONE');
+  assert.deepEqual(b.server.getCourses_().map((c) => c.course_id + ':' + c.access_code), before, '기존 교과목·접속코드 그대로');
+  assert.equal(b.server.adminLogin(PIN).ok, true, '기존 PIN 그대로');
+  // 독립형 새 배포 주소로 첫 접속 → 자동 저장 → QR이 새 주소
+  const c = H.makeServer({ setup: false, state: H.GasMock.revive(H.GasMock.serialize(b.env.__store.read())), standalone: true, scriptId: 'SCRIPT-STANDALONE',
+    scriptProps: { CES_SHEET_ID: 'SHEET-ORIGINAL' }, url: NEW });
+  c.server.doGet({ parameter: { page: 'admin' } });
+  assert.equal(c.server.getSettingsMap_().webapp_url, NEW);
+  const s = H.login(c.server, PIN);
+  assert.ok(c.server.getAdminBootstrap(s).courses.every((x) => x.link.indexOf(NEW + '?c=') === 0), 'QR이 독립형 주소');
+  c.server.setup();
+  assert.equal(c.server.getSettingsMap_().webapp_url, NEW, '같은 독립형 프로젝트에서 setup 재실행은 주소 유지');
+
+  // 3) 시트를 지정하지 않은 새 독립형 설치: 데이터 시트 자동 생성, 편집기에서 PIN 설정
+  const fresh = H.GasMock.createEnv({ readFile: H.readFile, fastSleep: true, standalone: true, scriptId: 'SCRIPT-FRESH', console: { log() {}, info() {}, warn() {}, error: console.error } });
+  const fs = H.GasMock.loadServer(fresh, H.SOURCES);
+  fs.setup();
+  assert.match(fresh.PropertiesService.getScriptProperties().getProperty('CES_SHEET_ID'), /^SHEET-NEW-/, '새 데이터 시트 ID 저장');
+  assert.equal(fs.getCourses_().length, 2, '예시 교과목 생성');
+  assert.equal(fs.setAdminPinFromMenu().code, 'PIN_FORMAT', 'CES_NEW_PIN이 비어 있으면 안내만');
+  assert.equal(fs.sheetIdFrom_('https://docs.google.com/spreadsheets/d/1CPuAk0HXjjl3ET1SiiYf2LlUGa_8khnxd92Q-AEaEnE/edit?usp=sharing'), '1CPuAk0HXjjl3ET1SiiYf2LlUGa_8khnxd92Q-AEaEnE');
+  assert.equal(fs.sheetIdFrom_('nope'), '');
+});
