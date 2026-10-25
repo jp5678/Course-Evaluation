@@ -127,7 +127,7 @@ test('학생 360px: 진입→접속코드→익명 안내→설문(키보드 1~5
   assert.equal(draft, 0, '제출 후 임시 저장 삭제');
 });
 
-test('간단 접속: 공통 주소에서 코드만 입력 → 바로 시작, 이전 버전 링크(코드 포함)는 코드 입력 생략', async () => {
+test('간단 접속: 공통 주소에서 코드만 입력 → 바로 시작, 새로 고침 이어하기, 다른 접속코드 입력', async () => {
   // ① 공통 주소(교과목 ID 없음): 접속코드 입력 화면 → 틀린 코드 안내 → 올바른 코드(소문자) → 교과목 카드
   const page = await newPage();
   await page.goto(base + '?scenario=student&c=');
@@ -150,43 +150,34 @@ test('간단 접속: 공통 주소에서 코드만 입력 → 바로 시작, 이
   await page.getByRole('heading', { name: '익명으로 응답합니다' }).waitFor();
   assert.equal(await page.locator('#cred').count(), 0, '코드 재입력 없음');
 
-  // ② 이전 버전 링크(?c=…&k=코드): 시작하기 → 바로 익명 안내
-  const p2 = await newPage();
-  const cid = await page.evaluate(() => window.__PREVIEW.courseId);
-  await p2.goto(base + '?scenario=student&c=' + cid + '&k=' + code);
-  await p2.getByRole('button', { name: '시작하기' }).click();
-  await p2.getByRole('heading', { name: '익명으로 응답합니다' }).waitFor();
-
-  // ③ 링크의 코드가 틀리면(코드 변경 등) 입력 화면으로 안내
-  const p3 = await newPage();
-  await p3.goto(base + '?scenario=student&c=' + cid + '&k=WRONG1');
-  await p3.getByRole('button', { name: '시작하기' }).click();
-  await p3.getByText('접속코드가 올바르지 않습니다').waitFor();
+  // 새로 고쳐도 같은 설문으로 이어짐(탭에 기억), [다른 접속코드 입력]으로 처음 화면
+  await page.reload();
+  await page.locator('#ct').waitFor();
+  await page.getByRole('button', { name: '다른 접속코드 입력' }).click();
+  await page.getByRole('heading', { name: '접속코드 입력' }).waitFor();
 });
 
-test('이전 버전 링크: 교과목 ID가 없으면 링크의 접속코드로 다시 찾고, 코드도 없으면 접속코드 입력 화면', async () => {
+test('이전 버전 링크(?c=…&k=… / &t=…): 자동 접속 없이 안내 후 접속코드 입력', async () => {
   const page = await newPage();
   await page.goto(base + '?scenario=student');
-  const code = await page.evaluate(() => window.__PREVIEW.accessCode);
-  // 예전 교과목 ID + 현재 접속코드 → 해당 교과목으로 바로 연결
-  await page.goto(base + '?scenario=student&c=demoOLD1&k=' + code);
+  const { courseId, accessCode } = await page.evaluate(() => window.__PREVIEW);
+  for (const q of ['&c=' + courseId + '&k=' + accessCode, '&c=demoOLD1', '&k=' + accessCode]) {
+    await page.goto(base + '?scenario=student' + q);
+    await page.getByRole('heading', { name: '접속코드 입력' }).waitFor();
+    await page.getByText('이전 방식의 링크입니다').waitFor();
+    assert.equal(await page.locator('#code').inputValue(), '', '코드 자동 입력 없음(' + q + ')');
+  }
+  await shot(page, 'm00b-legacy-link');
+  await page.locator('#code').fill(accessCode);
   await page.getByRole('button', { name: '시작하기' }).click();
-  await page.getByRole('heading', { name: '익명으로 응답합니다' }).waitFor();
-  // 예전 교과목 ID만 → 막힌 화면 대신 접속코드 입력 안내
-  const p2 = await newPage();
-  await p2.goto(base + '?scenario=student&c=demoOLD1');
-  await p2.getByRole('heading', { name: '접속코드 입력' }).waitFor();
-  await p2.getByText('링크의 설문을 찾을 수 없습니다').waitFor();
-  await p2.locator('#code').fill(code);
-  await p2.getByRole('button', { name: '시작하기' }).click();
-  await p2.locator('#ct').waitFor();
+  await page.locator('#ct').waitFor();
 });
 
 test('혼합 수업 교과목: 온라인 문항(H) 포함 32문항, 성별 문항 없음, 모든 문항 필수', async () => {
   const page = await newPage();
   await page.goto(base + '?scenario=student');
   const { onlineCourseId, onlineCode } = await page.evaluate(() => window.__PREVIEW);
-  await page.goto(base + '?scenario=student&c=' + onlineCourseId);
+  await page.goto(base + '?scenario=student&course=' + onlineCourseId);
   await page.getByText('혼합 수업').waitFor();
   await page.getByRole('button', { name: '시작하기' }).click();
   await page.locator('#cred').fill(onlineCode);
@@ -264,15 +255,16 @@ test('기간 외 접속·마감·토큰 재사용 안내 화면', async () => {
   const p2 = await newPage();
   await p2.goto(base + '?scenario=tokenused');
   const tok = await p2.evaluate(() => window.__PREVIEW.tokens[0]);
-  await p2.goto(base + '?scenario=tokenused&t=' + tok.replace('-', ''));
-  // 이전 버전 링크의 토큰은 입력 없이 자동 확인 → 이미 사용된 토큰 안내
-  await p2.getByRole('button', { name: '시작하기' }).click();
-  await p2.getByRole('heading', { name: '이미 사용된 토큰입니다' }).waitFor();
-  await shot(p2, 'm07-token-used');
-
-  // 교과목 ID 없는 주소는 공통 주소: 접속코드 입력 화면
-  await p2.goto(base + '?c=');
-  await p2.getByRole('heading', { name: '접속코드 입력' }).waitFor();
+  // 공통 주소에서 토큰 입력 → 교과목 찾기 → 시작하기 → 다시 묻지 않고 확인 → 이미 사용된 토큰 안내
+  const p3 = await newPage();
+  await p3.goto(base + '?scenario=tokenused&c=');
+  await p3.getByRole('heading', { name: '접속코드 입력' }).waitFor();
+  await p3.locator('#code').fill(tok);
+  await p3.getByRole('button', { name: '시작하기' }).click();
+  await p3.locator('#ct').waitFor();
+  await p3.getByRole('button', { name: '시작하기' }).click();
+  await p3.getByRole('heading', { name: '이미 사용된 토큰입니다' }).waitFor();
+  await shot(p3, 'm07-token-used');
 });
 
 test('다크 모드·모션 최소화: 대비 토큰 적용, confetti 생략', async () => {
@@ -431,7 +423,7 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·접속 주소·�
   assert.deepEqual(await page.$$eval('#f-grade option', (o) => o.map((x) => x.value)), ['1', '2', '3', '4']);
   assert.equal(await page.locator('#f-sec, #f-enr, [name="section"], [name="enrollment"]').count(), 0, '반·수강인원 입력란 없음');
   await page.selectOption('#f-grade', '2');
-  await page.selectOption('#f-mode', '비대면');
+  await page.selectOption('#f-mode', '온라인(비대면)');
   await shot(page, 'd13b-course-form');
   await page.getByRole('button', { name: '저장' }).click();
   await page.getByText('교과목을 만들었습니다.').waitFor();
@@ -439,7 +431,7 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·접속 주소·�
   assert.equal(made.c.grade, '2');
   assert.equal(made.c.section, '');
   assert.equal(made.c.enrollment, 0);
-  assert.equal(made.c.delivery_mode, '비대면');
+  assert.equal(made.c.delivery_mode, '온라인(비대면)');
   assert.equal(made.n, 4, '비대면 교과목에 온라인 문항 포함');
   assert.equal(made.c.course_type, '실습');
   // 문항 편집기: 이론 강의실 문항은 '이 교과목에서 숨김'으로 표시, 예상 시간은 보이는 문항 기준
@@ -557,8 +549,13 @@ test('교수 360px: 접속 주소 창 가로 넘침 없음(주소·안내문 복
   await page.locator(`[data-act="access"][data-id="${cid}"]`).click();
   await page.waitForSelector('[data-access-addr]');
   await page.getByRole('button', { name: /안내문 복사/ }).waitFor();
+  // 단축 주소 만들기 → 창이 단축 주소로 다시 열림
+  await page.getByRole('button', { name: '단축 주소 만들기' }).click();
+  await page.locator('.addr-short').waitFor();
+  assert.equal(await page.locator('.addr-short').innerText(), 'https://tinyurl.com/ces-demo');
   await page.getByRole('button', { name: '수업 화면에 띄우기' }).click();
   await page.locator('.present .addr-big').waitFor();
+  assert.equal(await page.locator('.present .addr-big').innerText(), 'https://tinyurl.com/ces-demo', '수업 화면도 단축 주소');
   await noHorizontalScroll(page, '수업 화면 접속 안내');
   await page.keyboard.press('Escape');
   await page.locator(`[data-act="access"][data-id="${cid}"]`).click();

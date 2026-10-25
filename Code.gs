@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.4.3',
+  VERSION: '1.4.4',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -39,9 +39,11 @@ var APP = {
   SEMESTERS: ['1', '2'],
   GRADES: [1, 2, 3, 4],
   SECTIONS: ['A', 'B', 'C', 'D', 'E', 'F'],
-  DELIVERY: ['대면', '비대면', '혼합'],
+  DELIVERY: ['대면', '온라인(비대면)', '혼합'],
+  // 이전 버전에서 쓰던 수업 방식 이름 → 현재 이름
+  DELIVERY_RENAMED: { '비대면': '온라인(비대면)' },
   COURSE_TYPES: ['이론', '실습', '이론+실습'],
-  // 문항 표시 조건: ''=항상, online=비대면·혼합만, theory=이론 포함 교과목만, practice=실습 포함 교과목만
+  // 문항 표시 조건: ''=항상, online=온라인(비대면)·혼합만, theory=이론 포함 교과목만, practice=실습 포함 교과목만
   SCOPES: ['', 'online', 'theory', 'practice'],
   ITEM_TYPES: ['likert5', 'single', 'multi', 'select', 'text'],
   STATUS: { READY: '준비', OPEN: '진행', CLOSED: '마감' }
@@ -67,9 +69,9 @@ function doGet(e) {
   var isAdmin = String(p.page || '') === 'admin';
   rememberExecUrl_(settings);
   var t = HtmlService.createTemplateFromFile(isAdmin ? 'Admin' : 'Student');
-  t.courseId = sanitizeId_(p.c);
-  t.tokenPrefill = normalizeToken_(p.t || '');
-  t.codePrefill = String(p.k || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+  // 학생은 공통 주소에서 접속코드(또는 토큰)를 입력해 들어옵니다.
+  // 이전 버전 링크(?c=…&k=…&t=…)는 자동 접속하지 않고, 접속코드 입력 화면에 안내만 표시합니다.
+  t.legacyLink = (p.c || p.k || p.t) ? '1' : '';
   // 공통 주소(학생 접속코드 화면)에서 교수자 로그인으로 가는 주소: 저장된 학생용 /exec 주소 우선
   var base = '';
   try { base = studentBaseUrl_(settings) || webAppUrl_(); } catch (err) { base = ''; }
@@ -296,7 +298,8 @@ function getAdminBootstrap(session) {
         affiliation: String(settings.affiliation || ''),
         min_responses: minN,
         departments: departments_(settings),
-        webapp_url: String(settings.webapp_url || '')
+        webapp_url: String(settings.webapp_url || ''),
+        short_url: shortUrl_(settings, url)
       },
       courses: list,
       webAppUrl: url,
@@ -771,12 +774,20 @@ function saveSettings(session, data) {
     if (execUrl && !APP.EXEC_URL_RE.test(execUrl)) {
       return { ok: false, code: 'VALIDATION', field: 'webapp_url', message: '웹 앱 주소는 https://script.google.com/…/exec 형식이어야 합니다(/dev 주소는 학생이 열 수 없습니다).' };
     }
+    var shortIn = data.short_url === undefined ? undefined : String(data.short_url || '').trim();
+    if (shortIn && (shortIn.length > 100 || !SHORT_URL_RE.test(shortIn))) {
+      return { ok: false, code: 'VALIDATION', field: 'short_url', message: '단축 주소는 https://로 시작하는 짧은 주소여야 합니다(예: https://tinyurl.com/abc123).' };
+    }
     withLock_(function () {
       setSetting_('professor_name', name);
       setSetting_('affiliation', aff);
       setSetting_('min_responses', minN);
       setSetting_('departments', depts.join('\n'));
       if (data.webapp_url !== undefined) setSetting_('webapp_url', execUrl);
+      if (shortIn !== undefined) {
+        setSetting_('short_url', shortIn, SHORT_URL_DESC);
+        setSetting_('short_url_target', shortIn ? studentBaseUrl_(getSettingsMap_()) : '', SHORT_TARGET_DESC);
+      }
     });
     return { ok: true };
   });
@@ -1224,7 +1235,7 @@ function normalizeCourse_(r) {
     status: String(r.status || APP.STATUS.READY),
     result_open_date: toDate_(r.result_open_date),
     department: String(r.department || ''),
-    delivery_mode: APP.DELIVERY.indexOf(String(r.delivery_mode)) >= 0 ? String(r.delivery_mode) : '대면',
+    delivery_mode: deliveryMode_(r.delivery_mode),
     course_type: APP.COURSE_TYPES.indexOf(String(r.course_type)) >= 0 ? String(r.course_type) : '이론+실습',
     _row: r._row
   };
@@ -1251,7 +1262,7 @@ function validateCourse_(d) {
   if (section && APP.SECTIONS.indexOf(section) < 0) return err('section', '반은 A~F 중 하나여야 합니다.');
   var department = cleanText_(d.department, 40);
   if (!department) return err('department', '학과를 선택하세요.');
-  var delivery = String(d.delivery_mode || '대면');
+  var delivery = APP.DELIVERY_RENAMED[String(d.delivery_mode)] || String(d.delivery_mode || '대면');
   if (APP.DELIVERY.indexOf(delivery) < 0) return err('delivery_mode', '수업 방식을 선택하세요.');
   var ctype = String(d.course_type || '이론+실습');
   if (APP.COURSE_TYPES.indexOf(ctype) < 0) return err('course_type', '교과목 유형(이론/실습/이론+실습)을 선택하세요.');
@@ -1463,7 +1474,7 @@ function copyItems_(fromId, toId) {
 }
 
 /**
- * 비대면·혼합으로 바뀐 교과목에 온라인 문항이 하나도 없으면, 공통 문항 은행의 온라인 문항을
+ * 온라인(비대면)·혼합으로 바뀐 교과목에 온라인 문항이 하나도 없으면, 공통 문항 은행의 온라인 문항을
  * 서술형 앞에 넣습니다. 응답이 이미 있으면 설문이 중간에 바뀌므로 넣지 않습니다.
  */
 function addOnlineItems_(courseId) {
@@ -1567,6 +1578,46 @@ function setSetting_(key, value, description) {
   } else {
     t.sheet.getRange(t.sheet.getLastRow() + 1, 1, 1, 3).setValues([[key, value, description || '']]);
   }
+}
+
+/* ───────────────────────────── 단축 주소 ───────────────────────────── */
+
+var SHORT_URL_RE = /^https:\/\/[A-Za-z0-9.-]+\.[A-Za-z]{2,}\/[A-Za-z0-9._~\/-]{1,60}$/;
+var SHORT_URL_DESC = '학생 접속 주소의 단축 주소(관리자 [설정]·[접속 주소]에서 만들기·입력)';
+var SHORT_TARGET_DESC = '단축 주소가 가리키는 학생용 주소(주소가 바뀌면 단축 주소를 숨김). 직접 수정 금지';
+
+/** 저장된 단축 주소가 지금 학생용 주소를 가리킬 때만 돌려줍니다(배포 주소가 바뀌면 옛 단축 주소를 쓰지 않음). */
+function shortUrl_(settings, base) {
+  var su = String(settings.short_url || '').trim();
+  return su && base && String(settings.short_url_target || '') === base ? su : '';
+}
+
+/** 학생 접속 주소를 TinyURL로 줄여 저장합니다(공개 주소만 보내며 개인정보는 보내지 않음). */
+function createShortUrl(session) {
+  return adminApi_(session, function () {
+    var base = studentBaseUrl_(getSettingsMap_());
+    if (!base) return { ok: false, code: 'VALIDATION', message: '학생용 웹 앱 주소(/exec)가 아직 없습니다. [설정]에서 먼저 저장하세요.' };
+    var fail = { ok: false, code: 'VALIDATION', message: '단축 주소를 만들지 못했습니다. 잠시 후 다시 시도하거나, 다른 단축 서비스에서 만든 주소를 [설정]에 직접 입력하세요.' };
+    var su = '';
+    try {
+      var res = UrlFetchApp.fetch('https://tinyurl.com/api-create.php?url=' + encodeURIComponent(base), { muteHttpExceptions: true, followRedirects: true });
+      if (res.getResponseCode() !== 200) return fail;
+      su = String(res.getContentText() || '').trim().replace(/^http:\/\//, 'https://');
+    } catch (e) { return fail; }
+    if (!/^https:\/\/tinyurl\.com\/[A-Za-z0-9-]{3,40}$/.test(su)) return fail;
+    withLock_(function () {
+      setSetting_('short_url', su, SHORT_URL_DESC);
+      setSetting_('short_url_target', base, SHORT_TARGET_DESC);
+    });
+    return { ok: true, short_url: su };
+  });
+}
+
+/** 시트의 수업 방식 값을 현재 이름으로(이전 이름 '비대면' 포함, 알 수 없으면 '대면') */
+function deliveryMode_(v) {
+  var s = String(v == null ? '' : v).trim();
+  s = APP.DELIVERY_RENAMED[s] || s;
+  return APP.DELIVERY.indexOf(s) >= 0 ? s : '대면';
 }
 
 function minResponses_(settings) {
