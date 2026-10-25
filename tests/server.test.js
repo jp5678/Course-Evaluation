@@ -873,11 +873,13 @@ test('PDF 내보내기: 원자료·CQI 요약표·서술형(잠금 규칙 동일
   assert.equal((rawHtml.match(/<tr><td class="n">31<\/td>/g) || []).length >= 1, true, '응답 31행');
   assert.ok(!rawHtml.includes('<script>x</script>'), 'HTML 이스케이프');
   assert.ok(rawHtml.includes('&lt;script&gt;'));
-  const cqi = decode(server.exportPdf(s, dl.course_id, 'cqi'));
-  assert.match(cqi, /CQI 요약표/);
-  assert.match(cqi, /영역별 결과/);
-  assert.match(cqi, /강점/);
-  assert.match(cqi, /개선 계획/);
+  assert.equal(server.exportPdf(s, dl.course_id, 'cqi').code, 'VALIDATION', 'CQI 요약표 PDF는 결과 보고서로 통합');
+  const rep = decode(server.exportPdf(s, dl.course_id, 'report'));
+  assert.match(rep, /영역별 결과/);
+  assert.match(rep, /강점/);
+  assert.match(rep, /SD /, '강점·개선점 표준편차');
+  assert.match(rep, /개선 계획/);
+  assert.match(rep, /해석 기준/);
   const text = decode(server.exportPdf(s, dl.course_id, 'text'));
   assert.match(text, /서술형 응답 \(보고·인쇄용\)/);
   assert.match(text, /AI 요약 요청 문구/);

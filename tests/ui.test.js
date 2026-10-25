@@ -505,7 +505,7 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·접속 주소·�
     const orig = HTMLAnchorElement.prototype.click;
     HTMLAnchorElement.prototype.click = function () { if (this.download) window.__dlNames.push(this.download); return orig.call(this); };
   });
-  for (const [kind, label] of [['raw', '원자료'], ['cqi', 'CQI요약'], ['text', '서술형']]) {
+  for (const [kind, label] of [['raw', '원자료'], ['text', '서술형']]) {
     const [pd] = await Promise.all([page.waitForEvent('download'), page.locator(`[data-pdf="${kind}"]`).click()]);
     const names = await page.evaluate(() => window.__dlNames);
     assert.match(names[names.length - 1], new RegExp('^디지털리터러시와_AI활용_.*_' + label + '\\.pdf$'));
@@ -514,7 +514,7 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·접속 주소·�
     assert.match(fs.readFileSync(pf, 'utf8').slice(0, 40), /^%PDF/, kind + ' PDF 바이트');
   }
   // 결과 보고서 PDF(매뉴얼형, 서버 생성): 차트 그림(PNG)과 장 구성이 들어감
-  const [rp] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.getByRole('button', { name: '결과 보고서 PDF' }).click()]);
+  const [rp] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.getByRole('button', { name: '결과 보고서 PDF' }).first().click()]);
   const names2 = await page.evaluate(() => window.__dlNames);
   assert.match(names2[names2.length - 1], /^디지털리터러시와_AI활용_.*_결과보고서\.pdf$/);
   const rf = path.join(OUT, 'export-report.pdf');
