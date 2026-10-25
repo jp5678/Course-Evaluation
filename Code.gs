@@ -5,12 +5,22 @@
  * 모든 공개 API(google.script.run 대상)는 { ok: boolean, ... } 객체를 반환합니다.
  * 날짜는 문자열로만 반환합니다(google.script.run은 Date 반환을 허용하지 않음).
  *
- * @OnlyCurrentDoc
+ * 설치 방식 두 가지:
+ *  ① 스프레드시트에 연결된 설치: 스프레드시트 ▸ 확장 프로그램 ▸ Apps Script에 붙여 넣기(그 시트를 데이터로 사용)
+ *  ② 독립형 설치(권장): script.google.com ▸ 새 프로젝트에 붙여 넣기 → 아래 CES_SHEET_ID에 데이터 시트 주소를
+ *     넣거나(기존 시트 계속 사용) 비워 두고 setup 실행(새 데이터 시트 자동 생성)
+ *     — 스프레드시트에 연결된 웹 앱이 휴대폰에서 「현재 파일을 열 수 없습니다」로 막히는 경우 독립형을 쓰세요.
  */
+
+/* ───── 독립형 설치 설정(스프레드시트에 연결된 설치면 비워 두세요) ───── */
+// 데이터 스프레드시트 주소 또는 ID. 예: 'https://docs.google.com/spreadsheets/d/1AbC…/edit'
+var CES_SHEET_ID = '';
+// 새 데이터 시트에 관리자 PIN을 처음 정할 때만: 숫자 6~12자리를 넣고 setAdminPinFromMenu 실행 → 설정 후 다시 비우세요.
+var CES_NEW_PIN = '';
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.4.2',
+  VERSION: '1.5.0',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -1505,7 +1515,32 @@ function getTokenStats_() {
 
 /* ───────────────────────────── 시트 유틸 ───────────────────────────── */
 
-function ss_() { return SpreadsheetApp.getActiveSpreadsheet(); }
+var ss_cache_ = null;
+/**
+ * 데이터 스프레드시트: 연결된 설치면 그 시트, 독립형이면 CES_SHEET_ID 또는 스크립트 속성(setup이 저장)의 시트.
+ */
+function ss_() {
+  if (ss_cache_) return ss_cache_;
+  var active = null;
+  try { active = SpreadsheetApp.getActiveSpreadsheet(); } catch (e) { active = null; }
+  if (active) return (ss_cache_ = active);
+  var id = sheetIdFrom_(CES_SHEET_ID) || PropertiesService.getScriptProperties().getProperty('CES_SHEET_ID');
+  if (!id) throw new Error('SETUP_REQUIRED');
+  return (ss_cache_ = SpreadsheetApp.openById(id));
+}
+
+/** 독립형 설치인지(스프레드시트에 연결되지 않은 프로젝트) */
+function isStandalone_() {
+  try { return !SpreadsheetApp.getActiveSpreadsheet(); } catch (e) { return true; }
+}
+
+/** 스프레드시트 주소 또는 ID에서 ID만 꺼냅니다. */
+function sheetIdFrom_(v) {
+  var s = String(v == null ? '' : v).trim();
+  var m = /\/d\/([A-Za-z0-9_-]{20,})/.exec(s);
+  if (m) return m[1];
+  return /^[A-Za-z0-9_-]{20,}$/.test(s) ? s : '';
+}
 
 function sheet_(name) {
   var sh = ss_().getSheetByName(name);

@@ -240,6 +240,7 @@
 
     return {
       getId: function () { return store.read().sheetId || 'SHEET-ORIGINAL'; },
+      getUrl: function () { return 'https://docs.google.com/spreadsheets/d/' + (store.read().sheetId || 'SHEET-ORIGINAL') + '/edit'; },
       getSheetByName: function (name) { return store.read().sheets[name] ? new S(name) : null; },
       insertSheet: function (name) {
         var st = store.read();
@@ -396,9 +397,24 @@
     var sleep = opts.sleep || makeSleep();
     var uiCalls = [];
     var serverRef = { current: null };
+    var propData = opts.scriptProps || {};
+    var scriptProps = {
+      getProperty: function (k) { return propData.hasOwnProperty(k) ? propData[k] : null; },
+      setProperty: function (k, v) { propData[k] = String(v); return scriptProps; },
+      __data: propData
+    };
     var env = {
       SpreadsheetApp: {
-        getActiveSpreadsheet: function () { return ss; },
+        // opts.standalone: 스프레드시트에 연결되지 않은 독립형 프로젝트(활성 시트 없음, ID로 열기)
+        getActiveSpreadsheet: function () { return opts.standalone ? null : ss; },
+        openById: function (id) {
+          if (String(id) !== ss.getId()) throw new Error('Exception: 해당 ID의 스프레드시트를 찾을 수 없습니다: ' + id);
+          return ss;
+        },
+        create: function (name) {
+          var st = store.read(); st.sheetId = 'SHEET-NEW-' + String(name).length; store.write(st);
+          return ss;
+        },
         flush: function () {},
         getUi: function () {
           if (!opts.ui) throw new Error('Cannot call SpreadsheetApp.getUi() from this context.');
@@ -422,7 +438,11 @@
         parseDate: parseDate
       },
       Session: { getScriptTimeZone: function () { return 'Asia/Seoul'; } },
-      ScriptApp: { getService: function () { return { getUrl: function () { return opts.url || 'https://script.google.com/macros/s/TEST/exec'; } }; } },
+      PropertiesService: { getScriptProperties: function () { return scriptProps; } },
+      ScriptApp: {
+        getService: function () { return { getUrl: function () { return opts.url || 'https://script.google.com/macros/s/TEST/exec'; } }; },
+        getScriptId: function () { return opts.scriptId || 'SCRIPT-A'; }
+      },
       // opts.fetch(url, params) → { code, headers, body } 로 외부 응답을 흉내 냅니다(기본: 네트워크 차단).
       UrlFetchApp: {
         fetch: function (url, params) {

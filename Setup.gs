@@ -84,7 +84,7 @@ function onOpen() {
  * 여러 번 실행해도 기존 데이터는 지우지 않습니다(누락된 것만 추가).
  */
 function setup() {
-  var ss = ss_();
+  var ss = connectSheet_();
   var colors = { Settings: '#5B4BFF', Courses: '#5B4BFF', Items: '#5B4BFF', Tokens: '#6B6B76', Responses: '#6B6B76' };
   Object.keys(HEADERS).forEach(function (name) {
     var sh = ss.getSheetByName(name) || ss.insertSheet(name);
@@ -123,12 +123,17 @@ function setup() {
   });
   setSetting_('app_version', APP.VERSION);
 
-  // 스프레드시트 사본에서 실행한 경우: 원본의 학생용 주소는 다른 프로젝트(원본)의 배포이므로 비웁니다.
-  // 비워 두면 사본에서 새로 배포한 /exec 주소로 처음 접속할 때 자동으로 저장되어 QR도 새 주소로 바뀝니다.
+  // 다른 Apps Script 프로젝트에서 처음 실행한 경우(스프레드시트 사본, 독립형으로 이전 등):
+  // 저장된 학생용 주소는 이전 프로젝트의 배포이므로 비웁니다. 새로 배포한 /exec 주소로 처음 접속하면 자동 저장되어 QR도 바뀝니다.
   var sheetId = ss.getId();
-  var knownId = String(getSettingsMap_().sheet_id || '');
-  if (knownId && knownId !== sheetId) setSetting_('webapp_url', '');
+  var scriptId = ScriptApp.getScriptId();
+  var cur = getSettingsMap_();
+  var knownSheet = String(cur.sheet_id || ''), knownScript = String(cur.script_id || '');
+  if ((knownSheet && knownSheet !== sheetId) || (knownScript && knownScript !== scriptId) || (!knownScript && isStandalone_())) {
+    setSetting_('webapp_url', '');
+  }
   setSetting_('sheet_id', sheetId, '이 스프레드시트 ID(사본 감지용). 직접 수정 금지');
+  setSetting_('script_id', scriptId, '이 시트를 쓰는 Apps Script 프로젝트 ID(이전 감지용). 직접 수정 금지');
 
   // 공통 기본 문항(TEMPLATE)
   if (getItems_(APP.TEMPLATE_ID).length === 0) {
@@ -155,12 +160,17 @@ function setup() {
   rememberExecUrl_();
   SpreadsheetApp.flush();
 
+  var hasPin = !!getSettingsMap_().pin_hash;
   notify_('초기 설정 완료',
-    '탭·헤더·기본 문항' + (created ? '·이번 학기 교과목 예시 2개' : '') + '이 준비되었습니다.\n\n' +
+    '탭·헤더·기본 문항' + (created ? '·이번 학기 교과목 예시 2개' : '') + '이 준비되었습니다.\n' +
+    (isStandalone_() ? '데이터 스프레드시트: ' + ss.getUrl() + '\n' : '') + '\n' +
     '다음 단계\n' +
-    '1) 메뉴 [강의평가 Studio] ▸ ② 관리자 PIN 설정·재설정\n' +
+    (hasPin ? '1) 관리자 PIN: 기존 PIN을 그대로 씁니다.\n'
+      : isStandalone_() ? '1) 코드 맨 위 CES_NEW_PIN에 숫자 6~12자리를 넣고 저장 → setAdminPinFromMenu 실행 → CES_NEW_PIN 다시 비우기\n'
+        : '1) 메뉴 [강의평가 Studio] ▸ ② 관리자 PIN 설정·재설정\n') +
     '2) Apps Script 편집기에서 [배포] ▸ [새 배포] ▸ 웹 앱\n' +
-    '   (실행 사용자: 나, 액세스 권한: 모든 사용자)');
+    '   (실행 사용자: 나, 액세스 권한: 모든 사용자)\n' +
+    '3) 웹 앱 URL 끝에 ?page=admin을 붙여 접속(학생용 주소 자동 저장) → [링크·QR]을 휴대폰으로 확인');
 }
 
 function annotateHeaders_() {
@@ -404,7 +414,28 @@ function createDemoCourse_(spec) {
 /* ───────────────────────────── PIN·주소 ───────────────────────────── */
 
 /** 스프레드시트 소유자만 접근할 수 있는 메뉴에서 PIN을 설정·재설정합니다(분실 시 복구 경로). */
+/**
+ * 독립형 설치: 데이터 스프레드시트를 연결합니다(CES_SHEET_ID → 스크립트 속성 → 없으면 새로 만들기).
+ * 연결된 설치면 그 스프레드시트를 그대로 씁니다.
+ */
+function connectSheet_() {
+  if (!isStandalone_()) return ss_();
+  var props = PropertiesService.getScriptProperties();
+  var id = sheetIdFrom_(CES_SHEET_ID) || props.getProperty('CES_SHEET_ID');
+  var created = false;
+  if (!id) {
+    id = SpreadsheetApp.create('강의평가 Studio 데이터').getId();
+    created = true;
+  }
+  props.setProperty('CES_SHEET_ID', id);
+  ss_cache_ = null;
+  var ss = ss_();
+  console.log((created ? '새 데이터 스프레드시트를 만들었습니다: ' : '데이터 스프레드시트를 연결했습니다: ') + ss.getUrl());
+  return ss;
+}
+
 function setAdminPinFromMenu() {
+  if (!getUiOrNull_()) return setAdminPinFromEditor_();
   var ui = SpreadsheetApp.getUi();
   var first = ui.prompt('관리자 PIN 설정', '숫자 6~12자리 PIN을 입력하세요.', ui.ButtonSet.OK_CANCEL);
   if (first.getSelectedButton() !== ui.Button.OK) return;
@@ -423,9 +454,25 @@ function setAdminPinFromMenu() {
   ui.alert('PIN이 설정되었습니다. 기존 로그인 세션과 잠금은 모두 해제되었습니다.');
 }
 
+/** 독립형 설치(메뉴·대화상자 없음): 코드 맨 위 CES_NEW_PIN으로 PIN을 정합니다. */
+function setAdminPinFromEditor_() {
+  var pin = String(CES_NEW_PIN || '').trim();
+  if (!APP.PIN_PATTERN.test(pin)) {
+    console.log('PIN을 정하려면 코드 맨 위 CES_NEW_PIN에 숫자 6~12자리를 넣고 저장한 뒤 setAdminPinFromMenu를 다시 실행하세요.');
+    return { ok: false, code: 'PIN_FORMAT' };
+  }
+  storePin_(pin);
+  console.log('관리자 PIN을 설정했습니다. 보안을 위해 CES_NEW_PIN을 다시 빈칸(\'\')으로 바꾸고 저장하세요.');
+  return { ok: true };
+}
+
 function showWebAppUrl() {
   rememberExecUrl_();
   var url = studentBaseUrl_(getSettingsMap_());
+  if (!getUiOrNull_()) {
+    console.log(url ? '학생용 주소: ' + url + '\n관리자 화면: ' + url + '?page=admin' : '아직 정식 배포 주소(/exec)가 없습니다. [배포] ▸ [새 배포] ▸ 웹 앱으로 배포하세요.');
+    return url;
+  }
   var ui = SpreadsheetApp.getUi();
   if (!url) {
     ui.alert('학생용 웹 앱 주소(/exec)를 찾지 못했습니다.\n\n' +

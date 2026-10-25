@@ -235,21 +235,24 @@ code { font-family: "Pretendard", monospace; background: var(--soft); padding: 0
 
 <section class="chapter">
 <h2 class="ch"><span>2</span>설치와 배포 (최초 1회)</h2>
-<h3>2-1. 스프레드시트에 코드 넣기</h3>
+<h3>2-1. 코드 넣기 — 독립형 설치(권장)</h3>
+<p>스프레드시트에 연결된 Apps Script 웹 앱이 휴대폰에서 「현재 파일을 열 수 없습니다」로 막히는 사례가 있어, <b>독립형 프로젝트</b>로 설치하고 데이터 스프레드시트를 연결하는 방식을 권장합니다.</p>
 <ol class="steps">
-  <li>Google 드라이브에서 <b>새 스프레드시트</b>를 만들고 이름을 정합니다(예: 강의평가 Studio 2026-2학기).</li>
-  <li>메뉴 <span class="kbd">확장 프로그램 ▸ Apps Script</span>를 엽니다.</li>
-  <li>편집기의 <b>Code.gs</b> 내용을 모두 지우고, 배포받은 <b>Code.gs(단일 파일 설치본)</b> 전체를 붙여 넣은 뒤 저장(<span class="kbd">Ctrl+S</span>)합니다.</li>
-  <li>함수 목록에서 <b>setup</b>을 고르고 <span class="kbd">실행</span>을 누릅니다.</li>
+  <li><b>script.google.com</b>에서 <span class="kbd">새 프로젝트</span>를 만들고, <b>Code.gs</b> 내용을 모두 지운 뒤 설치 파일 전체를 붙여 넣습니다.</li>
+  <li>파일 맨 위 <code>CES_SHEET_ID = ''</code>의 따옴표 안에 <b>데이터 스프레드시트 주소</b>를 붙여 넣습니다(기존 시트를 계속 쓸 때). 처음 설치라면 비워 두면 setup이 새 데이터 시트를 만듭니다. 저장(<span class="kbd">Ctrl+S</span>)합니다.</li>
+  <li>함수 목록에서 <b>setup</b>을 고르고 <span class="kbd">실행</span>합니다. 실행 기록에 연결된 데이터 시트 주소가 표시됩니다.</li>
 </ol>
+<p class="small">스프레드시트에 연결된 설치(스프레드시트 ▸ <span class="kbd">확장 프로그램 ▸ Apps Script</span>에 붙여 넣기)도 동작하며, 이때는 <code>CES_SHEET_ID</code>를 비워 둡니다.</p>
 <h3>2-2. 권한 승인</h3>
 <ol class="steps">
   <li>「승인 필요」 창에서 <span class="kbd">권한 검토</span> → 본인 계정을 선택합니다.</li>
   <li>「Google에서 확인하지 않은 앱」 화면이 나오면 <span class="kbd">고급</span> ▸ <span class="kbd">강의평가 Studio(으)로 이동</span>을 누릅니다. 개인이 만든 스크립트에 항상 나오는 정상 절차입니다.</li>
   <li><span class="kbd">허용</span>을 누르고, setup을 한 번 더 실행합니다. 시트에 Settings·Courses·Items·Tokens·Responses 탭과 예시 교과목 2개가 만들어집니다.</li>
 </ol>
-<p>요청 권한은 <b>이 스프레드시트만 보고 편집</b>, <b>스프레드시트 메뉴·대화상자 표시</b> 두 가지뿐입니다.</p>
+<p>요청 권한은 <b>Google 스프레드시트 보기·수정</b>(앱이 여는 것은 연결한 데이터 시트 하나뿐), <b>스프레드시트 메뉴·대화상자 표시</b>입니다.</p>
 <h3>2-3. 관리자 PIN 설정</h3>
+<p><b>독립형:</b> 기존 데이터 시트를 연결했다면 기존 PIN을 그대로 씁니다. 새 데이터 시트라면 맨 위 <code>CES_NEW_PIN</code>에 숫자 6~12자리를 넣고 저장 → <b>setAdminPinFromMenu</b> 실행 → <code>CES_NEW_PIN</code>을 다시 비우고 저장합니다.</p>
+<p><b>스프레드시트에 연결된 설치:</b></p>
 <p>스프레드시트를 새로 고치면 상단에 <b>강의평가 Studio</b> 메뉴가 생깁니다. <span class="kbd">② 관리자 PIN 설정·재설정</span>에서 숫자 6~12자리 PIN을 정합니다.</p>
 <h3>2-4. 웹 앱 배포</h3>
 <ol class="steps">
@@ -449,7 +452,7 @@ ${img('a12-settings', '그림 9-1. [설정] 탭')}
 <tr><td>학생에게 Google 로그인 화면이 뜸</td><td>배포의 액세스가 「Google 계정이 있는 모든 사용자」입니다. 「모든 사용자」로 바꾸고 새 버전으로 배포하세요.</td></tr>
 <tr><td>관리자 화면에 「테스트용(/dev) 주소로 열었습니다」</td><td>편집기의 테스트 배포 주소로 접속했습니다. [배포 관리]의 <code>…/exec</code> 주소에 <code>?page=admin</code>을 붙여 접속하세요.</td></tr>
 <tr><td>「다른 교과목이 이미 쓰는 접속코드입니다」</td><td>공통 주소에서 코드로 교과목을 찾기 때문에 코드는 교과목마다 달라야 합니다. 다른 코드를 입력하거나 자동 생성 버튼을 누르세요.</td></tr>
-<tr><td>모든 교과목 QR이 휴대폰에서 「현재 파일을 열 수 없습니다」(배포는 실행: 나 / 액세스: 모든 사용자로 정상)</td><td>이 스프레드시트에 연결된 Apps Script 프로젝트의 배포가 로그인 없는 접속에서 막힌 경우입니다(같은 계정의 새 프로젝트는 정상). <b>①</b> 스프레드시트 <span class="kbd">파일 ▸ 사본 만들기</span> <b>②</b> 사본의 <span class="kbd">확장 프로그램 ▸ Apps Script</span>에서 <b>setup</b> 실행 — 사본임을 알아차려 원본의 학생용 주소를 자동으로 비웁니다 <b>③</b> <span class="kbd">배포 ▸ 새 배포 ▸ 웹 앱</span>(실행: 나 / 액세스: 모든 사용자) <b>④</b> 새 URL 끝에 <code>?page=admin</code>을 붙여 접속하면 새 주소가 자동 저장됩니다 <b>⑤</b> [링크·QR]의 새 QR을 안내하고, 휴대폰 개인정보 보호(시크릿) 모드로 열리는지 확인합니다. 교과목·문항·응답·PIN은 사본에 그대로 있습니다.</td></tr>
+<tr><td>모든 교과목 QR이 휴대폰에서 「현재 파일을 열 수 없습니다」(배포는 실행: 나 / 액세스: 모든 사용자로 정상)</td><td>스프레드시트에 연결된 웹 앱이 로그인 없는 접속에서 막힌 경우입니다(같은 계정의 독립형 테스트 앱은 정상, 스프레드시트 사본도 같은 증상). <b>독립형 설치로 옮기세요(2-1).</b> script.google.com ▸ 새 프로젝트에 설치 파일 붙여 넣기 → 맨 위 <code>CES_SHEET_ID</code>에 지금 쓰는 데이터 스프레드시트 주소 → <b>setup</b>(이전 학생용 주소는 자동으로 비워짐) → 새 배포(실행: 나 / 액세스: 모든 사용자) → 새 URL 끝에 <code>?page=admin</code>으로 접속(새 주소 자동 저장) → [링크·QR]의 새 QR 안내. 교과목·문항·응답·PIN은 그대로입니다.</td></tr>
 <tr><td>QR로 들어가면 「설문을 찾을 수 없음」</td><td>예전에 저장·인쇄한 QR이거나 교과목을 다시 만든 경우입니다. 학생 화면이 QR에 담긴 접속코드로 교과목을 다시 찾고, 그래도 없으면 접속코드 입력 화면으로 안내합니다. [링크·QR]을 다시 열어 새 QR을 안내하세요([링크·QR]은 열 때마다 최신 정보로 갱신됩니다).</td></tr>
 <tr><td>결과가 열리지 않음</td><td>응답 수가 최소 공개 수(기본 5명) 미만이거나 결과 공개일 이전입니다.</td></tr>
 <tr><td>문항을 고칠 수 없음</td><td>응답이 들어온 교과목은 문항이 잠깁니다. [복제]로 새 교과목을 만들어 고치세요.</td></tr>
