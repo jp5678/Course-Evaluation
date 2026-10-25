@@ -61,7 +61,12 @@ var SAMPLE_COURSES = [
   },
   {
     // 기존 시트에 없으면 setup이 추가합니다(ensure).
-    course_name: 'AI융합 간호정보학(전공심화과정)', grade: 4, section: '', enrollment: 0, delivery_mode: '온라인(비대면)', course_type: '이론+실습', ensure: true,
+    course_name: 'AI융합 간호정보학(전공심화과정)', year: 2026, semester: '2', grade: 4, section: '', enrollment: 0, delivery_mode: '온라인(비대면)', course_type: '이론+실습', ensure: true,
+    // 현직 간호사가 많은 전공심화과정: 실무 적용 가능성 문항(F 영역 끝에 추가)
+    extra: [
+      { domain: 'F. 디지털·AI 활용', text: '이 수업에서 배운 간호정보·AI 활용 내용을 현재(또는 앞으로) 근무하는 임상 현장에 적용할 수 있다.', type: 'likert5' },
+      { domain: 'F. 디지털·AI 활용', text: '이 수업은 나의 간호 업무(간호기록·정보 관리 등)의 효율성을 높이는 데 도움이 되었다.', type: 'likert5' }
+    ],
     clos: [
       '나는 간호정보시스템(EMR)의 구조와 기능을 설명할 수 있게 되었다.',
       '나는 AI 기반 임상의사결정지원 결과를 간호 근거에 비추어 검토할 수 있게 되었다.',
@@ -187,6 +192,8 @@ function setup() {
 
   // 수업 방식 이름 변경(비대면 → 온라인(비대면))을 시트에도 반영
   renameDeliveryModes_();
+  // 교과목별 추가 문항(예: 전공심화과정 실무 적용) — 응답이 없는 교과목에 한 번만
+  addCourseExtraItems_();
 
   upgradeDefaults_();
   styleResponseHeaders_();
@@ -393,7 +400,7 @@ function createDemoCourse_(spec) {
   var course = {
     course_id: 'demo' + randomString_(4, APP.ID_ALPHABET),
     course_name: spec.course_name,
-    year: Number(Utilities.formatDate(now, tz_(), 'yyyy')) - (month <= 2 ? 1 : 0),
+    year: spec.year || Number(Utilities.formatDate(now, tz_(), 'yyyy')) - (month <= 2 ? 1 : 0),
     semester: spec.semester || (month >= 3 && month <= 8 ? '1' : '2'),
     grade: spec.grade,
     section: spec.section,
@@ -437,6 +444,7 @@ function createDemoCourse_(spec) {
     });
   });
   all.sheet.getRange(all.sheet.getLastRow() + 1, 1, rows.length, HEADERS.Items.length).setValues(rows);
+  if (spec.extra) addMissingItems_(course.course_id, spec.extra, 0);
   return course.course_id;
 }
 
@@ -708,5 +716,24 @@ function renameDeliveryModes_() {
     var next = APP.DELIVERY_RENAMED[String(r.delivery_mode).trim()];
     if (next) { t.sheet.getRange(r._row, col).setValue(next); n++; }
   });
+  return n;
+}
+
+/**
+ * SAMPLE_COURSES의 교과목별 추가 문항(extra)을 같은 이름의 교과목에 넣습니다.
+ * 응답이 없는 교과목에만, 교과목마다 한 번만(교수가 지운 문항은 다시 넣지 않음) 적용합니다.
+ */
+function addCourseExtraItems_() {
+  var done = String(getSettingsMap_().extra_items_added || '').split('\n').filter(String);
+  var used = {};
+  readResponses_().forEach(function (r) { used[String(r.course_id)] = true; });
+  var n = 0;
+  getCourses_().forEach(function (c) {
+    var spec = SAMPLE_COURSES.filter(function (x) { return x.extra && x.course_name === String(c.course_name).trim(); })[0];
+    if (!spec || done.indexOf(c.course_id) >= 0) return;
+    if (!used[c.course_id]) n += addMissingItems_(c.course_id, spec.extra, 0);
+    done.push(c.course_id);
+  });
+  setSetting_('extra_items_added', done.join('\n'), '교과목별 추가 문항을 넣은 교과목 ID(다시 넣지 않음). 직접 수정 금지');
   return n;
 }

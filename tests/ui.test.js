@@ -566,6 +566,22 @@ test('교수 360px: 접속 주소 창 가로 넘침 없음(주소·안내문 복
   await shot(page, 'm13-access-modal');
 });
 
+test('새 학기 준비: 대상 교과목 표시 → 준비하기 → 새 접속코드 요약, 360px 넘침 없음', async () => {
+  const page = await newPage();
+  await page.goto(base + '?scenario=admin&page=admin');
+  await page.locator('#pin').fill('123456');
+  await page.getByRole('button', { name: '로그인' }).click();
+  await page.getByRole('tab', { name: '교과목' }).click();
+  await page.getByRole('button', { name: '새 학기 준비' }).click();
+  await page.locator('#t-list').waitFor();
+  assert.match(await page.locator('#t-list').innerText(), /^대상: /);
+  await noHorizontalScroll(page, '새 학기 준비 창');
+  await page.getByRole('button', { name: '준비하기' }).click();
+  await page.getByText(/새 학기 교과목 \d+개 준비 완료/).waitFor();
+  assert.ok(await page.locator('.modal table tr').count() >= 2, '새 접속코드 표');
+  await shot(page, 'm14-new-term');
+});
+
 test('사용 매뉴얼 탭: 맨 위 메뉴 끝, 12개 장, 차례로 펼치기·모두 펼치기, 360px 넘침 없음', async () => {
   const page = await newPage();
   await page.goto(base + '?scenario=admin&page=admin');
