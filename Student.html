@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="color-scheme" content="light dark">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css">
+  <?!= include('Styles'); ?>
+</head>
+<body class="page-student cesstudentpage" data-course="<?= courseId ?>" data-token="<?= tokenPrefill ?>" data-code="<?= codePrefill ?>" data-admin-url="<?= adminUrl ?>">
+  <a class="skip-link" href="#main">본문 바로가기</a>
+  <div class="deco" aria-hidden="true"><span class="s1"></span><span class="s2"></span><span class="s3"></span><span class="s4"></span></div>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-mark"><i data-lucide="clipboard-check" aria-hidden="true"></i></span>
+        <span>강의평가 Studio<small>익명 수업 설문</small></span>
+      </div>
+    </div>
+  </header>
+
+  <main id="main" class="wrap narrow" tabindex="-1">
+    <div id="app">
+      <div class="skeleton" style="min-height:220px" aria-hidden="true"></div>
+      <p class="sr-only">불러오는 중입니다.</p>
+    </div>
+  </main>
+
+  <div id="sr-status" class="sr-only" role="status" aria-live="polite"></div>
+
+  <footer class="footer">
+    <div class="credit">Developed by 정종필 교수 · 청암대학교 간호학과</div>
+    <p class="disclaimer">이 설문은 학교 공식 강의평가를 대체하지 않는 교수자 자율형 형성평가·CQI(지속적 질 개선)용 설문입니다.</p>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.460.0/dist/umd/lucide.min.js" defer onload="window.CES && CES.icons()"></script>
+  <?!= include('Scripts'); ?>
+  <script>
+  (function () {
+    'use strict';
+    var $ = CES.$, $$ = CES.$$, esc = CES.esc, icon = CES.icon;
+    var app = document.getElementById('app');
+    var SHORT = ['전혀 아니다', '아니다', '보통', '그렇다', '매우 그렇다'];
+    var EMO = ['😞', '🙁', '😐', '🙂', '😄'];
+    // 영역 첫 글자 → 아이콘·색(배경 톤)
+    var DOMAIN_LOOK = {
+      A: ['compass', 'sky'], B: ['presentation', 'primary'], C: ['clipboard-check', 'butter'], D: ['target', 'accent'],
+      E: ['building-2', 'sky'], F: ['cpu', 'primary'], G: ['heart', 'accent'], H: ['monitor-play', 'butter']
+    };
+    function domainTag(domain) {
+      var look = DOMAIN_LOOK[String(domain).charAt(0)] || (/서술/.test(domain) ? ['message-circle', 'butter'] : ['user-round', 'plain']);
+      return '<span class="domain-tag tone-' + look[1] + '"><span class="ic">' + icon(look[0]) + '</span>' + esc(domain) + '</span>';
+    }
+    var CHEERS = [[0.5, '벌써 절반 왔어요! 조금만 더 힘내요 💪'], [0.8, '거의 다 왔어요! 🙌']];
+
+    var S = {
+      courseId: document.body.getAttribute('data-course') || '',
+      tokenPrefill: document.body.getAttribute('data-token') || '',
+      // 링크·QR에 담긴 접속코드(또는 토큰): 인증 단계에서 자동으로 확인해 입력을 생략합니다.
+      autoCred: document.body.getAttribute('data-code') || document.body.getAttribute('data-token') || '',
+      course: null,
+      items: [],
+      labels: ['전혀 그렇지 않다', '그렇지 않다', '보통이다', '그렇다', '매우 그렇다'],
+      cred: '',
+      answers: {},
+      steps: [],
+      step: 0,
+      mode: '',
+      nonce: '',
+      submitting: false,
+      dir: 1,
+      cheered: {}
+    };
+    var DRAFT_KEY, DONE_KEY;
+    var ADMIN_URL = document.body.getAttribute('data-admin-url') || '';
+    function setCourseId(id) {
+      S.courseId = id;
+      DRAFT_KEY = 'ces:draft:' + id;
+      DONE_KEY = 'ces:done:' + id;
+    }
+    setCourseId(S.courseId);
+
+    /* ───── 공통 렌더링 ───── */
+    function render(html, focusSel) {
+      app.innerHTML = html;
+      CES.icons();
+      var target = focusSel ? $(focusSel, app) : $('h1, h2', app);
+      if (target) {
+        if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+        target.focus({ preventScroll: true });
+      }
+      window.scrollTo({ top: 0, behavior: CES.reducedMotion() ? 'auto' : 'smooth' });
+    }
+
+    function notice(kind, extra) {
+      var c = S.course || {};
+      var map = {
+        INVALID: ['link-2-off', 'warn', '유효하지 않은 링크입니다', '교수님이 안내한 링크나 QR 코드로 다시 접속해 주세요.'],
+        NOT_FOUND: ['search-x', 'warn', '설문을 찾을 수 없습니다', '링크가 정확한지 확인하거나 교수님께 문의해 주세요.'],
+        NOT_STARTED: ['calendar-clock', 'warn', '아직 응답 기간이 아닙니다',
+          c.start_label ? '응답은 ' + c.start_label + '부터 할 수 있습니다. 그때 다시 접속해 주세요.' : '응답 기간이 시작되면 다시 접속해 주세요.'],
+        CLOSED: ['lock', '', '응답이 마감되었습니다',
+          '관심을 가져 주셔서 감사합니다.' + (c.end_label ? ' (응답 기간: ~ ' + c.end_label + ')' : '')],
+        TOKEN_USED: ['ticket-x', 'danger', '이미 사용된 토큰입니다',
+          '일회용 토큰은 한 번만 제출할 수 있습니다. 본인이 제출하지 않았다면 교수님께 새 토큰을 요청하세요.'],
+        SETUP_REQUIRED: ['wrench', 'warn', '설문 준비 중입니다', '교수님이 아직 설문을 준비하고 있습니다. 잠시 후 다시 접속해 주세요.'],
+        ERROR: ['cloud-off', 'danger', '연결에 문제가 있습니다', '네트워크 상태를 확인한 뒤 다시 시도해 주세요.']
+      };
+      var m = map[kind] || map.ERROR;
+      render(
+        '<section class="card pad-lg center stack" aria-labelledby="nt">' +
+        '<div class="notice-icon ' + m[1] + '">' + icon(m[0]) + '</div>' +
+        '<h1 id="nt">' + esc(m[2]) + '</h1>' +
+        (c.course_name ? '<p class="muted">' + esc(c.course_name) + '</p>' : '') +
+        '<p>' + esc(m[3]) + '</p>' +
+        (extra && extra.retry ? '<div><button type="button" class="btn primary" data-act="reload">' + icon('rotate-cw') + '다시 시도</button></div>' : '') +
+        '</section>'
+      );
+    }
+
+    function courseMeta(c) {
+      var parts = [c.year + '학년도 ' + c.semester + '학기'];
+      if (c.grade) parts.push(c.grade + '학년');
+      if (c.section) parts.push(c.section + '반');
+      if (c.delivery_mode && c.delivery_mode !== '대면') parts.push(c.delivery_mode + ' 수업');
+      return parts.map(function (p) { return '<span class="badge">' + esc(p) + '</span>'; }).join('');
+    }
+
+    /* ───── 1. 진입 ───── */
+    function start() {
+      if (!S.courseId) { renderCodeEntry(); return; }
+      CES.call('getCourseForStudent', [S.courseId]).then(function (res) {
+        if (!res.ok) {
+          if (res.code === 'NOT_FOUND') return recoverNotFound();
+          if (res.code === 'SETUP_REQUIRED') return notice('SETUP_REQUIRED');
+          return notice('ERROR', { retry: true });
+        }
+        S.course = res.course;
+        if (res.state === '준비') return notice('NOT_STARTED');
+        if (res.state === '마감') return notice('CLOSED');
+        var draft = CES.store.get(DRAFT_KEY);
+        if (draft && draft.v === 1 && (draft.cred || !needsCredential())) {
+          resumeDraft(draft);
+        } else {
+          renderIntro();
+        }
+      });
+    }
+
+    /* ───── 0. 공통 주소: 접속코드만 입력 ───── */
+    function renderCodeEntry(errorMsg) {
+      render(
+        '<form class="card pad-lg stack-lg rise" id="code-form" novalidate aria-labelledby="ce">' +
+        '<div class="notice-icon">' + icon('key-round') + '</div>' +
+        '<div class="center"><h1 id="ce">접속코드 입력</h1><p class="muted small" style="margin-top:6px">수업 시간에 안내받은 코드만 입력하면 바로 시작합니다.</p></div>' +
+        '<div class="field">' +
+        '<label for="code">접속코드</label>' +
+        '<input id="code" class="input code" name="code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="12" inputmode="text" ' +
+        'placeholder="예: 4JQZJA" aria-describedby="code-hint' + (errorMsg ? ' code-err' : '') + '"' + (errorMsg ? ' aria-invalid="true"' : '') + '>' +
+        '<p class="hint" id="code-hint">영문·숫자 코드입니다. 대소문자는 구분하지 않습니다. 종이 토큰을 받았다면 토큰을 입력하세요.</p>' +
+        (errorMsg ? '<p class="error" id="code-err">' + icon('circle-alert') + ' ' + esc(errorMsg) + '</p>' : '') +
+        '</div>' +
+        '<button type="submit" class="btn primary block" id="code-btn">시작하기' + icon('arrow-right') + '</button>' +
+        (ADMIN_URL ? '<p class="tiny muted center"><a href="' + esc(ADMIN_URL) + '" target="_top">교수자 로그인</a></p>' : '') +
+        '</form>',
+        '#code'
+      );
+      $('#code-form').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var v = $('#code').value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (!v) { renderCodeEntry('접속코드를 입력하세요.'); return; }
+        var restore = CES.busyButton($('#code-btn'), '찾는 중…');
+        CES.call('findCourseByCode', [v]).then(function (res) {
+          restore();
+          if (!res.ok) {
+            if (res.code === 'BAD_CODE') return renderCodeEntry('일치하는 설문이 없습니다. 코드를 다시 확인해 주세요.');
+            return notice('ERROR', { retry: true });
+          }
+          setCourseId(res.course_id);
+          S.autoCred = v;
+          if (res.token) S.tokenPrefill = v;
+          start();
+        });
+      });
+    }
+
+    /**
+     * 링크의 교과목 ID가 없을 때(교과목을 다시 만들었거나 오래된 QR): 링크에 담긴 접속코드·토큰으로 다시 찾고,
+     * 그래도 없으면 막힌 화면 대신 접속코드 입력 화면으로 안내합니다.
+     */
+    function recoverNotFound() {
+      var msg = '링크의 설문을 찾을 수 없습니다. 안내받은 접속코드를 입력해 주세요.';
+      var code = S.autoCred;
+      if (!code) { renderCodeEntry(msg); return; }
+      CES.call('findCourseByCode', [code]).then(function (res) {
+        if (res.ok && res.course_id !== S.courseId) {
+          setCourseId(res.course_id);
+          if (res.token) S.tokenPrefill = code;
+          start();
+        } else {
+          S.autoCred = '';
+          renderCodeEntry(msg);
+        }
+      });
+    }
+
+    function needsCredential() {
+      return S.course.access_mode === 'token' || S.course.has_code;
+    }
+
+    function renderIntro() {
+      var c = S.course;
+      var done = CES.store.get(DONE_KEY, window.localStorage);
+      render(
+        '<section class="card pad-lg stack-lg rise" aria-labelledby="ct">' +
+        '<div class="meta">' + courseMeta(c) + '<span class="badge open">' + icon('circle-dot') + '응답 진행 중</span></div>' +
+        '<div><p class="muted small">' + esc(c.department ? c.department + ' · ' : '') + '우리 수업 이야기</p><h1 id="ct">' + esc(c.course_name) + '</h1>' +
+        '<p class="muted small" style="margin-top:6px">여러분의 솔직한 한마디가 다음 수업을 바꿉니다.</p></div>' +
+        '<div class="stickers" aria-hidden="true">' +
+        '<div class="sticker" style="--i:0"><span class="emo">🙈</span>완전 익명</div>' +
+        '<div class="sticker" style="--i:1"><span class="emo">⚡</span>약 ' + c.est_minutes + '분</div>' +
+        '<div class="sticker" style="--i:2"><span class="emo">💬</span>' + c.item_count + '문항</div>' +
+        '</div>' +
+        '<p class="sr-only">익명 설문, ' + c.item_count + '문항, 약 ' + c.est_minutes + '분 소요</p>' +
+        (c.end_label ? '<p class="small muted">' + icon('calendar') + ' 마감: <span class="num">' + esc(c.end_label) + '</span></p>' : '') +
+        (done && c.access_mode !== 'token' ? '<div class="callout">' + icon('info') + '<p class="small">이 기기에서 이미 제출한 기록이 있습니다. 한 사람은 한 번만 응답해 주세요.</p></div>' : '') +
+        '<button type="button" class="btn primary block" data-act="to-auth">' + '시작하기' + icon('arrow-right') + '</button>' +
+        '</section>'
+      );
+    }
+
+    /* ───── 2. 인증 ───── */
+    function renderAuth(errorMsg) {
+      if (!needsCredential()) { verify(''); return; }
+      if (S.autoCred) { var auto = S.autoCred; S.autoCred = ''; verify(auto); return; }
+      var isToken = S.course.access_mode === 'token';
+      var label = isToken ? '일회용 토큰' : '접속코드';
+      var help = isToken ? '교수님께 받은 종이 토큰의 8자리 문자(예: ABCD-EF23)를 입력하세요. 토큰은 한 번만 사용할 수 있습니다.'
+        : '수업 시간에 안내받은 접속코드를 입력하세요.';
+      render(
+        '<form class="card pad-lg stack-lg" id="auth-form" novalidate aria-labelledby="at">' +
+        '<div class="notice-icon">' + icon(isToken ? 'ticket' : 'key-round') + '</div>' +
+        '<div class="center"><h1 id="at">' + label + ' 입력</h1><p class="muted small" style="margin-top:6px">' + esc(S.course.course_name) + '</p></div>' +
+        '<div class="field">' +
+        '<label for="cred">' + label + '</label>' +
+        '<input id="cred" class="input code" name="cred" autocomplete="off" autocapitalize="characters" spellcheck="false" ' +
+        'maxlength="' + (isToken ? 9 : 12) + '" inputmode="text" aria-describedby="cred-hint' + (errorMsg ? ' cred-err' : '') + '"' +
+        (errorMsg ? ' aria-invalid="true"' : '') + ' value="' + esc(isToken ? formatToken(S.tokenPrefill) : '') + '">' +
+        '<p class="hint" id="cred-hint">' + esc(help) + '</p>' +
+        (errorMsg ? '<p class="error" id="cred-err">' + icon('circle-alert') + ' ' + esc(errorMsg) + '</p>' : '') +
+        '</div>' +
+        '<button type="submit" class="btn primary block" id="auth-btn">확인' + icon('arrow-right') + '</button>' +
+        '<button type="button" class="btn ghost block" data-act="to-intro">' + icon('arrow-left') + '처음으로</button>' +
+        '</form>',
+        '#cred'
+      );
+      var input = $('#cred');
+      if (isToken) {
+        input.addEventListener('input', function () {
+          var pos = input.value.length;
+          input.value = formatToken(input.value);
+          if (pos >= input.value.length) input.setSelectionRange(input.value.length, input.value.length);
+        });
+      }
+      $('#auth-form').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var v = input.value.trim();
+        if (!v) { renderAuth(label + '을(를) 입력하세요.'); return; }
+        verify(v, $('#auth-btn'));
+      });
+    }
+
+    function formatToken(v) {
+      var s = String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+      return s.length > 4 ? s.slice(0, 4) + '-' + s.slice(4) : s;
+    }
+
+    function verify(cred, btn, resumeStep) {
+      var restore = CES.busyButton(btn, '확인 중…');
+      return CES.call('verifyAccess', [S.courseId, cred]).then(function (res) {
+        restore();
+        if (!res.ok) {
+          var msgs = {
+            BAD_CODE: '접속코드가 올바르지 않습니다. 다시 확인해 주세요.',
+            TOKEN_INVALID: '유효하지 않은 토큰입니다. 8자리 문자를 다시 확인해 주세요.'
+          };
+          if (res.code === 'TOKEN_USED') { CES.store.remove(DRAFT_KEY); return notice('TOKEN_USED'); }
+          if (res.code === 'CLOSED') return notice('CLOSED');
+          if (res.code === 'NOT_STARTED') return notice('NOT_STARTED');
+          if (msgs[res.code]) { CES.store.remove(DRAFT_KEY); return renderAuth(msgs[res.code]); }
+          return notice('ERROR', { retry: true });
+        }
+        S.cred = cred;
+        S.items = res.items || [];
+        S.labels = res.likertLabels || S.labels;
+        if (resumeStep != null) {
+          buildSteps();
+          S.step = Math.min(resumeStep, S.steps.length);
+          if (S.step >= S.steps.length) renderReview(); else renderSurvey();
+          CES.toast('임시 저장된 응답을 불러왔습니다.');
+        } else {
+          renderConsent();
+        }
+      });
+    }
+
+    function resumeDraft(d) {
+      S.answers = d.answers || {};
+      S.nonce = d.nonce || '';
+      verify(d.cred || '', null, d.step || 0);
+    }
+
+    /* ───── 3. 익명성 안내 ───── */
+    function renderConsent() {
+      var minN = S.course.min_responses || 5;
+      var rows = [
+        ['user-x', '학번·이름·이메일을 수집하지 않습니다', '로그인 없이 응답하며, 응답자를 식별하는 정보는 저장하지 않습니다.'],
+        ['clock', '제출 시각을 따로 저장하지 않습니다', '제출 날짜만 기록되며 IP·기기 정보도 수집하지 않습니다.'],
+        ['users', minN + '명 이상 응답한 경우에만 결과가 집계됩니다', '교수님은 통계(평균·분포)와 무작위 순서의 서술형 의견만 볼 수 있습니다.'],
+        ['shield-check', '성적과 무관합니다', '공식 강의평가를 대체하지 않는 수업 개선(CQI)용 설문입니다.']
+      ];
+      render(
+        '<section class="card pad-lg stack-lg rise" aria-labelledby="ct2">' +
+        '<div><p class="muted small">시작하기 전에</p><h1 id="ct2">익명으로 응답합니다</h1></div>' +
+        '<ul class="feature-list">' + rows.map(function (r, i) {
+          return '<li class="rise" style="--i:' + (i + 1) + '"><span class="ico">' + icon(r[0]) + '</span><div><strong>' + esc(r[1]) + '</strong><p class="small muted">' + esc(r[2]) + '</p></div></li>';
+        }).join('') + '</ul>' +
+        '<div class="callout info">' + icon('smartphone') +
+        '<p class="small">휴대폰에서는 한 화면에 한 문항씩 나오며, 점수를 고르면 다음 문항으로 자동 이동합니다. 키보드 숫자 <span class="kbd">1</span>~<span class="kbd">5</span>로도 고를 수 있습니다. 응답 중 내용은 이 브라우저 탭에 임시 저장됩니다.</p></div>' +
+        '<button type="button" class="btn primary block" data-act="begin">동의하고 시작' + icon('arrow-right') + '</button>' +
+        '</section>'
+      );
+    }
+
+    /* ───── 4. 설문 ───── */
+    function isDesktop() {
+      return !!(window.matchMedia && window.matchMedia('(min-width: 768px)').matches);
+    }
+
+    function buildSteps() {
+      S.mode = isDesktop() ? 'desktop' : 'mobile';
+      S.steps = [];
+      if (S.mode === 'mobile') {
+        S.items.forEach(function (it) { S.steps.push([it]); });
+      } else {
+        S.items.forEach(function (it) {
+          var last = S.steps[S.steps.length - 1];
+          if (last && last[0].domain === it.domain) last.push(it); else S.steps.push([it]);
+        });
+      }
+    }
+
+    function stepOfItem(itemId) {
+      for (var i = 0; i < S.steps.length; i++) {
+        if (S.steps[i].some(function (it) { return it.item_id === itemId; })) return i;
+      }
+      return 0;
+    }
+
+    function isAnswered(it) {
+      var v = S.answers[it.item_id];
+      if (it.type === 'multi') return Array.isArray(v) && v.length > 0;
+      if (it.type === 'text') return typeof v === 'string' && v.trim() !== '';
+      if (it.type === 'select') return typeof v === 'string' && v !== '';
+      return v != null && v !== '';
+    }
+
+    function answeredCount() {
+      return S.items.filter(isAnswered).length;
+    }
+
+    function saveDraft() {
+      CES.store.set(DRAFT_KEY, { v: 1, cred: S.cred, answers: S.answers, step: S.step, nonce: S.nonce });
+    }
+
+    function questionHtml(it) {
+      var qid = 'q-' + it.item_id;
+      var req = it.required ? '<span class="req" aria-hidden="true">*</span><span class="sr-only">(필수)</span>' : '<span class="small muted"> (선택)</span>';
+      var head = domainTag(it.domain) + '<h2 class="q-text" id="' + qid + '" tabindex="-1">' + esc(it.text) + req + '</h2>';
+      var body = '';
+      var v = S.answers[it.item_id];
+      if (it.type === 'likert5') {
+        var focusIdx = v ? Number(v) - 1 : 0;
+        body = '<div class="likert" role="radiogroup" aria-labelledby="' + qid + '" aria-required="' + it.required + '" data-kind="likert">' +
+          [1, 2, 3, 4, 5].map(function (n, i) {
+            var on = Number(v) === n;
+            return '<button type="button" class="chip has-emo" role="radio" aria-checked="' + on + '" tabindex="' + (i === focusIdx ? 0 : -1) + '"' +
+              ' data-val="' + n + '" aria-label="' + n + '점, ' + esc(S.labels[i]) + '"><span class="emo" aria-hidden="true">' + EMO[i] + '</span><span class="n" aria-hidden="true">' + n + '</span>' +
+              '<span class="l" aria-hidden="true">' + SHORT[i] + '</span></button>';
+          }).join('') + '</div>' +
+          '<div class="likert-scale" aria-hidden="true"><span>' + esc(S.labels[0]) + '</span><span>' + esc(S.labels[4]) + '</span></div>';
+      } else if (it.type === 'select') {
+        body = '<label class="sr-only" for="s-' + it.item_id + '">' + esc(it.text) + '</label>' +
+          '<select class="select lg" id="s-' + it.item_id + '" data-select="' + esc(it.item_id) + '">' +
+          '<option value="">' + (it.required ? '선택하세요' : '선택하지 않음') + '</option>' +
+          it.options.map(function (o) { return '<option value="' + esc(o) + '"' + (v === o ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') +
+          '</select>' + (it.required ? '' : '<p class="hint small muted" style="margin-top:8px">응답하지 않아도 됩니다. 응답자가 적은 집단은 결과에서 자동으로 숨겨집니다.</p>');
+      } else if (it.type === 'single' || it.type === 'multi') {
+        var multi = it.type === 'multi';
+        var sel = multi ? (Array.isArray(v) ? v : []) : [v];
+        body = '<div class="option-list" role="' + (multi ? 'group' : 'radiogroup') + '" aria-labelledby="' + qid + '" data-kind="' + it.type + '">' +
+          it.options.map(function (o, i) {
+            var on = sel.indexOf(o) >= 0;
+            return '<button type="button" class="option' + (multi ? ' multi' : '') + '" role="' + (multi ? 'checkbox' : 'radio') + '"' +
+              ' aria-checked="' + on + '" data-opt="' + i + '"><span class="mark" aria-hidden="true"></span><span>' + esc(o) + '</span></button>';
+          }).join('') + '</div>' + (multi ? '<p class="hint small muted" style="margin-top:8px">해당하는 것을 모두 고르세요.</p>' : '');
+      } else {
+        var len = (v || '').length;
+        body = '<label class="sr-only" for="t-' + it.item_id + '">' + esc(it.text) + '</label>' +
+          '<textarea class="textarea" id="t-' + it.item_id + '" data-text="' + it.item_id + '" maxlength="1000" rows="5"' +
+          ' aria-describedby="c-' + it.item_id + '" placeholder="자유롭게 적어 주세요. 이름·학번 등 개인정보는 쓰지 마세요.">' + esc(v || '') + '</textarea>' +
+          '<div class="counter" id="c-' + it.item_id + '" aria-live="off"><span class="num">' + len + '</span> / 1,000자</div>';
+      }
+      return '<section class="card q-card" data-item="' + esc(it.item_id) + '" aria-labelledby="' + qid + '">' + head + body +
+        '<p class="q-error hidden" id="e-' + it.item_id + '" role="alert"></p></section>';
+    }
+
+    function renderSurvey(focusItemId) {
+      var total = S.steps.length;
+      var group = S.steps[S.step];
+      var pct = Math.round((S.step + 1) / (total + 1) * 100);
+      var label = S.mode === 'mobile' ? '문항' : '영역';
+      var isLast = S.step === total - 1;
+      var prevPct = Math.round(S.step / (total + 1) * 100);
+      var cheer = '';
+      CHEERS.forEach(function (c) {
+        if (!cheer && (S.step + 1) / total >= c[0] && !S.cheered[c[0]] && S.dir > 0) { S.cheered[c[0]] = true; cheer = c[1]; }
+      });
+      render(
+        '<div class="survey-head">' +
+        '<div class="row-between small" style="margin-bottom:8px"><span class="muted">' + esc(S.course.course_name) + '</span>' +
+        '<span class="num"><strong>' + (S.step + 1) + '</strong> / ' + total + ' ' + label + '</span></div>' +
+        '<div class="progress-wrap"><div class="progress" role="progressbar" aria-label="설문 진행률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct + '"' +
+        ' aria-valuetext="' + total + '개 ' + label + ' 중 ' + (S.step + 1) + '번째"><span style="width:' + prevPct + '%"></span></div>' +
+        '<span class="progress-marker" aria-hidden="true" style="left:' + prevPct + '%">' + (pct >= 80 ? '🏁' : '✏️') + '</span></div>' +
+        '</div>' +
+        (cheer ? '<p class="cheer" role="status">' + esc(cheer) + '</p>' : '') +
+        '<div id="questions" class="' + (S.dir > 0 ? 'slide-in-r' : 'slide-in-l') + '">' + group.map(questionHtml).join('') + '</div>' +
+        '<div class="nav-bar">' +
+        '<button type="button" class="btn" data-act="prev">' + icon('arrow-left') + (S.step === 0 ? '안내' : '이전') + '</button>' +
+        '<button type="button" class="btn primary" data-act="next">' + (isLast ? '검토하기' : '다음') + icon(isLast ? 'list-checks' : 'arrow-right') + '</button>' +
+        '</div>' +
+        '<p class="tiny muted center">응답 <span class="num">' + answeredCount() + '/' + S.items.length + '</span> · 임시 저장됨</p>',
+        focusItemId ? '#q-' + cssEsc(focusItemId) : '.q-text'
+      );
+      // 진행 바 부드러운 이동
+      requestAnimationFrame(function () {
+        var bar = $('.progress > span');
+        if (bar) bar.style.width = pct + '%';
+        var mk = $('.progress-marker');
+        if (mk) mk.style.left = pct + '%';
+      });
+      CES.announce(total + '개 ' + label + ' 중 ' + (S.step + 1) + '번째. ' + group[0].domain);
+    }
+
+    function cssEsc(s) { return (window.CSS && CSS.escape) ? CSS.escape(s) : String(s).replace(/[^\w-]/g, '\\$&'); }
+
+    function setLikert(section, val, fromKey) {
+      var id = section.getAttribute('data-item');
+      var it = itemById(id);
+      var wasEmpty = !isAnswered(it);
+      S.answers[id] = val;
+      $$('.chip', section).forEach(function (b) {
+        var on = Number(b.getAttribute('data-val')) === val;
+        b.setAttribute('aria-checked', on);
+        b.tabIndex = on ? 0 : -1;
+        b.classList.remove('pop');
+        if (on) { void b.offsetWidth; b.classList.add('pop'); if (fromKey !== 'mouse') b.focus(); }
+      });
+      clearError(section);
+      saveDraft();
+      updateCount();
+      if (S.mode === 'mobile' && wasEmpty && S.steps[S.step].length === 1) {
+        setTimeout(function () {
+          if (S.steps[S.step] && S.steps[S.step][0].item_id === id && !S.submitting) next();
+        }, 280);
+      }
+    }
+
+    function itemById(id) {
+      return S.items.filter(function (x) { return x.item_id === id; })[0];
+    }
+
+    function updateCount() {
+      var el = $('.nav-bar + p .num');
+      if (el) el.textContent = answeredCount() + '/' + S.items.length;
+    }
+
+    function clearError(section) {
+      section.classList.remove('invalid');
+      var e = $('.q-error', section);
+      if (e) { e.classList.add('hidden'); e.textContent = ''; }
+    }
+
+    function validateStep() {
+      var firstBad = null;
+      S.steps[S.step].forEach(function (it) {
+        var sec = $('[data-item="' + cssEsc(it.item_id) + '"]', app);
+        if (it.required && !isAnswered(it)) {
+          sec.classList.add('invalid');
+          var e = $('.q-error', sec);
+          e.textContent = '이 문항은 필수입니다. 응답을 선택해 주세요.';
+          e.classList.remove('hidden');
+          if (!firstBad) firstBad = sec;
+        }
+      });
+      if (firstBad) {
+        var focusEl = $('[aria-checked="true"], .chip, .option, textarea, select', firstBad) || firstBad;
+        firstBad.scrollIntoView({ block: 'center', behavior: CES.reducedMotion() ? 'auto' : 'smooth' });
+        focusEl.focus({ preventScroll: true });
+        return false;
+      }
+      return true;
+    }
+
+    function next() {
+      if (!validateStep()) return;
+      S.dir = 1;
+      if (S.step < S.steps.length - 1) {
+        S.step++;
+        saveDraft();
+        renderSurvey();
+      } else {
+        S.step = S.steps.length;
+        saveDraft();
+        renderReview();
+      }
+    }
+
+    function prev() {
+      if (S.step === 0) { renderConsent(); return; }
+      S.dir = -1;
+      S.step--;
+      saveDraft();
+      renderSurvey();
+    }
+
+    /* ───── 5. 검토 ───── */
+    function answerLabel(it) {
+      var v = S.answers[it.item_id];
+      if (!isAnswered(it)) return null;
+      if (it.type === 'likert5') return v + ' · ' + S.labels[v - 1];
+      if (it.type === 'multi') return v.join(', ');
+      return String(v);
+    }
+
+    function renderReview(errorIds) {
+      var missing = S.items.filter(function (it) { return it.required && !isAnswered(it); });
+      var groups = [];
+      S.items.forEach(function (it) {
+        var g = groups[groups.length - 1];
+        if (g && g.domain === it.domain) g.items.push(it); else groups.push({ domain: it.domain, items: [it] });
+      });
+      render(
+        '<div class="survey-head">' +
+        '<div class="row-between small" style="margin-bottom:8px"><span class="muted">' + esc(S.course.course_name) + '</span><span>제출 전 검토</span></div>' +
+        '<div class="progress" role="progressbar" aria-label="설문 진행률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><span style="width:100%"></span></div>' +
+        '</div>' +
+        '<div class="stack">' +
+        '<div><h1 id="rv">응답을 확인해 주세요</h1><p class="muted small" style="margin-top:4px">수정하려면 문항 옆의 [수정]을 누르세요.</p></div>' +
+        (missing.length ? '<div class="callout" role="alert">' + icon('circle-alert') + '<p class="small"><strong>필수 문항 ' + missing.length + '개</strong>에 응답하지 않았습니다.</p></div>' : '') +
+        groups.map(function (g, gi) {
+          return '<section class="card rise" style="--i:' + gi + '">' + domainTag(g.domain) + '<ul class="review-list">' +
+            g.items.map(function (it) {
+              var a = answerLabel(it);
+              var miss = it.required && a == null;
+              return '<li><div class="grow small">' + esc(it.text) + '</div>' +
+                '<div class="ans small' + (miss ? ' missing' : '') + (it.type === 'text' && a ? ' text' : '') + '">' +
+                (a == null ? (miss ? '응답 필요' : '—') : esc(a.length > 80 ? a.slice(0, 80) + '…' : a)) + '</div>' +
+                '<button type="button" class="btn ghost sm" data-goto="' + esc(it.item_id) + '" aria-label="' + esc(it.text) + ' 수정">수정</button></li>';
+            }).join('') + '</ul></section>';
+        }).join('') +
+        '</div>' +
+        '<div class="nav-bar">' +
+        '<button type="button" class="btn" data-act="back-to-survey">' + icon('arrow-left') + '이전</button>' +
+        '<button type="button" class="btn primary" data-act="submit" id="submit-btn"' + (missing.length ? ' aria-disabled="true"' : '') + '>' +
+        icon('send') + '제출하기</button>' +
+        '</div>',
+        '#rv'
+      );
+      CES.announce('제출 전 검토 화면입니다.' + (missing.length ? ' 필수 문항 ' + missing.length + '개가 남아 있습니다.' : ''));
+    }
+
+    function submit() {
+      if (S.submitting) return;
+      var missing = S.items.filter(function (it) { return it.required && !isAnswered(it); });
+      if (missing.length) {
+        S.step = stepOfItem(missing[0].item_id);
+        renderSurvey(missing[0].item_id);
+        validateStep();
+        return;
+      }
+      if (!S.nonce) { S.nonce = CES.uuid(); saveDraft(); }
+      S.submitting = true;
+      var btn = $('#submit-btn');
+      var restore = CES.busyButton(btn, '제출 중…');
+      CES.call('submitResponse', [S.courseId, S.cred, S.answers, S.nonce], {
+        retries: 4,
+        onRetry: function (n, max) {
+          var span = btn && btn.querySelector('span:last-child');
+          if (span) span.textContent = '요청이 많아 다시 시도 중… (' + n + '/' + max + ')';
+        }
+      }).then(function (res) {
+        S.submitting = false;
+        if (res.ok) {
+          CES.store.remove(DRAFT_KEY);
+          CES.store.set(DONE_KEY, new Date().toISOString().slice(0, 10), window.localStorage);
+          return renderThanks();
+        }
+        restore();
+        if (res.code === 'TOKEN_USED') { CES.store.remove(DRAFT_KEY); return notice('TOKEN_USED'); }
+        if (res.code === 'CLOSED') return notice('CLOSED');
+        if (res.code === 'MISSING') {
+          var id = (res.missing || [])[0];
+          S.step = stepOfItem(id);
+          renderSurvey(id);
+          validateStep();
+          return;
+        }
+        if (res.code === 'BAD_CODE' || res.code === 'TOKEN_INVALID') {
+          CES.store.remove(DRAFT_KEY);
+          return renderAuth('접속 정보가 유효하지 않습니다. 다시 입력해 주세요.');
+        }
+        CES.toast(CES.errorText(res) + ' 응답 내용은 임시 저장되어 있습니다.', 'error');
+      });
+    }
+
+    /* ───── 6. 감사 ───── */
+    function renderThanks() {
+      render(
+        '<section class="card pad-lg center stack-lg rise" aria-labelledby="th">' +
+        '<svg class="check-draw" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="45"/><path d="M30 52 l14 14 l27 -30"/></svg>' +
+        '<div><h1 id="th">응답이 제출되었습니다</h1><p class="muted" style="margin-top:8px">소중한 의견 감사합니다 🙏<br>여러분의 목소리로 다음 수업이 더 좋아집니다.</p></div>' +
+        '<div class="stickers" aria-hidden="true"><div class="sticker" style="--i:0"><span class="emo">📚</span>더 나은 수업</div>' +
+        '<div class="sticker" style="--i:1"><span class="emo">🩺</span>좋은 간호사</div><div class="sticker" style="--i:2"><span class="emo">💜</span>고마워요</div></div>' +
+        '<div class="callout info" style="text-align:left">' + icon('shield-check') + '<p class="small">응답은 익명으로 저장되었습니다. 이제 이 창을 닫으셔도 됩니다.</p></div>' +
+        '</section>'
+      );
+      CES.announce('응답이 제출되었습니다. 감사합니다.');
+      setTimeout(CES.confetti, 150);
+      setTimeout(CES.confetti, 900);
+    }
+
+    /* ───── 이벤트 ───── */
+    app.addEventListener('click', function (e) {
+      var t = e.target.closest('button');
+      if (!t) return;
+      var act = t.getAttribute('data-act');
+      if (act === 'reload') return start();
+      if (act === 'to-auth') return renderAuth();
+      if (act === 'to-intro') return renderIntro();
+      if (act === 'begin') { buildSteps(); S.step = 0; saveDraft(); return renderSurvey(); }
+      if (act === 'next') return next();
+      if (act === 'prev') return prev();
+      if (act === 'back-to-survey') { S.step = S.steps.length - 1; return renderSurvey(); }
+      if (act === 'submit') return submit();
+      var go = t.getAttribute('data-goto');
+      if (go) { S.step = stepOfItem(go); return renderSurvey(go); }
+
+      var section = t.closest('.q-card');
+      if (!section) return;
+      if (t.classList.contains('chip')) return setLikert(section, Number(t.getAttribute('data-val')), e.detail === 0 ? 'key' : 'mouse');
+      if (t.classList.contains('option')) {
+        var it = itemById(section.getAttribute('data-item'));
+        var opt = it.options[Number(t.getAttribute('data-opt'))];
+        if (it.type === 'single') {
+          S.answers[it.item_id] = opt;
+          $$('.option', section).forEach(function (b) { b.setAttribute('aria-checked', b === t); });
+        } else {
+          var cur = Array.isArray(S.answers[it.item_id]) ? S.answers[it.item_id].slice() : [];
+          var i = cur.indexOf(opt);
+          if (i >= 0) cur.splice(i, 1); else cur.push(opt);
+          S.answers[it.item_id] = cur;
+          t.setAttribute('aria-checked', i < 0);
+        }
+        clearError(section);
+        saveDraft();
+        updateCount();
+      }
+    });
+
+    app.addEventListener('change', function (e) {
+      var sel = e.target.closest('select[data-select]');
+      if (!sel) return;
+      S.answers[sel.getAttribute('data-select')] = sel.value;
+      clearError(sel.closest('.q-card'));
+      saveDraft();
+      updateCount();
+    });
+
+    app.addEventListener('input', function (e) {
+      var ta = e.target.closest('textarea[data-text]');
+      if (!ta) return;
+      var id = ta.getAttribute('data-text');
+      S.answers[id] = ta.value.slice(0, 1000);
+      var c = $('#c-' + cssEsc(id) + ' .num');
+      if (c) c.textContent = ta.value.length.toLocaleString('ko-KR');
+      clearError(ta.closest('.q-card'));
+      saveDraft();
+      updateCount();
+    });
+
+    document.addEventListener('keydown', function (e) {
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+      var tag = (e.target.tagName || '').toLowerCase();
+      if (tag === 'textarea' || tag === 'input' || tag === 'select') return;
+      if (!$('#questions')) return;
+
+      // 리커트 그룹 내 화살표 이동(라디오 그룹 표준 동작)
+      var chip = e.target.closest && e.target.closest('.chip');
+      if (chip && /^Arrow(Left|Right|Up|Down)$/.test(e.key)) {
+        e.preventDefault();
+        var cur = Number(chip.getAttribute('data-val'));
+        var nv = /Left|Up/.test(e.key) ? Math.max(1, cur - 1) : Math.min(5, cur + 1);
+        setLikert(chip.closest('.q-card'), nv, 'key');
+        return;
+      }
+      // 숫자 1~5: 포커스된 문항, 없으면 현재 화면의 첫 미응답 리커트 문항
+      if (/^[1-5]$/.test(e.key)) {
+        var section = e.target.closest && e.target.closest('.q-card');
+        if (!section || !$('.likert', section)) {
+          var cards = $$('#questions .q-card').filter(function (c) { return $('.likert', c); });
+          section = cards.filter(function (c) { return !isAnswered(itemById(c.getAttribute('data-item'))); })[0] || cards[0];
+        }
+        if (section) { e.preventDefault(); setLikert(section, Number(e.key), 'key'); }
+      }
+    });
+
+    var resizeTimer;
+    window.addEventListener('resize', function () {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(function () {
+        if (!$('#questions') || !S.items.length) return;
+        var mode = isDesktop() ? 'desktop' : 'mobile';
+        if (mode === S.mode) return;
+        var anchor = S.steps[S.step][0].item_id;
+        buildSteps();
+        S.step = stepOfItem(anchor);
+        saveDraft();
+        renderSurvey();
+      }, 200);
+    });
+
+    start();
+  })();
+  </script>
+</body>
+</html>

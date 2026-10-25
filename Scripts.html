@@ -1,0 +1,716 @@
+<script>
+/* ==========================================================
+   강의평가 Studio — 공통 클라이언트 라이브러리 (window.CES)
+   ========================================================== */
+(function (global) {
+  'use strict';
+  var CES = {};
+
+  /* ───── DOM·문자열 ───── */
+  CES.$ = function (sel, root) { return (root || document).querySelector(sel); };
+  CES.$$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
+
+  var ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' };
+  CES.esc = function (s) {
+    return String(s == null ? '' : s).replace(/[&<>"'`]/g, function (c) { return ESC[c]; });
+  };
+
+  /** Lucide 아이콘 자리표시자. 렌더링 후 CES.icons()로 SVG 변환. */
+  CES.icon = function (name, label) {
+    return '<i data-lucide="' + CES.esc(name) + '"' + (label ? ' aria-label="' + CES.esc(label) + '" role="img"' : ' aria-hidden="true"') + '></i>';
+  };
+  CES.icons = function () {
+    try { if (global.lucide && global.lucide.createIcons) global.lucide.createIcons(); } catch (e) { /* 아이콘 없이도 동작 */ }
+  };
+
+  CES.fmt = function (n, digits) {
+    if (n == null || isNaN(n)) return '—';
+    return Number(n).toFixed(digits == null ? 2 : digits);
+  };
+
+  CES.uuid = function () {
+    if (global.crypto && crypto.randomUUID) return crypto.randomUUID();
+    var b = new Uint8Array(16);
+    (global.crypto || global.msCrypto).getRandomValues(b);
+    b[6] = (b[6] & 15) | 64; b[8] = (b[8] & 63) | 128;
+    var h = Array.prototype.map.call(b, function (x) { return ('0' + x.toString(16)).slice(-2); }).join('');
+    return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) + '-' + h.slice(16, 20) + '-' + h.slice(20);
+  };
+
+  CES.reducedMotion = function () {
+    return !!(global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  };
+
+  /* ───── 저장소(실패해도 앱은 동작) ───── */
+  CES.store = {
+    get: function (key, area) {
+      try { var v = (area || global.sessionStorage).getItem(key); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+    },
+    set: function (key, val, area) {
+      try { (area || global.sessionStorage).setItem(key, JSON.stringify(val)); } catch (e) { /* 무시 */ }
+    },
+    remove: function (key, area) {
+      try { (area || global.sessionStorage).removeItem(key); } catch (e) { /* 무시 */ }
+    }
+  };
+
+  /* ───── 화면 낭독기 알림 ───── */
+  CES.announce = function (msg) {
+    var el = document.getElementById('sr-status');
+    if (!el) return;
+    el.textContent = '';
+    setTimeout(function () { el.textContent = msg; }, 60);
+  };
+
+  /* ───── 로딩 상태 ───── */
+  var loadingCount = 0, loadingTimer = null;
+  CES.loading = function (on) {
+    loadingCount = Math.max(0, loadingCount + (on ? 1 : -1));
+    var bar = document.getElementById('loading-bar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'loading-bar';
+      bar.className = 'loading-bar hidden';
+      bar.setAttribute('role', 'progressbar');
+      bar.setAttribute('aria-label', '불러오는 중');
+      document.body.appendChild(bar);
+    }
+    clearTimeout(loadingTimer);
+    if (loadingCount > 0) {
+      loadingTimer = setTimeout(function () { bar.classList.remove('hidden'); }, 150);
+      document.body.setAttribute('aria-busy', 'true');
+    } else {
+      bar.classList.add('hidden');
+      document.body.removeAttribute('aria-busy');
+    }
+  };
+
+  /** 버튼에 로딩 상태 표시. 반환 함수를 호출하면 원상 복구. */
+  CES.busyButton = function (btn, text) {
+    if (!btn) return function () {};
+    var html = btn.innerHTML;
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    btn.innerHTML = '<span class="spinner" aria-hidden="true"></span><span>' + CES.esc(text || '처리 중…') + '</span>';
+    return function () {
+      btn.disabled = false;
+      btn.removeAttribute('aria-busy');
+      btn.innerHTML = html;
+      CES.icons();
+    };
+  };
+
+  /* ───── 서버 호출 ─────
+     모든 google.script.run 호출은 이 함수를 거칩니다(성공·실패 핸들러, 로딩 상태, 선택적 재시도).
+     opts.retries: BUSY 응답·네트워크 실패 시 지수 백오프 재시도 횟수(멱등 호출에만 사용)
+     opts.onRetry(attempt, max): 재시도 직전 콜백 */
+  CES.call = function (fn, args, opts) {
+    opts = opts || {};
+    var max = opts.retries || 0;
+    var silent = !!opts.silent;
+    return new Promise(function (resolve) {
+      var attempt = 0;
+      var run = function () {
+        if (!silent) CES.loading(true);
+        var done = function (res, isFailure) {
+          if (!silent) CES.loading(false);
+          var retryable = isFailure || (res && res.code === 'BUSY');
+          if (retryable && attempt < max) {
+            attempt++;
+            if (opts.onRetry) opts.onRetry(attempt, max);
+            var delay = Math.min(8000, 800 * Math.pow(2, attempt - 1)) + Math.floor(Math.random() * 400);
+            setTimeout(run, delay);
+            return;
+          }
+          resolve(res);
+        };
+        try {
+          var runner = global.google && google.script && google.script.run;
+          if (!runner) throw new Error('google.script.run 사용 불가');
+          runner
+            .withSuccessHandler(function (res) {
+              done(res && typeof res === 'object' ? res : { ok: false, code: 'BAD_RESPONSE' }, false);
+            })
+            .withFailureHandler(function (err) {
+              done({ ok: false, code: 'NETWORK', message: String(err && err.message || err) }, true);
+            })[fn].apply(null, args || []);
+        } catch (e) {
+          done({ ok: false, code: 'NETWORK', message: String(e && e.message || e) }, true);
+        }
+      };
+      run();
+    });
+  };
+
+  CES.errorText = function (res) {
+    var map = {
+      NETWORK: '네트워크 연결을 확인한 뒤 다시 시도하세요.',
+      BUSY: '동시에 많은 요청이 처리되고 있습니다. 잠시 후 다시 시도하세요.',
+      SERVER_ERROR: '일시적인 오류가 발생했습니다. 잠시 후 다시 시도하세요.',
+      SETUP_REQUIRED: '아직 초기 설정이 되지 않았습니다. 스프레드시트 메뉴에서 초기 설정을 실행하세요.',
+      NOT_FOUND: '요청한 교과목을 찾을 수 없습니다.',
+      AUTH: '로그인이 만료되었습니다. 다시 로그인하세요.',
+      VALIDATION: '입력값을 확인하세요.',
+      BAD_RESPONSE: '서버 응답을 해석할 수 없습니다.'
+    };
+    if (res && res.message && res.code === 'VALIDATION') return res.message;
+    return map[res && res.code] || '처리하지 못했습니다. 잠시 후 다시 시도하세요.';
+  };
+
+  /* ───── 토스트 ───── */
+  CES.toast = function (msg, type) {
+    var host = document.getElementById('toast-host');
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'toast-host';
+      host.className = 'toast-host';
+      host.setAttribute('role', 'status');
+      host.setAttribute('aria-live', 'polite');
+      document.body.appendChild(host);
+    }
+    var t = document.createElement('div');
+    t.className = 'toast' + (type === 'error' ? ' error' : '');
+    t.textContent = msg;
+    host.appendChild(t);
+    setTimeout(function () { t.remove(); }, type === 'error' ? 5200 : 3200);
+  };
+
+  /* ───── 모달(포커스 트랩, Esc 닫기, 포커스 복귀) ───── */
+  CES.modal = function (opts) {
+    var prev = document.activeElement;
+    var back = document.createElement('div');
+    back.className = 'modal-backdrop';
+    var id = 'm' + Math.random().toString(36).slice(2, 8);
+    back.innerHTML =
+      '<div class="modal' + (opts.wide ? ' wide' : '') + '" role="dialog" aria-modal="true" aria-labelledby="' + id + '">' +
+      '<div class="modal-head"><h2 id="' + id + '">' + CES.esc(opts.title) + '</h2>' +
+      '<button type="button" class="btn ghost icon sm" data-close aria-label="닫기">' + CES.icon('x') + '</button></div>' +
+      '<div class="modal-body">' + (opts.html || '') + '</div>' +
+      (opts.footer ? '<div class="modal-foot">' + opts.footer + '</div>' : '') +
+      '</div>';
+    document.body.appendChild(back);
+    var dialog = back.querySelector('.modal');
+    var api = {
+      el: dialog,
+      close: function () {
+        document.removeEventListener('keydown', onKey, true);
+        back.remove();
+        if (opts.onClose) opts.onClose();
+        if (prev && prev.focus) { try { prev.focus(); } catch (e) { /* 무시 */ } }
+      }
+    };
+    var focusables = function () {
+      return CES.$$('a[href],button:not([disabled]),input:not([disabled]),select,textarea,[tabindex]:not([tabindex="-1"])', dialog)
+        .filter(function (el) { return el.offsetParent !== null; });
+    };
+    // persistent 모달은 Esc·바깥 클릭으로 닫히지 않고, 닫기 버튼은 onRequestClose(확인 절차)를 거칩니다.
+    var requestClose = function () { if (opts.onRequestClose) opts.onRequestClose(api); else api.close(); };
+    var onKey = function (e) {
+      if (e.key === 'Escape') { e.preventDefault(); if (opts.persistent) requestClose(); else api.close(); }
+      if (e.key === 'Tab') {
+        var f = focusables();
+        if (!f.length) return;
+        if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
+        else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    back.addEventListener('click', function (e) {
+      if (e.target === back && !opts.persistent) api.close();
+      if (e.target.closest('[data-close]')) { if (opts.persistent) requestClose(); else api.close(); }
+    });
+    CES.icons();
+    setTimeout(function () {
+      var first = dialog.querySelector('[autofocus]') || focusables()[1] || focusables()[0];
+      if (first) first.focus();
+    }, 30);
+    if (opts.onOpen) opts.onOpen(api);
+    return api;
+  };
+
+  CES.confirm = function (title, message, okLabel, danger) {
+    return new Promise(function (resolve) {
+      var answered = false;
+      var m = CES.modal({
+        title: title,
+        html: '<p>' + CES.esc(message).replace(/\n/g, '<br>') + '</p>',
+        footer: '<button type="button" class="btn" data-close>취소</button>' +
+          '<button type="button" class="btn ' + (danger ? 'danger' : 'primary') + '" data-ok autofocus>' + CES.esc(okLabel || '확인') + '</button>',
+        onClose: function () { if (!answered) resolve(false); }
+      });
+      m.el.querySelector('[data-ok]').addEventListener('click', function () { answered = true; m.close(); resolve(true); });
+    });
+  };
+
+  /* ───── 다운로드(샌드박스 iframe에서 실패하면 복사 창으로 대체) ───── */
+  CES.download = function (filename, content, mime) {
+    var isCsv = /\.csv$/i.test(filename);
+    var data = (isCsv ? '﻿' : '') + content; // 엑셀 한글 깨짐 방지 BOM
+    try {
+      var blob = new Blob([data], { type: (mime || 'text/plain') + ';charset=utf-8' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 1500);
+      CES.toast(filename + ' 파일을 내려받았습니다.');
+    } catch (e) {
+      CES.copyDialog(filename, content);
+    }
+  };
+
+  /** base64로 받은 이진 파일(PDF 등) 내려받기 */
+  CES.downloadBase64 = function (filename, b64, mime) {
+    try {
+      var bin = atob(b64);
+      var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      // PDF 형식의 Blob은 브라우저 PDF 뷰어가 가로채 파일 이름이 'download'로 바뀌는 경우가 있어, 이진 파일로 내려받습니다.
+      void mime;
+      var url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 1500);
+      CES.toast(filename + ' 파일을 내려받았습니다.');
+    } catch (e) {
+      CES.toast('파일을 내려받지 못했습니다. 브라우저의 다운로드 차단 설정을 확인하세요.', 'error');
+    }
+  };
+
+  CES.copyDialog = function (title, content) {
+    var m = CES.modal({
+      title: title,
+      wide: true,
+      html: '<p class="muted small" style="margin-bottom:8px">내려받기가 차단된 환경입니다. 아래 내용을 복사해 메모장·엑셀에 붙여 넣으세요.</p>' +
+        '<textarea class="textarea" style="min-height:300px;font-family:ui-monospace,monospace;font-size:13px" readonly>' + CES.esc(content) + '</textarea>',
+      footer: '<button type="button" class="btn primary" data-copy>' + CES.icon('copy') + '복사</button>'
+    });
+    m.el.querySelector('[data-copy]').addEventListener('click', function () {
+      CES.copy(content);
+    });
+  };
+
+  CES.copy = function (text) {
+    var ok = function () { CES.toast('클립보드에 복사했습니다.'); };
+    var fallback = function () {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); ok(); } catch (e) { CES.toast('복사하지 못했습니다. 직접 선택해 복사하세요.', 'error'); }
+      ta.remove();
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(ok, fallback);
+    } else {
+      fallback();
+    }
+  };
+
+  /* ───── 축하 효과(가벼운 confetti, 모션 최소화 설정 시 생략) ───── */
+  CES.confetti = function () {
+    if (CES.reducedMotion()) return;
+    var canvas = document.createElement('canvas');
+    canvas.className = 'confetti-canvas';
+    canvas.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(canvas);
+    var ctx = canvas.getContext('2d');
+    var dpr = global.devicePixelRatio || 1;
+    var W = canvas.width = global.innerWidth * dpr;
+    var H = canvas.height = global.innerHeight * dpr;
+    var css = getComputedStyle(document.documentElement);
+    var colors = ['--primary', '--accent', '--butter', '--sky', '--primary-soft'].map(function (v) {
+      return css.getPropertyValue(v).trim() || '#5B4BFF';
+    });
+    var parts = [];
+    for (var i = 0; i < 90; i++) {
+      parts.push({
+        x: W / 2 + (Math.random() - .5) * W * .3, y: H * .35,
+        vx: (Math.random() - .5) * 14 * dpr, vy: (-Math.random() * 12 - 4) * dpr,
+        w: (6 + Math.random() * 6) * dpr, h: (8 + Math.random() * 8) * dpr,
+        r: Math.random() * Math.PI, vr: (Math.random() - .5) * .3,
+        c: colors[i % colors.length]
+      });
+    }
+    var start = performance.now();
+    var frame = function (t) {
+      var elapsed = t - start;
+      ctx.clearRect(0, 0, W, H);
+      parts.forEach(function (p) {
+        p.vy += .35 * dpr; p.vx *= .99;
+        p.x += p.vx; p.y += p.vy; p.r += p.vr;
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, 1 - elapsed / 1800);
+        ctx.translate(p.x, p.y); ctx.rotate(p.r);
+        ctx.fillStyle = p.c;
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        ctx.restore();
+      });
+      if (elapsed < 1800) requestAnimationFrame(frame); else canvas.remove();
+    };
+    requestAnimationFrame(frame);
+  };
+
+
+  /* ───── 링 게이지(SVG) ─────
+     frac 0~1, center: 가운데 큰 글자(HTML), caption: 작은 글자 */
+  CES.ring = function (frac, center, caption, opts) {
+    opts = opts || {};
+    var r = 42, c = 2 * Math.PI * r;
+    var f = Math.max(0, Math.min(1, Number(frac) || 0));
+    return '<span class="ring' + (opts.small ? ' sm' : '') + '" role="img" aria-label="' + CES.esc(opts.label || '') + '">' +
+      '<svg viewBox="0 0 100 100" aria-hidden="true"><circle class="ring-bg" cx="50" cy="50" r="' + r + '"/>' +
+      '<circle class="ring-fg' + (opts.tone ? ' ' + opts.tone : '') + '" cx="50" cy="50" r="' + r + '" stroke-dasharray="' + c.toFixed(2) +
+      '" stroke-dashoffset="' + c.toFixed(2) + '" data-off="' + (c * (1 - f)).toFixed(2) + '"/></svg>' +
+      '<span class="ring-label" aria-hidden="true"><strong>' + center + '</strong>' + (caption ? '<span>' + caption + '</span>' : '') + '</span></span>';
+  };
+
+  /** 숫자 카운트업 자리표시: <span data-count="3.58" data-dec="2">0</span> */
+  CES.count = function (value, dec) {
+    if (value == null || isNaN(value)) return '—';
+    dec = dec == null ? 2 : dec;
+    return '<span data-count="' + value + '" data-dec="' + dec + '">' + (CES.reducedMotion() ? Number(value).toFixed(dec) : (0).toFixed(dec)) + '</span>';
+  };
+
+  /** 링·막대·카운트업을 화면에 들어온 뒤 부드럽게 채웁니다(모션 최소화 시 즉시). */
+  CES.animateIn = function (root) {
+    root = root || document;
+    var instant = CES.reducedMotion();
+    var apply = function () {
+      CES.$$('.ring-fg[data-off]', root).forEach(function (el) { el.style.strokeDashoffset = el.getAttribute('data-off'); });
+      CES.$$('[data-w]', root).forEach(function (el) { el.style.width = el.getAttribute('data-w'); });
+      CES.$$('[data-grow]', root).forEach(function (el) { el.style.flexGrow = el.getAttribute('data-grow'); });
+      CES.$$('[data-count]', root).forEach(function (el) {
+        var to = Number(el.getAttribute('data-count')), dec = Number(el.getAttribute('data-dec') || 0);
+        if (instant) { el.textContent = to.toFixed(dec); return; }
+        var t0 = performance.now(), dur = 900;
+        var step = function (t) {
+          var k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+          el.textContent = (to * e).toFixed(dec);
+          if (k < 1) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      });
+    };
+    if (instant) apply(); else requestAnimationFrame(function () { requestAnimationFrame(apply); });
+  };
+
+  /* ───── 워드 클라우드(아르키메데스 나선 배치, SVG) ─────
+     words: [{w, n}] 빈도 내림차순. opts.onSelect(word|null) 클릭 시 호출 */
+  CES.wordCloud = function (host, words, opts) {
+    opts = opts || {};
+    host.innerHTML = '';
+    if (!words || !words.length) {
+      host.innerHTML = '<p class="small muted">표시할 단어가 없습니다.</p>';
+      return;
+    }
+    var W = Math.max(280, Math.round(host.clientWidth || 600));
+    var H = opts.height || Math.round(Math.min(380, Math.max(240, W * 0.55)));
+    var small = W < 480;
+    var maxN = words[0].n, minN = words[words.length - 1].n;
+    var ctx = document.createElement('canvas').getContext('2d');
+    var family = getComputedStyle(document.body).fontFamily;
+    var placed = [], out = [];
+    var overlap = function (a, b) {
+      return !(a.x + a.w + 3 < b.x || b.x + b.w + 3 < a.x || a.y + a.h + 2 < b.y || b.y + b.h + 2 < a.y);
+    };
+    words.slice(0, opts.max || 45).forEach(function (wd, i) {
+      var t = maxN === minN ? 1 : (wd.n - minN) / (maxN - minN);
+      var size = Math.round((small ? 13 : 15) + Math.sqrt(t) * (small ? 26 : 42));
+      ctx.font = '700 ' + size + 'px ' + family;
+      var tw = ctx.measureText(wd.w).width, th = size * 1.1;
+      for (var a = 0; a < 1600; a++) {
+        var ang = a * 0.3, rad = 1.6 * ang;
+        var x = W / 2 + rad * Math.cos(ang) * (W / H) - tw / 2;
+        var y = H / 2 + rad * Math.sin(ang) - th / 2;
+        if (x < 2 || y < 2 || x + tw > W - 2 || y + th > H - 2) continue;
+        var box = { x: x, y: y, w: tw, h: th };
+        if (!placed.some(function (p) { return overlap(p, box); })) {
+          placed.push(box);
+          out.push({ wd: wd, x: x + tw / 2, y: y + th * 0.8, size: size, tier: t > 0.6 ? 1 : t > 0.25 ? 2 : 3, i: i });
+          break;
+        }
+      }
+    });
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="group" aria-label="' + CES.esc(opts.label || '워드 클라우드') + '">' +
+      out.map(function (o) {
+        return '<text x="' + o.x.toFixed(1) + '" y="' + o.y.toFixed(1) + '" text-anchor="middle" font-size="' + o.size + '" class="wc-t' + o.tier + '"' +
+          ' style="--i:' + o.i + '" tabindex="0" role="button" data-w="' + CES.esc(o.wd.w) + '"' +
+          ' aria-label="' + CES.esc(o.wd.w) + ' ' + o.wd.n + '회. 선택하면 이 단어가 들어간 응답만 봅니다"><title>' +
+          CES.esc(o.wd.w) + ' · ' + o.wd.n + '회</title>' + CES.esc(o.wd.w) + '</text>';
+      }).join('') + '</svg>';
+    host.innerHTML = svg;
+    var current = null;
+    var pick = function (el) {
+      var w = el ? el.getAttribute('data-w') : null;
+      current = current === w ? null : w;
+      host.classList.toggle('filtering', !!current);
+      CES.$$('text', host).forEach(function (t) { t.classList.toggle('on', t.getAttribute('data-w') === current); });
+      if (opts.onSelect) opts.onSelect(current);
+    };
+    host.querySelector('svg').addEventListener('click', function (e) {
+      var t = e.target.closest('text');
+      if (t) pick(t);
+    });
+    host.querySelector('svg').addEventListener('keydown', function (e) {
+      var t = e.target.closest('text');
+      if (t && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); pick(t); }
+    });
+    return {
+      clear: function () { current = null; host.classList.remove('filtering'); CES.$$('text', host).forEach(function (t) { t.classList.remove('on'); }); },
+      select: function (w) {
+        var el = CES.$$('text', host).filter(function (t) { return t.getAttribute('data-w') === w; })[0];
+        if (el) { current = null; pick(el); return true; }
+        return false;
+      }
+    };
+  };
+
+  /* ───── QR 코드 인코더(바이트 모드, 오류정정 M, 버전 1~40) ─────
+     외부 라이브러리 없이 ISO/IEC 18004 절차를 그대로 구현했습니다. */
+  var QR = (function () {
+    var ECC_PER_BLOCK = [-1, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26, 30, 22, 22, 24, 24, 28, 28, 26, 26, 26, 26, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28];
+    var NUM_BLOCKS = [-1, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5, 5, 8, 9, 9, 10, 10, 11, 13, 14, 16, 17, 17, 18, 20, 21, 23, 25, 26, 28, 29, 31, 33, 35, 37, 38, 40, 43, 45, 47, 49];
+    var FORMAT_ECC_M = 0;
+
+    function rawModules(ver) {
+      var r = (16 * ver + 128) * ver + 64;
+      if (ver >= 2) {
+        var na = Math.floor(ver / 7) + 2;
+        r -= (25 * na - 10) * na - 55;
+        if (ver >= 7) r -= 36;
+      }
+      return r;
+    }
+    function dataCodewords(ver) {
+      return Math.floor(rawModules(ver) / 8) - ECC_PER_BLOCK[ver] * NUM_BLOCKS[ver];
+    }
+    function gfMul(x, y) {
+      var z = 0;
+      for (var i = 7; i >= 0; i--) {
+        z = (z << 1) ^ ((z >>> 7) * 0x11D);
+        z ^= ((y >>> i) & 1) * x;
+      }
+      return z & 0xFF;
+    }
+    function rsDivisor(degree) {
+      var result = [];
+      for (var i = 0; i < degree - 1; i++) result.push(0);
+      result.push(1);
+      var root = 1;
+      for (i = 0; i < degree; i++) {
+        for (var j = 0; j < result.length; j++) {
+          result[j] = gfMul(result[j], root);
+          if (j + 1 < result.length) result[j] ^= result[j + 1];
+        }
+        root = gfMul(root, 0x02);
+      }
+      return result;
+    }
+    function rsRemainder(data, divisor) {
+      var result = divisor.map(function () { return 0; });
+      data.forEach(function (b) {
+        var factor = b ^ result.shift();
+        result.push(0);
+        divisor.forEach(function (coef, i) { result[i] ^= gfMul(coef, factor); });
+      });
+      return result;
+    }
+    function utf8(str) {
+      var out = [];
+      var enc = unescape(encodeURIComponent(str));
+      for (var i = 0; i < enc.length; i++) out.push(enc.charCodeAt(i));
+      return out;
+    }
+    function alignPositions(ver, size) {
+      if (ver === 1) return [];
+      var num = Math.floor(ver / 7) + 2;
+      var step = ver === 32 ? 26 : Math.ceil((ver * 4 + 4) / (num * 2 - 2)) * 2;
+      var res = [6];
+      for (var pos = size - 7; res.length < num; pos -= step) res.splice(1, 0, pos);
+      return res;
+    }
+
+    function encode(text) {
+      var bytes = utf8(text);
+      var ver, ccBits;
+      for (ver = 1; ver <= 40; ver++) {
+        ccBits = ver <= 9 ? 8 : 16;
+        if (4 + ccBits + bytes.length * 8 <= dataCodewords(ver) * 8) break;
+      }
+      if (ver > 40) throw new Error('QR 데이터가 너무 깁니다.');
+      var cap = dataCodewords(ver) * 8;
+      var bits = [];
+      var push = function (val, len) { for (var i = len - 1; i >= 0; i--) bits.push((val >>> i) & 1); };
+      push(4, 4);
+      push(bytes.length, ccBits);
+      bytes.forEach(function (b) { push(b, 8); });
+      push(0, Math.min(4, cap - bits.length));
+      push(0, (8 - bits.length % 8) % 8);
+      for (var pad = 0xEC; bits.length < cap; pad ^= 0xEC ^ 0x11) push(pad, 8);
+      var data = [];
+      for (var i = 0; i < bits.length; i += 8) {
+        var v = 0;
+        for (var k = 0; k < 8; k++) v = (v << 1) | bits[i + k];
+        data.push(v);
+      }
+
+      // 오류정정 블록 생성과 인터리브
+      var numBlocks = NUM_BLOCKS[ver], eccLen = ECC_PER_BLOCK[ver];
+      var rawCw = Math.floor(rawModules(ver) / 8);
+      var numShort = numBlocks - rawCw % numBlocks;
+      var shortLen = Math.floor(rawCw / numBlocks);
+      var div = rsDivisor(eccLen);
+      var blocks = [];
+      for (i = 0, k = 0; i < numBlocks; i++) {
+        var dat = data.slice(k, k + shortLen - eccLen + (i < numShort ? 0 : 1));
+        k += dat.length;
+        var ecc = rsRemainder(dat, div);
+        if (i < numShort) dat.push(0);
+        blocks.push(dat.concat(ecc));
+      }
+      var codewords = [];
+      for (i = 0; i < blocks[0].length; i++) {
+        for (var j = 0; j < blocks.length; j++) {
+          if (i !== shortLen - eccLen || j >= numShort) codewords.push(blocks[j][i]);
+        }
+      }
+
+      var size = ver * 4 + 17;
+      var mods = [], fn = [];
+      for (i = 0; i < size; i++) { mods.push(new Array(size).fill(false)); fn.push(new Array(size).fill(false)); }
+      var setF = function (x, y, dark) { mods[y][x] = dark; fn[y][x] = true; };
+
+      for (i = 0; i < size; i++) { setF(6, i, i % 2 === 0); setF(i, 6, i % 2 === 0); }
+      [[3, 3], [size - 4, 3], [3, size - 4]].forEach(function (c) {
+        for (var dy = -4; dy <= 4; dy++) for (var dx = -4; dx <= 4; dx++) {
+          var d = Math.max(Math.abs(dx), Math.abs(dy)), xx = c[0] + dx, yy = c[1] + dy;
+          if (xx >= 0 && xx < size && yy >= 0 && yy < size) setF(xx, yy, d !== 2 && d !== 4);
+        }
+      });
+      var ap = alignPositions(ver, size), n = ap.length;
+      for (i = 0; i < n; i++) for (j = 0; j < n; j++) {
+        if ((i === 0 && j === 0) || (i === 0 && j === n - 1) || (i === n - 1 && j === 0)) continue;
+        for (var ay = -2; ay <= 2; ay++) for (var ax = -2; ax <= 2; ax++) {
+          setF(ap[i] + ax, ap[j] + ay, Math.max(Math.abs(ax), Math.abs(ay)) !== 1);
+        }
+      }
+      var drawFormat = function (mask) {
+        var d = (FORMAT_ECC_M << 3) | mask, rem = d;
+        for (var t = 0; t < 10; t++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+        var b = ((d << 10) | rem) ^ 0x5412;
+        var bit = function (t) { return ((b >>> t) & 1) !== 0; };
+        for (t = 0; t <= 5; t++) setF(8, t, bit(t));
+        setF(8, 7, bit(6)); setF(8, 8, bit(7)); setF(7, 8, bit(8));
+        for (t = 9; t < 15; t++) setF(14 - t, 8, bit(t));
+        for (t = 0; t < 8; t++) setF(size - 1 - t, 8, bit(t));
+        for (t = 8; t < 15; t++) setF(8, size - 15 + t, bit(t));
+        setF(8, size - 8, true);
+      };
+      drawFormat(0);
+      if (ver >= 7) {
+        var rem = ver;
+        for (i = 0; i < 12; i++) rem = (rem << 1) ^ ((rem >>> 11) * 0x1F25);
+        var vb = (ver << 12) | rem;
+        for (i = 0; i < 18; i++) {
+          var bt = ((vb >>> i) & 1) !== 0, a = size - 11 + i % 3, bb = Math.floor(i / 3);
+          setF(a, bb, bt); setF(bb, a, bt);
+        }
+      }
+
+      // 데이터 배치(지그재그)
+      var idx = 0;
+      for (var right = size - 1; right >= 1; right -= 2) {
+        if (right === 6) right = 5;
+        for (var vert = 0; vert < size; vert++) {
+          for (j = 0; j < 2; j++) {
+            var x = right - j, up = ((right + 1) & 2) === 0, y = up ? size - 1 - vert : vert;
+            if (!fn[y][x] && idx < codewords.length * 8) {
+              mods[y][x] = ((codewords[idx >>> 3] >>> (7 - (idx & 7))) & 1) !== 0;
+              idx++;
+            }
+          }
+        }
+      }
+
+      var maskFn = [
+        function (x, y) { return (x + y) % 2 === 0; },
+        function (x, y) { return y % 2 === 0; },
+        function (x) { return x % 3 === 0; },
+        function (x, y) { return (x + y) % 3 === 0; },
+        function (x, y) { return (Math.floor(x / 3) + Math.floor(y / 2)) % 2 === 0; },
+        function (x, y) { return x * y % 2 + x * y % 3 === 0; },
+        function (x, y) { return (x * y % 2 + x * y % 3) % 2 === 0; },
+        function (x, y) { return ((x + y) % 2 + x * y % 3) % 2 === 0; }
+      ];
+      var applyMask = function (m) {
+        for (var yy = 0; yy < size; yy++) for (var xx = 0; xx < size; xx++) {
+          if (!fn[yy][xx] && maskFn[m](xx, yy)) mods[yy][xx] = !mods[yy][xx];
+        }
+      };
+      // 간이 페널티(N1 연속, N2 2×2 블록, N4 명암 균형)로 마스크 선택
+      var penalty = function () {
+        var p = 0, dark = 0, yy, xx, run, prev;
+        for (yy = 0; yy < size; yy++) {
+          run = 0; prev = null;
+          for (xx = 0; xx < size; xx++) {
+            if (mods[yy][xx] === prev) { run++; if (run === 5) p += 3; else if (run > 5) p++; }
+            else { prev = mods[yy][xx]; run = 1; }
+            if (mods[yy][xx]) dark++;
+          }
+        }
+        for (xx = 0; xx < size; xx++) {
+          run = 0; prev = null;
+          for (yy = 0; yy < size; yy++) {
+            if (mods[yy][xx] === prev) { run++; if (run === 5) p += 3; else if (run > 5) p++; }
+            else { prev = mods[yy][xx]; run = 1; }
+          }
+        }
+        for (yy = 0; yy < size - 1; yy++) for (xx = 0; xx < size - 1; xx++) {
+          var c = mods[yy][xx];
+          if (c === mods[yy][xx + 1] && c === mods[yy + 1][xx] && c === mods[yy + 1][xx + 1]) p += 3;
+        }
+        var total = size * size;
+        p += Math.floor(Math.abs(dark * 20 - total * 10) / total) * 10;
+        return p;
+      };
+      var best = 0, bestP = Infinity;
+      for (var m = 0; m < 8; m++) {
+        applyMask(m); drawFormat(m);
+        var pp = penalty();
+        if (pp < bestP) { bestP = pp; best = m; }
+        applyMask(m);
+      }
+      applyMask(best); drawFormat(best);
+      return mods;
+    }
+
+    function toSvg(text, opts) {
+      opts = opts || {};
+      var mods = encode(text);
+      var size = mods.length, q = opts.quiet == null ? 4 : opts.quiet, dim = size + q * 2;
+      var d = '';
+      for (var y = 0; y < size; y++) for (var x = 0; x < size; x++) {
+        if (mods[y][x]) d += 'M' + (x + q) + ' ' + (y + q) + 'h1v1h-1z';
+      }
+      return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + dim + ' ' + dim + '" shape-rendering="crispEdges"' +
+        (opts.label ? ' role="img" aria-label="' + CES.esc(opts.label) + '"' : ' aria-hidden="true"') + '>' +
+        '<rect width="' + dim + '" height="' + dim + '" fill="#fff"/><path d="' + d + '" fill="#000"/></svg>';
+    }
+
+    return { encode: encode, toSvg: toSvg };
+  })();
+  CES.QR = QR;
+
+  global.CES = CES;
+})(window);
+</script>
