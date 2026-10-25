@@ -656,6 +656,8 @@
               <p><strong>학생 접속</strong> ① QR 찍기(코드 입력 없음) ② 공통 주소에서 코드 입력</p>
               ${c.base_url ? `<button type="button" class="btn sm" data-copy-base style="margin-top:8px">${icon('copy')}공통 주소 복사(LMS 공지용)</button>` : ''}
             </div></div>` : ''}
+            ${A.data.urlTag ? `<p class="small muted center" data-url-tag>QR 주소의 배포 ID: <code>${esc(A.data.urlTag)}</code></p>` : ''}
+            ${A.data.bound ? `<div class="callout" role="alert" data-bound-warn>${icon('triangle-alert')}<p class="small"><strong>스프레드시트에 연결된 프로젝트</strong>에서 실행 중입니다. 이 주소는 휴대폰에서 「현재 파일을 열 수 없습니다」로 막힐 수 있습니다. <strong>독립형 설치</strong>(사용 매뉴얼 2장)로 옮긴 뒤, 새 주소의 관리자 화면에서 QR을 다시 여세요.</p></div>` : ''}
             ${c.access_mode === 'token' ? `<div class="callout info">${icon('ticket')}<p class="small">토큰 방식: 학생은 종이 토큰을 입력합니다(토큰 시트의 QR은 입력 없이 시작).</p></div>` : ''}
           </div>`,
         footer: `<button type="button" class="btn" data-svg>${icon('download')}QR 저장(SVG)</button>

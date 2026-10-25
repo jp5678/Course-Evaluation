@@ -131,6 +131,7 @@ function setup() {
   var knownSheet = String(cur.sheet_id || ''), knownScript = String(cur.script_id || '');
   if ((knownSheet && knownSheet !== sheetId) || (knownScript && knownScript !== scriptId) || (!knownScript && isStandalone_())) {
     setSetting_('webapp_url', '');
+    setSetting_('webapp_script_id', '', WEBAPP_OWNER_DESC);
   }
   setSetting_('sheet_id', sheetId, '이 스프레드시트 ID(사본 감지용). 직접 수정 금지');
   setSetting_('script_id', scriptId, '이 시트를 쓰는 Apps Script 프로젝트 ID(이전 감지용). 직접 수정 금지');
