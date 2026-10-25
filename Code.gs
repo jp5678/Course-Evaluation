@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.4.4',
+  VERSION: '1.4.5',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -362,27 +362,72 @@ function duplicateCourse(session, sourceId, data) {
   return adminApi_(session, function () {
     var src = findCourse_(sanitizeId_(sourceId));
     if (!src) return { ok: false, code: 'NOT_FOUND' };
-    var merged = {
-      course_name: src.course_name, grade: src.grade, enrollment: 0,
-      access_mode: src.access_mode, access_code: '',
-      department: src.department, delivery_mode: data.delivery_mode || src.delivery_mode,
-      course_type: data.course_type || src.course_type,
-      year: data.year, semester: data.semester, section: data.section != null ? data.section : '',
-      start_at: data.start_at, end_at: data.end_at, result_open_date: data.result_open_date || ''
-    };
-    var v = validateCourse_(merged);
-    if (!v.ok) return v;
-    var c = v.course;
+    return withLock_(function () { return duplicateCore_(src, data); });
+  });
+}
+
+/** 복제 공통 처리(잠금 안에서 호출). 새 교과목 ID·접속코드를 돌려줍니다. */
+function duplicateCore_(src, data) {
+  var merged = {
+    course_name: src.course_name, grade: src.grade, enrollment: 0,
+    access_mode: src.access_mode, access_code: '',
+    department: src.department, delivery_mode: data.delivery_mode || src.delivery_mode,
+    course_type: data.course_type || src.course_type,
+    year: data.year, semester: data.semester, section: data.section != null ? data.section : '',
+    start_at: data.start_at, end_at: data.end_at, result_open_date: data.result_open_date || ''
+  };
+  var v = validateCourse_(merged);
+  if (!v.ok) return v;
+  var c = v.course;
+  var table = readTable_(APP.SHEETS.COURSES);
+  c.course_id = newCourseId_(table.rows);
+  c.access_code = uniqueAccessCode_(table.rows); // 공통 주소에서 코드로 교과목을 찾으므로 겹치지 않게
+  c.status = statusByDates_(c, new Date());
+  var row = courseToRow_(c);
+  table.sheet.getRange(table.sheet.getLastRow() + 1, 1, 1, row.length).setValues([row]);
+  copyItems_(src.course_id, c.course_id);
+  if (c.delivery_mode !== '대면') addOnlineItems_(c.course_id);
+  return { ok: true, course_id: c.course_id, access_code: c.access_code };
+}
+
+/**
+ * 새 학기 준비: 한 학기의 교과목을 모두 새 학기로 복제(새 접속코드·응답 기간)하고, 원하면 이전 학기 교과목을 마감합니다.
+ * data: { from_year, from_semester, year, semester, start_at, end_at, close_old }
+ * 새 학기에 같은 이름(·반)의 교과목이 이미 있으면 건너뜁니다(두 번 눌러도 중복 없음).
+ */
+function prepareNewTerm(session, data) {
+  return adminApi_(session, function () {
+    data = data || {};
+    var fy = Number(data.from_year), fs = String(data.from_semester || '');
+    var ty = Number(data.year), ts = String(data.semester || '');
+    if (fy === ty && fs === ts) return { ok: false, code: 'VALIDATION', field: 'semester', message: '새 학기는 이전 학기와 달라야 합니다.' };
     return withLock_(function () {
-      var table = readTable_(APP.SHEETS.COURSES);
-      c.course_id = newCourseId_(table.rows);
-      c.access_code = uniqueAccessCode_(table.rows); // 공통 주소에서 코드로 교과목을 찾으므로 겹치지 않게
-      c.status = statusByDates_(c, new Date());
-      var row = courseToRow_(c);
-      table.sheet.getRange(table.sheet.getLastRow() + 1, 1, 1, row.length).setValues([row]);
-      copyItems_(src.course_id, c.course_id);
-      if (c.delivery_mode !== '대면') addOnlineItems_(c.course_id);
-      return { ok: true, course_id: c.course_id };
+      var all = getCourses_();
+      var sources = all.filter(function (c) { return Number(c.year) === fy && String(c.semester) === fs; });
+      if (!sources.length) return { ok: false, code: 'VALIDATION', field: 'from', message: '선택한 학기에 교과목이 없습니다.' };
+      var key = function (c) { return String(c.course_name).trim() + '|' + String(c.section || ''); };
+      var exists = {};
+      all.forEach(function (c) { if (Number(c.year) === ty && String(c.semester) === ts) exists[key(c)] = true; });
+      var made = [], skipped = [];
+      for (var i = 0; i < sources.length; i++) {
+        var src = sources[i];
+        if (exists[key(src)]) { skipped.push(src.course_name); continue; }
+        var r = duplicateCore_(src, { year: ty, semester: ts, start_at: data.start_at, end_at: data.end_at });
+        if (!r.ok) return r;
+        made.push({ course_id: r.course_id, course_name: src.course_name, access_mode: src.access_mode, access_code: r.access_code });
+      }
+      var closed = 0;
+      if (data.close_old) {
+        var t = readTable_(APP.SHEETS.COURSES);
+        var col = HEADERS.Courses.indexOf('status') + 1;
+        t.rows.forEach(function (r) {
+          if (Number(r.year) === fy && String(r.semester) === fs && String(r.status) !== APP.STATUS.CLOSED) {
+            t.sheet.getRange(r._row, col).setValue(APP.STATUS.CLOSED);
+            closed++;
+          }
+        });
+      }
+      return { ok: true, made: made, skipped: skipped, closed: closed };
     });
   });
 }

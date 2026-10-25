@@ -1102,3 +1102,57 @@ test('수업 방식 이름 「비대면」→「온라인(비대면)」, 기존 
   const codes = server.getCourses_().map((c) => String(c.access_code).toUpperCase()).filter(Boolean);
   assert.equal(new Set(codes).size, codes.length, '예시 교과목 접속코드 중복 없음');
 });
+
+test('새 학기 준비: 학기 교과목 일괄 복제(새 접속코드·문항 복사), 이전 학기 마감, 다시 실행해도 중복 없음', () => {
+  const { server } = H.makeServer({ pin: '246810' });
+  const s = H.login(server, '246810');
+  const before = server.getCourses_();
+  const src = before.filter((c) => c.year === 2026 && c.semester === '2');
+  assert.ok(src.length >= 2, '2026-2학기 예시 교과목');
+  const data = { from_year: 2026, from_semester: '2', year: 2027, semester: '1', start_at: '2027-04-01T09:00', end_at: '2027-04-15T23:59', close_old: true };
+  const r = server.prepareNewTerm(s, data);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.made.length, src.length);
+  assert.equal(r.closed, src.length);
+  const after = server.getCourses_();
+  const made = after.filter((c) => c.year === 2027 && c.semester === '1');
+  assert.deepEqual(made.map((c) => c.course_name).sort(), src.map((c) => c.course_name).sort());
+  made.forEach((c) => {
+    const o = src.find((x) => x.course_name === c.course_name);
+    assert.equal(c.delivery_mode, o.delivery_mode);
+    assert.equal(server.getItems_(c.course_id).length, server.getItems_(o.course_id).length, '문항 복사');
+    assert.notEqual(c.access_code, o.access_code, '새 접속코드');
+  });
+  const codes = after.map((c) => String(c.access_code).toUpperCase()).filter(Boolean);
+  assert.equal(new Set(codes).size, codes.length, '접속코드 중복 없음');
+  // 이전 학기 마감 → 이전 코드로 찾아도 마감 안내
+  assert.ok(src.every((o) => server.getCourses_().find((c) => c.course_id === o.course_id).status === '마감'));
+  // 다시 실행: 건너뜀
+  const again = server.prepareNewTerm(s, data);
+  assert.deepEqual([again.made.length, again.skipped.length], [0, src.length]);
+  // 같은 학기로는 불가, 빈 학기 불가, 로그인 필요
+  assert.equal(server.prepareNewTerm(s, Object.assign({}, data, { year: 2026, semester: '2' })).code, 'VALIDATION');
+  assert.equal(server.prepareNewTerm(s, Object.assign({}, data, { from_year: 2019 })).code, 'VALIDATION');
+  assert.equal(server.prepareNewTerm('nope', data).code, 'AUTH');
+});
+
+test('전공심화과정: 2026-2학기, 실무 적용 문항 2개(F 영역 끝), 기존 교과목엔 응답 없을 때 1회만', () => {
+  const { server } = H.makeServer({ pin: '246810' });
+  const deep = server.getCourses_().find((c) => c.course_name === 'AI융합 간호정보학(전공심화과정)');
+  assert.deepEqual([deep.year, deep.semester, deep.grade, deep.course_type, deep.delivery_mode], [2026, '2', '4', '이론+실습', '온라인(비대면)']);
+  const items = server.itemsForCourse_(deep);
+  assert.equal(items.length, 34, '32 + 실무 적용 2');
+  const f = items.map((i, k) => [i.domain, i.text, k]).filter((x) => x[0] === 'F. 디지털·AI 활용');
+  assert.match(f[f.length - 1][1], /효율성/);
+  assert.match(f[f.length - 2][1], /임상 현장에 적용/);
+  // CLO는 AI융합 간호정보학과 동일
+  const base = server.getCourses_().find((c) => c.course_name === 'AI융합 간호정보학');
+  const clo = (c) => server.getItems_(c.course_id).filter((i) => i.domain === 'D. 학습성과(CLO)').map((i) => i.text);
+  assert.deepEqual(clo(deep), clo(base));
+  // 문항을 지우고 setup → 다시 넣지 않음
+  const s = H.login(server, '246810');
+  const kept = server.getItems_(deep.course_id).filter((i) => !/임상 현장에 적용|효율성을 높이/.test(i.text));
+  assert.equal(server.saveItems(s, deep.course_id, kept).ok, true);
+  server.setup();
+  assert.equal(server.itemsForCourse_(deep).length, 32, '교수가 지운 문항은 다시 넣지 않음');
+});
