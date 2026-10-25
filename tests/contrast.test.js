@@ -27,7 +27,7 @@ const pairs = [
   ['muted', 'surface', 4.5, '보조 텍스트(카드)'], ['on-primary', 'primary', 4.5, '주 버튼·선택 칩'],
   ['primary-ink', 'surface', 4.5, '링크·영역명'], ['primary-ink', 'primary-soft', 4.5, '진행 중 배지'],
   ['danger-ink', 'surface', 4.5, '오류 메시지'], ['danger-ink', 'danger-soft', 4.5, '위험 배지'],
-  ['ink', 'butter', 4.5, '경고 카드'], ['ink', 'sky', 4.5, '정보 카드'], ['ink', 'primary-soft', 4.5, '강조 카드'],
+  ['ink', 'butter', 4.5, '경고 카드'], ['ink', 'mint', 4.5, '강점 카드'], ['ink', 'sky', 4.5, '정보 카드'], ['ink', 'primary-soft', 4.5, '강조 카드'],
   ['focus', 'surface', 3, '포커스 링'], ['control', 'surface', 3, '입력·칩 경계'], ['control', 'bg', 3, '입력·칩 경계(배경)'], ['primary', 'surface', 3, '진행 바·차트 표식']
 ];
 
