@@ -88,9 +88,7 @@ function render(query) {
 <script>${MOCK_SRC.replace(/<\/script/gi, '<\\/script')}</script>
 <script>
 (function(){
-  var env = GasMock.createEnv({ state: GasMock.revive(window.__GAS_STATE), url: ${JSON.stringify(URL_NOW)}, fastSleep: true,
-    // 단축 주소(TinyURL) 모의 응답
-    fetch: function (u) { return u.indexOf('https://tinyurl.com/api-create.php?url=') === 0 ? { code: 200, body: 'https://tinyurl.com/ces-demo' } : { code: 404, body: '' }; } });
+  var env = GasMock.createEnv({ state: GasMock.revive(window.__GAS_STATE), url: ${JSON.stringify(URL_NOW)}, fastSleep: true });
   var server = GasMock.loadServer(env, ${JSON.stringify(H.SOURCES).replace(/<\/script/gi, '<\\/script')});
   window.__server = server; window.__env = env;
   window.__runOpt = { latency: 60, failNext: {}, calls: [] , onCall: function(n){ window.__runOpt.calls.push(n); } };

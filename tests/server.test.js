@@ -1029,38 +1029,6 @@ test('setup: 기존 설정 행의 설명을 최신 문구로(값은 유지)', ()
   assert.equal(r2.value, 'https://script.google.com/macros/s/KEEP/exec');
 });
 
-test('단축 주소: TinyURL 자동 만들기·직접 입력 검증·학생용 주소가 바뀌면 숨김', () => {
-  const EXEC = 'https://script.google.com/macros/s/AKfycbwSHORT/exec';
-  let asked = '';
-  let reply = { code: 200, body: 'https://tinyurl.com/ces2026' };
-  const { server } = H.makeServer({ pin: '246810', url: EXEC, fetch: (u) => { asked = u; return reply; } });
-  const s = H.login(server, '246810');
-  assert.equal(server.getAdminBootstrap(s).settings.short_url, '', '처음엔 없음');
-  const r = server.createShortUrl(s);
-  assert.deepEqual([r.ok, r.short_url], [true, 'https://tinyurl.com/ces2026']);
-  assert.equal(asked, 'https://tinyurl.com/api-create.php?url=' + encodeURIComponent(EXEC), '공개 주소만 전송');
-  assert.equal(server.getAdminBootstrap(s).settings.short_url, 'https://tinyurl.com/ces2026');
-  assert.equal(server.createShortUrl('bad-session').code, 'AUTH', '로그인 필요');
-  // 이상한 응답은 저장하지 않음
-  reply = { code: 200, body: '<html>Error</html>' };
-  assert.equal(server.createShortUrl(s).ok, false);
-  reply = { code: 500, body: '' };
-  assert.equal(server.createShortUrl(s).ok, false);
-  assert.equal(server.getAdminBootstrap(s).settings.short_url, 'https://tinyurl.com/ces2026', '실패해도 기존 값 유지');
-  // 직접 입력(다른 서비스) 검증
-  const base = { professor_name: '정종필', affiliation: '청암대학교 간호학과', min_responses: 5, departments: '간호학과' };
-  assert.equal(server.saveSettings(s, Object.assign({}, base, { short_url: 'javascript:alert(1)' })).field, 'short_url');
-  assert.equal(server.saveSettings(s, Object.assign({}, base, { short_url: 'http://naver.me/abc' })).field, 'short_url', 'https만');
-  assert.equal(server.saveSettings(s, Object.assign({}, base, { short_url: 'https://naver.me/xYz123' })).ok, true);
-  assert.equal(server.getAdminBootstrap(s).settings.short_url, 'https://naver.me/xYz123');
-  // 학생용 주소가 바뀌면 옛 단축 주소는 숨김
-  assert.equal(server.saveSettings(s, Object.assign({}, base, { webapp_url: 'https://script.google.com/macros/s/AKfycbwNEW/exec' })).ok, true);
-  assert.equal(server.getAdminBootstrap(s).settings.short_url, '', '다른 주소를 가리키는 단축 주소 숨김');
-  // 비우면 삭제
-  assert.equal(server.saveSettings(s, Object.assign({}, base, { short_url: '' })).ok, true);
-  assert.equal(server.getSettingsMap_().short_url, '');
-});
-
 test('이전 버전 링크(?c=·?k=·?t=): 교과목·코드를 화면에 넘기지 않고 안내 표시만', () => {
   const { server } = H.makeServer({ pin: '246810' });
   const demo = H.demoCourse(server);
@@ -1177,11 +1145,16 @@ test('전공심화과정: 2026-2학기, 실무 적용 문항 2개(I 영역, 서�
   assert.equal(server.itemsForCourse_(deep).length, 32, '교수가 지운 문항은 다시 넣지 않음');
 });
 
-test('단축 주소 지우기: 로그인 필요, 지우면 bootstrap에서 사라짐', () => {
-  const { server } = H.makeServer({ pin: '246810', url: 'https://script.google.com/macros/s/AKfycbwX/exec', fetch: () => ({ code: 200, body: 'https://tinyurl.com/abc123' }) });
+test('단축 주소 기능 삭제: setup이 short_url·short_url_target 행을 지우고 학생 주소는 유지', () => {
+  const EXEC = 'https://script.google.com/macros/s/AKfycbwKEEP/exec';
+  const { server } = H.makeServer({ pin: '246810', url: EXEC });
+  server.setSetting_('short_url', 'https://tinyurl.com/abc123');
+  server.setSetting_('short_url_target', EXEC);
+  server.setup();
+  const set = server.getSettingsMap_();
+  assert.ok(!('short_url' in set) && !('short_url_target' in set), '단축 주소 설정 행 삭제');
+  assert.equal(set.webapp_url, EXEC, '학생 주소 유지');
+  assert.equal(typeof server.createShortUrl, 'undefined', '단축 주소 API 없음');
   const s = H.login(server, '246810');
-  assert.equal(server.createShortUrl(s).ok, true);
-  assert.equal(server.clearShortUrl('bad').code, 'AUTH');
-  assert.equal(server.clearShortUrl(s).ok, true);
-  assert.equal(server.getAdminBootstrap(s).settings.short_url, '');
+  assert.ok(!('short_url' in server.getAdminBootstrap(s).settings));
 });

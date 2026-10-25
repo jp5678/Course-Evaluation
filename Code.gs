@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.4.7',
+  VERSION: '1.4.8',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -298,8 +298,7 @@ function getAdminBootstrap(session) {
         affiliation: String(settings.affiliation || ''),
         min_responses: minN,
         departments: departments_(settings),
-        webapp_url: String(settings.webapp_url || ''),
-        short_url: shortUrl_(settings, url)
+        webapp_url: String(settings.webapp_url || '')
       },
       courses: list,
       webAppUrl: url,
@@ -819,20 +818,12 @@ function saveSettings(session, data) {
     if (execUrl && !APP.EXEC_URL_RE.test(execUrl)) {
       return { ok: false, code: 'VALIDATION', field: 'webapp_url', message: '웹 앱 주소는 https://script.google.com/…/exec 형식이어야 합니다(/dev 주소는 학생이 열 수 없습니다).' };
     }
-    var shortIn = data.short_url === undefined ? undefined : String(data.short_url || '').trim();
-    if (shortIn && (shortIn.length > 100 || !SHORT_URL_RE.test(shortIn))) {
-      return { ok: false, code: 'VALIDATION', field: 'short_url', message: '단축 주소는 https://로 시작하는 짧은 주소여야 합니다(예: https://tinyurl.com/abc123).' };
-    }
     withLock_(function () {
       setSetting_('professor_name', name);
       setSetting_('affiliation', aff);
       setSetting_('min_responses', minN);
       setSetting_('departments', depts.join('\n'));
       if (data.webapp_url !== undefined) setSetting_('webapp_url', execUrl);
-      if (shortIn !== undefined) {
-        setSetting_('short_url', shortIn, SHORT_URL_DESC);
-        setSetting_('short_url_target', shortIn ? studentBaseUrl_(getSettingsMap_()) : '', SHORT_TARGET_DESC);
-      }
     });
     return { ok: true };
   });
@@ -1625,55 +1616,11 @@ function setSetting_(key, value, description) {
   }
 }
 
-/* ───────────────────────────── 단축 주소 ───────────────────────────── */
-
-var SHORT_URL_RE = /^https:\/\/[A-Za-z0-9.-]+\.[A-Za-z]{2,}\/[A-Za-z0-9._~\/-]{1,60}$/;
-var SHORT_URL_DESC = '학생 접속 주소의 단축 주소(관리자 [설정]·[접속 주소]에서 만들기·입력)';
-var SHORT_TARGET_DESC = '단축 주소가 가리키는 학생용 주소(주소가 바뀌면 단축 주소를 숨김). 직접 수정 금지';
-
-/** 저장된 단축 주소가 지금 학생용 주소를 가리킬 때만 돌려줍니다(배포 주소가 바뀌면 옛 단축 주소를 쓰지 않음). */
-function shortUrl_(settings, base) {
-  var su = String(settings.short_url || '').trim();
-  return su && base && String(settings.short_url_target || '') === base ? su : '';
-}
-
-/** 학생 접속 주소를 TinyURL로 줄여 저장합니다(공개 주소만 보내며 개인정보는 보내지 않음). */
-function createShortUrl(session) {
-  return adminApi_(session, function () {
-    var base = studentBaseUrl_(getSettingsMap_());
-    if (!base) return { ok: false, code: 'VALIDATION', message: '학생용 웹 앱 주소(/exec)가 아직 없습니다. [설정]에서 먼저 저장하세요.' };
-    var fail = { ok: false, code: 'VALIDATION', message: '단축 주소를 만들지 못했습니다. 잠시 후 다시 시도하거나, 다른 단축 서비스에서 만든 주소를 [설정]에 직접 입력하세요.' };
-    var su = '';
-    try {
-      var res = UrlFetchApp.fetch('https://tinyurl.com/api-create.php?url=' + encodeURIComponent(base), { muteHttpExceptions: true, followRedirects: true });
-      if (res.getResponseCode() !== 200) return fail;
-      su = String(res.getContentText() || '').trim().replace(/^http:\/\//, 'https://');
-    } catch (e) { return fail; }
-    if (!/^https:\/\/tinyurl\.com\/[A-Za-z0-9-]{3,40}$/.test(su)) return fail;
-    withLock_(function () {
-      setSetting_('short_url', su, SHORT_URL_DESC);
-      setSetting_('short_url_target', base, SHORT_TARGET_DESC);
-    });
-    return { ok: true, short_url: su };
-  });
-}
-
 /** 시트의 수업 방식 값을 현재 이름으로(이전 이름 '비대면' 포함, 알 수 없으면 '대면') */
 function deliveryMode_(v) {
   var s = String(v == null ? '' : v).trim();
   s = APP.DELIVERY_RENAMED[s] || s;
   return APP.DELIVERY.indexOf(s) >= 0 ? s : '대면';
-}
-
-/** 단축 주소 지우기(잘못 만들었거나 다른 주소를 가리킬 때) */
-function clearShortUrl(session) {
-  return adminApi_(session, function () {
-    withLock_(function () {
-      setSetting_('short_url', '', SHORT_URL_DESC);
-      setSetting_('short_url_target', '', SHORT_TARGET_DESC);
-    });
-    return { ok: true };
-  });
 }
 
 function minResponses_(settings) {

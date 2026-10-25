@@ -618,7 +618,7 @@
       const listOf = (k) => A.data.courses.filter((c) => c.year + '-' + c.semester === k);
       const m = CES.modal({
         title: '새 학기 준비',
-        html: `<p class="small muted" style="margin-bottom:14px">선택한 학기의 교과목을 문항째 새 학기로 복제하고 <strong>새 접속코드</strong>를 만듭니다. 응답·토큰은 복사하지 않으며, 새 학기에 같은 교과목이 이미 있으면 건너뜁니다. 학생 접속 주소(단축 주소)는 그대로입니다.</p>
+        html: `<p class="small muted" style="margin-bottom:14px">선택한 학기의 교과목을 문항째 새 학기로 복제하고 <strong>새 접속코드</strong>를 만듭니다. 응답·토큰은 복사하지 않으며, 새 학기에 같은 교과목이 이미 있으면 건너뜁니다. 학생 접속 주소(공통 주소)는 그대로입니다.</p>
           <form id="term-form" class="form-grid two" novalidate>
             <div class="field full"><label for="t-from">복제할 학기</label>
               <select class="select" id="t-from" name="from">${terms.map((k) => { const [y, s] = k.split('-'); return `<option value="${k}">${y}학년도 ${s}학기 (${listOf(k).length}개)</option>`; }).join('')}</select></div>
@@ -696,19 +696,7 @@
     }
 
     /** 학생 접속 안내: 공통 주소 + 접속코드(토큰)로 접속 */
-    /** [설정]의 [자동 만들기]: TinyURL 단축 주소를 만들어 입력란에 채우고 저장 */
-    async function makeShortInSettings(btn) {
-      const restore = CES.busyButton(btn, '만드는 중…');
-      const res = await api('createShortUrl', []);
-      restore();
-      if (!res.ok) return fail(res);
-      const input = $('#s-short');
-      if (input) input.value = res.short_url;
-      await refresh();
-      CES.toast('단축 주소를 만들어 저장했습니다.');
-    }
-
-        /** 학생에게 안내하는 주소: 항상 원래 주소(단축 주소는 보조로만 표시) */
+    /** 학생에게 안내하는 주소(공통 주소) */
     const studentAddr = (c) => c.base_url;
 
     function accessNotice(c) {
@@ -725,18 +713,12 @@
         return;
       }
       const isCode = c.access_mode !== 'token';
-      const su = A.data.settings.short_url;
       const m = CES.modal({
         title: '학생 접속 주소',
         html: `<div class="stack-lg">
             <p class="small muted">${esc(c.course_name)} · ${esc(termFull(c))}</p>
             <div class="addr-box" data-access-addr><div class="small muted">접속 주소</div><code class="addr-main">${esc(c.base_url)}</code>
-              <p class="tiny muted" style="margin-top:6px">Apps Script [배포] ▸ [배포 관리]의 <b>웹 앱 URL</b>과 같은지 확인하세요. 다르면 <button type="button" class="linklike" data-close data-go="settings">[설정]</button>에서 고치세요(단축 주소는 자동으로 숨겨지니 다시 만드세요).</p>
-              ${su
-                ? `<div class="short-row" data-short><span class="small muted">단축 주소</span> <code class="addr-short">${esc(su)}</code>
-                    <span class="row wrap" style="gap:6px;margin-top:6px"><button type="button" class="btn sm" data-copy-short>${icon('copy')}단축 주소 복사</button>
-                    <button type="button" class="btn sm ghost" data-clear-short>${icon('trash-2')}단축 주소 지우기</button></span></div>`
-                : `<button type="button" class="btn sm" data-make-short style="margin-top:10px">${icon('scissors')}단축 주소 만들기</button>`}
+              <p class="tiny muted" style="margin-top:6px">Apps Script [배포] ▸ [배포 관리]의 <b>웹 앱 URL</b>과 같은지 확인하세요. 다르면 <button type="button" class="linklike" data-close data-go="settings">[설정]</button>에서 고치세요.</p>
             </div>
             ${isCode && c.access_code ? `<div class="center"><div class="small muted">접속코드</div><div class="mid-num" style="letter-spacing:.12em">${esc(c.access_code)}</div></div>` : ''}
             <div class="callout info">${icon('smartphone')}<div class="small">
@@ -749,33 +731,7 @@
           </div>`,
         footer: `<button type="button" class="btn primary" data-present>${icon('presentation')}수업 화면에 띄우기</button>`
       });
-      const reopen = async (msg) => {
-        await refresh();
-        m.close();
-        CES.toast(msg);
-        const fresh = courseById(c.course_id);
-        if (fresh) openAccess(fresh);
-      };
-      // 주소 복사는 항상 원래(긴) 주소
       $('[data-copy-base]', m.el).addEventListener('click', () => CES.copy(c.base_url));
-      const cs = $('[data-copy-short]', m.el);
-      if (cs) cs.addEventListener('click', () => CES.copy(su));
-      const clr = $('[data-clear-short]', m.el);
-      if (clr) clr.addEventListener('click', async () => {
-        const restore = CES.busyButton(clr, '지우는 중…');
-        const res = await api('clearShortUrl', []);
-        restore();
-        if (!res.ok) return fail(res);
-        reopen('단축 주소를 지웠습니다.');
-      });
-      const mk = $('[data-make-short]', m.el);
-      if (mk) mk.addEventListener('click', async () => {
-        const restore = CES.busyButton(mk, '만드는 중…');
-        const res = await api('createShortUrl', []);
-        restore();
-        if (!res.ok) return fail(res);
-        reopen('단축 주소를 만들었습니다. 휴대폰에서 열리는지 꼭 확인하세요.');
-      });
       $('[data-copy-notice]', m.el).addEventListener('click', () => CES.copy(accessNotice(c)));
       $('[data-present]', m.el).addEventListener('click', () => { m.close(); present(c); });
     }
@@ -787,8 +743,7 @@
       el.setAttribute('aria-modal', 'true');
       el.setAttribute('aria-label', '수업 화면용 접속 안내');
       el.innerHTML = `<h1>${esc(c.course_name)} 강의평가</h1>
-        <div><div class="muted">접속 주소</div><div class="addr-big">${esc(studentAddr(c))}</div>
-          ${A.data.settings.short_url ? `<div class="muted" style="margin-top:6px">짧은 주소: <strong>${esc(A.data.settings.short_url)}</strong></div>` : ''}</div>
+        <div><div class="muted">접속 주소</div><div class="addr-big">${esc(studentAddr(c))}</div></div>
         ${c.access_mode !== 'token' && c.access_code ? `<div><div class="muted">접속코드</div><div class="code-big">${esc(c.access_code)}</div></div>` : '<p class="muted">받은 일회용 토큰을 입력하세요</p>'}
         <p class="muted">LMS 공지의 주소를 열고 코드를 입력하세요 · 익명${c.est_minutes ? ' · 약 ' + c.est_minutes + '분' : ''}</p>
         <button type="button" class="btn" data-x>${icon('x')}닫기 (Esc)</button>`;
@@ -1644,11 +1599,6 @@
                   value="${esc(s.webapp_url || '')}" aria-describedby="s-url-h">
                 <p class="hint" id="s-url-h">학생 접속 주소로 쓰는 주소입니다. [배포] ▸ [배포 관리]의 웹 앱 URL을 붙여 넣으세요. 비어 있으면 /exec 주소로 관리자 화면에 접속할 때 자동으로 채워지고, 입력한 주소는 자동으로 바뀌지 않습니다. 테스트용 /dev 주소는 학생이 열 수 없어 저장되지 않습니다.</p>
                 ${A.data.currentUrl && s.webapp_url && A.data.currentUrl !== s.webapp_url ? `<p class="hint" style="color:var(--danger-ink)">${icon('info')} 지금 관리자 화면은 다른 주소(<code>${esc(A.data.currentUrl)}</code>)로 실행 중입니다. 학생 링크가 열리지 않으면 [배포 관리]의 현재 주소로 바꾸세요.</p>` : ''}</div>
-              <div class="field"><label for="s-short">단축 주소 (선택)</label>
-                <div class="row"><input class="input grow" id="s-short" name="short_url" type="url" inputmode="url" spellcheck="false" placeholder="https://tinyurl.com/…"
-                  value="${esc(s.short_url || '')}" aria-describedby="s-short-h" style="flex:1">
-                  <button type="button" class="btn sm" data-act="make-short">${icon('scissors')}자동 만들기</button></div>
-                <p class="hint" id="s-short-h">선택 사항입니다. [자동 만들기]는 TinyURL로 만들고, 다른 서비스(예: naver.me)에서 만든 주소를 붙여 넣어도 됩니다. 안내문·토큰 시트에는 항상 원래 주소가 쓰이고, 단축 주소는 [접속 주소] 창과 수업 화면에 보조로만 표시됩니다. 만든 뒤 휴대폰에서 열리는지 꼭 확인하세요.</p></div>
               <div class="field"><label for="s-min">최소 공개 응답 수</label>
                 <input class="input num" id="s-min" name="min_responses" type="number" min="3" max="50" value="${s.min_responses}" aria-describedby="s-min-h">
                 <p class="hint" id="s-min-h">응답이 이 수보다 적으면 결과·비교·서술형을 숨깁니다(3~50, 권장 5 이상).</p></div>
@@ -1682,7 +1632,6 @@
           if (res.field === 'professor_name') return CES.toast('교수명을 입력하세요.', 'error');
           if (res.field === 'departments') return CES.toast('학과를 1개 이상 입력하세요.', 'error');
           if (res.field === 'webapp_url') { $('#s-url').setAttribute('aria-invalid', 'true'); $('#s-url').focus(); return CES.toast(res.message, 'error'); }
-          if (res.field === 'short_url') { $('#s-short').setAttribute('aria-invalid', 'true'); $('#s-short').focus(); return CES.toast(res.message, 'error'); }
           return fail(res);
         }
         Object.assign(A.data.settings, { professor_name: data.professor_name.trim(), affiliation: data.affiliation.trim(), min_responses: Number(data.min_responses),
@@ -1743,7 +1692,6 @@
         case 'access': return openAccessFresh(t.dataset.id, t);
         case 'tokens': return openTokens(c);
         case 'new-term': return openNewTerm();
-        case 'make-short': return makeShortInSettings(t);
         case 'add-item':
           A.items.push({ domain: A.items.length ? A.items[A.items.length - 1].domain : DOMAINS[0], text: '', type: 'likert5', required: true, reverse: false, options: [] });
           markDirty();
