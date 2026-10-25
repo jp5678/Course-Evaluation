@@ -6,7 +6,7 @@ const H = require('./helpers');
 
 const PIN = '246810';
 
-test('setup: 탭·헤더·기본 문항 은행·이번 학기 교과목 예시 2개·시트 보호(재실행해도 중복 없음)', () => {
+test('setup: 탭·헤더·기본 문항 은행·이번 학기 교과목 예시 3개·시트 보호(재실행해도 중복 없음)', () => {
   const { env, server } = H.makeServer();
   const st = env.__store.read();
   for (const name of ['Settings', 'Courses', 'Items', 'Tokens', 'Responses']) {
@@ -30,10 +30,11 @@ test('setup: 탭·헤더·기본 문항 은행·이번 학기 교과목 예시 2
   assert.equal(s.affiliation, '청암대학교 간호학과');
   const cs = server.getCourses_();
   assert.deepEqual(cs.map((c) => [c.course_name, c.grade, c.section, c.department, c.delivery_mode]),
-    [['디지털리터러시와 AI활용', '1', '', '간호학과', '대면'], ['AI융합 간호정보학', '3', '', '간호학과', '혼합']]);
+    [['디지털리터러시와 AI활용', '1', '', '간호학과', '대면'], ['AI융합 간호정보학', '3', '', '간호학과', '혼합'],
+     ['AI융합 간호정보학(전공심화과정)', '4', '', '간호학과', '온라인(비대면)']]);
   assert.ok(cs.every((c) => c.enrollment === 0), '수강인원 미입력');
   assert.ok(cs.every((c) => c.course_type === '이론+실습'), '예시 교과목 유형');
-  assert.deepEqual(cs.map((c) => [c.year, c.semester]), [[2026, '1'], [2026, '2']], '디지털리터러시와 AI활용=1학기, AI융합 간호정보학=2학기');
+  assert.deepEqual(cs.map((c) => [c.year, c.semester]), [[2026, '1'], [2026, '2'], [2026, '2']], '디지털리터러시와 AI활용=1학기, 나머지=이번 학기(2학기)');
   assert.ok(cs.every((c) => server.itemsForCourse_(c).every((i) => i.required)), '예시 교과목 문항도 모두 필수');
   assert.equal(cs[0].course_name, '디지털리터러시와 AI활용');
   assert.equal(cs[0].delivery_mode, '대면', '디지털리터러시와 AI활용은 대면으로 초기 설정');
@@ -44,7 +45,7 @@ test('setup: 탭·헤더·기본 문항 은행·이번 학기 교과목 예시 2
 
   server.setup();
   assert.equal(server.getItems_('TEMPLATE').length, 27, '재실행 시 문항 중복 없음');
-  assert.equal(server.getCourses_().length, 2, '재실행 시 교과목 중복 없음');
+  assert.equal(server.getCourses_().length, 3, '재실행 시 교과목 중복 없음');
 });
 
 test('이전 버전 시트: setup이 빠진 열(학과·수업 방식·교과목 유형·표시 조건)을 끝에 추가', () => {
@@ -326,12 +327,12 @@ test('문항 편집: 응답 수집 후 잠금, 검증, 복제 시 새 ID', () =>
   assert.equal(server.getItems_(dup.course_id).length, 0, '삭제 시 문항도 삭제');
 });
 
-test('샘플 응답(교과목별 30건) 생성·삭제: 샘플 응답만 삭제, 교과목·ID·접속코드 유지(QR 그대로)', () => {
+test('샘플 응답(교과목별 30건) 생성·삭제: 샘플 응답만 삭제, 교과목·ID·접속코드 유지', () => {
   const { env, server } = H.makeServer({ pin: PIN });
   const r = server.generateSampleResponses();
   assert.equal(r.ok, true);
-  assert.equal(r.created, 60);
-  assert.equal(H.table(env, 'Responses').filter((x) => String(x.response_id).startsWith('SAMPLE-')).length, 60);
+  assert.equal(r.created, 90);
+  assert.equal(H.table(env, 'Responses').filter((x) => String(x.response_id).startsWith('SAMPLE-')).length, 90);
   const s = H.login(server, PIN);
   const [c1, c2] = server.getCourses_();
   assert.equal(server.getResults(s, c1.course_id).n, 30);
@@ -339,7 +340,7 @@ test('샘플 응답(교과목별 30건) 생성·삭제: 샘플 응답만 삭제,
   server.submitResponse(c2.course_id, c2.access_code, H.fullAnswers(server.itemsForCourse_(c2)));
   const before = server.getCourses_().map((c) => c.course_id + ':' + c.access_code);
   const d = server.deleteSampleData(true);
-  assert.equal(d.removed, 60);
+  assert.equal(d.removed, 90);
   assert.equal(H.table(env, 'Responses').length, 1, '실제 응답 보존');
   assert.deepEqual(server.getCourses_().map((c) => c.course_id + ':' + c.access_code), before, '교과목·ID·접속코드 유지');
   // 다시 생성해도 같은 교과목에 추가(새 교과목을 만들지 않음 → 이미 안내한 QR이 그대로 동작)
@@ -569,8 +570,8 @@ test('doGet: 템플릿 렌더링, 파라미터 이스케이프, 관리자 라우
   const { server } = H.makeServer({ pin: PIN });
   const html = server.doGet({ parameter: { c: '"><script>alert(1)</script>', t: '<b>ab-cd</b>' } }).getContent();
   assert.ok(!html.includes('<script>alert(1)'), 'c 파라미터 XSS 차단');
-  assert.ok(html.includes('data-course="scriptalert1script"'));
-  assert.ok(html.includes('data-token="BABCDB"'));
+  assert.ok(!html.includes('ab-cd') && !html.includes('BABCDB'), '파라미터 값은 페이지에 넣지 않음');
+  assert.ok(html.includes('data-legacy="1"'), '이전 방식 링크 안내');
   assert.ok(html.includes('Developed by 정종필 교수 · 청암대학교 간호학과'));
   assert.ok(html.includes('학교 공식 강의평가를 대체하지 않는'));
   const admin = server.doGet({ parameter: { page: 'admin' } });
@@ -686,7 +687,7 @@ test('이전 버전 시트 업그레이드(v1.2.3): 성별 문항 삭제(응답 
   server.getCourses_().forEach((c) => { assert.equal(c.section, ''); assert.equal(c.enrollment, 0); });
 });
 
-test('간단 접속: 링크·QR에 접속코드 포함, 공통 주소에서 코드만으로 교과목 찾기(토큰 포함), 코드 중복 금지', () => {
+test('간단 접속: 공통 주소에서 코드만으로 교과목 찾기(토큰 포함), 코드 중복 금지', () => {
   const { server } = H.makeServer({ pin: PIN, url: 'https://script.google.com/macros/s/ABC/exec' });
   const s = H.login(server, PIN);
   const demo = H.demoCourse(server);
@@ -717,9 +718,9 @@ test('간단 접속: 링크·QR에 접속코드 포함, 공통 주소에서 코�
     start_at: H.iso(new Date(Date.now() - 3600000)), end_at: H.iso(new Date(Date.now() + 86400000)), access_mode: 'code', access_code: 'UNIQ01' });
   assert.equal(again.ok, true);
 
-  // doGet: k 파라미터는 영숫자만 남겨 템플릿에 전달
+  // doGet: k 파라미터는 페이지에 넣지 않음(이전 방식 링크 안내만)
   const html = server.doGet({ parameter: { c: demo.course_id, k: '<x>"ab12' } }).getContent();
-  assert.match(html, /data-code="XAB12"/);
+  assert.doesNotMatch(html, /XAB12|<x>/);
 });
 
 test('이전 버전 시트 업그레이드(v1.3.0): 교수학습방법 문항 문구 변경(응답 있는 교과목 제외)', () => {
@@ -776,10 +777,10 @@ test('이전 버전 시트 업그레이드(v1.3.0): F 영역 5개·예시 교과
   assert.equal(count('TEMPLATE', /^F\./), 5, '재실행해도 중복 없음');
 });
 
-test('샘플 응답: 필수 문항은 모두 채움(두 교과목 30건씩), 교과목 복제 시 접속코드 중복 없음, 예상 시간 제공', () => {
+test('샘플 응답: 필수 문항은 모두 채움(교과목마다 30건), 교과목 복제 시 접속코드 중복 없음, 예상 시간 제공', () => {
   const { server } = H.makeServer({ pin: PIN });
   const s = H.login(server, PIN);
-  assert.equal(server.generateSampleResponses().created, 60);
+  assert.equal(server.generateSampleResponses().created, 90);
   server.getCourses_().forEach((c) => {
     const items = server.itemsForCourse_(c);
     const rows = server.readResponses_(c.course_id);
@@ -886,12 +887,12 @@ test('PDF 내보내기: 원자료·CQI 요약표·서술형(잠금 규칙 동일
   assert.equal(server.exportPdf('', dl.course_id, 'raw').code, 'AUTH');
 });
 
-test('샘플 응답: 두 교과목 모두 생성, 교과목별 열 범위 안내, 응답 시트 머리글 교과목별 색·메모, A~C열 고정', () => {
+test('샘플 응답: 모든 예시 교과목 생성, 교과목별 열 범위 안내, 응답 시트 머리글 교과목별 색·메모, A~C열 고정', () => {
   const { env, server } = H.makeServer({ pin: PIN });
   const r = server.generateSampleResponses();
-  assert.equal(r.created, 60);
+  assert.equal(r.created, 90);
   // 안내 메시지용 열 범위: 두 교과목이 서로 겹치지 않는 연속 범위
-  assert.equal(r.where.length, 2);
+  assert.equal(r.where.length, 3);
   const [dl, ai] = r.where;
   assert.equal(dl.course, '디지털리터러시와 AI활용');
   assert.equal(dl.from, 'D');
@@ -1026,4 +1027,78 @@ test('setup: 기존 설정 행의 설명을 최신 문구로(값은 유지)', ()
   const r2 = server.readTable_('Settings').rows.find((r) => r.key === 'webapp_url');
   assert.doesNotMatch(String(r2.description), /QR/);
   assert.equal(r2.value, 'https://script.google.com/macros/s/KEEP/exec');
+});
+
+test('단축 주소: TinyURL 자동 만들기·직접 입력 검증·학생용 주소가 바뀌면 숨김', () => {
+  const EXEC = 'https://script.google.com/macros/s/AKfycbwSHORT/exec';
+  let asked = '';
+  let reply = { code: 200, body: 'https://tinyurl.com/ces2026' };
+  const { server } = H.makeServer({ pin: '246810', url: EXEC, fetch: (u) => { asked = u; return reply; } });
+  const s = H.login(server, '246810');
+  assert.equal(server.getAdminBootstrap(s).settings.short_url, '', '처음엔 없음');
+  const r = server.createShortUrl(s);
+  assert.deepEqual([r.ok, r.short_url], [true, 'https://tinyurl.com/ces2026']);
+  assert.equal(asked, 'https://tinyurl.com/api-create.php?url=' + encodeURIComponent(EXEC), '공개 주소만 전송');
+  assert.equal(server.getAdminBootstrap(s).settings.short_url, 'https://tinyurl.com/ces2026');
+  assert.equal(server.createShortUrl('bad-session').code, 'AUTH', '로그인 필요');
+  // 이상한 응답은 저장하지 않음
+  reply = { code: 200, body: '<html>Error</html>' };
+  assert.equal(server.createShortUrl(s).ok, false);
+  reply = { code: 500, body: '' };
+  assert.equal(server.createShortUrl(s).ok, false);
+  assert.equal(server.getAdminBootstrap(s).settings.short_url, 'https://tinyurl.com/ces2026', '실패해도 기존 값 유지');
+  // 직접 입력(다른 서비스) 검증
+  const base = { professor_name: '정종필', affiliation: '청암대학교 간호학과', min_responses: 5, departments: '간호학과' };
+  assert.equal(server.saveSettings(s, Object.assign({}, base, { short_url: 'javascript:alert(1)' })).field, 'short_url');
+  assert.equal(server.saveSettings(s, Object.assign({}, base, { short_url: 'http://naver.me/abc' })).field, 'short_url', 'https만');
+  assert.equal(server.saveSettings(s, Object.assign({}, base, { short_url: 'https://naver.me/xYz123' })).ok, true);
+  assert.equal(server.getAdminBootstrap(s).settings.short_url, 'https://naver.me/xYz123');
+  // 학생용 주소가 바뀌면 옛 단축 주소는 숨김
+  assert.equal(server.saveSettings(s, Object.assign({}, base, { webapp_url: 'https://script.google.com/macros/s/AKfycbwNEW/exec' })).ok, true);
+  assert.equal(server.getAdminBootstrap(s).settings.short_url, '', '다른 주소를 가리키는 단축 주소 숨김');
+  // 비우면 삭제
+  assert.equal(server.saveSettings(s, Object.assign({}, base, { short_url: '' })).ok, true);
+  assert.equal(server.getSettingsMap_().short_url, '');
+});
+
+test('이전 버전 링크(?c=·?k=·?t=): 교과목·코드를 화면에 넘기지 않고 안내 표시만', () => {
+  const { server } = H.makeServer({ pin: '246810' });
+  const demo = H.demoCourse(server);
+  const legacy = server.doGet({ parameter: { c: demo.course_id, k: demo.access_code } }).getContent();
+  assert.match(legacy, /data-legacy="1"/);
+  assert.doesNotMatch(legacy, new RegExp(demo.access_code), '접속코드가 페이지에 들어가지 않음');
+  assert.doesNotMatch(legacy, new RegExp('data-course="' + demo.course_id), '교과목 ID 미전달');
+  assert.match(server.doGet({ parameter: { t: 'ABCDEF23' } }).getContent(), /data-legacy="1"/);
+  assert.match(server.doGet({ parameter: {} }).getContent(), /data-legacy=""/, '공통 주소는 안내 없음');
+});
+
+test('수업 방식 이름 「비대면」→「온라인(비대면)」, 기존 시트에 「AI융합 간호정보학(전공심화과정)」 1회 추가', () => {
+  const { server } = H.makeServer({ pin: '246810' });
+  const s = H.login(server, '246810');
+  // 이전 버전 시트: 전공심화과정 교과목 없음, 수업 방식 '비대면'
+  const deep = server.getCourses_().find((c) => c.course_name === 'AI융합 간호정보학(전공심화과정)');
+  assert.equal(deep.delivery_mode, '온라인(비대면)');
+  assert.equal(deep.grade, '4');
+  assert.ok(server.itemsForCourse_(deep).some((i) => i.scope === 'online'), '온라인 문항(H) 표시');
+  assert.ok(server.findCourseByCode(deep.access_code).ok, '접속코드로 찾기');
+  server.deleteCourse(s, deep.course_id);
+  const t = server.readTable_('Courses');
+  const col = server.HEADERS.Courses.indexOf('delivery_mode') + 1;
+  t.sheet.getRange(t.rows[0]._row, col).setValue('비대면');
+  assert.equal(server.getCourses_()[0].delivery_mode, '온라인(비대면)', '읽을 때 이전 이름도 현재 이름으로');
+  server.setup();
+  assert.equal(server.readTable_('Courses').rows[0].delivery_mode, '온라인(비대면)', 'setup이 시트 값 변경');
+  assert.equal(server.getCourses_().filter((c) => c.course_name === 'AI융합 간호정보학(전공심화과정)').length, 0, '교수가 삭제한 교과목은 다시 만들지 않음');
+  // 이전 버전 시트(추가 기록 없음)에는 1회 추가
+  const st = server.readTable_('Settings');
+  st.sheet.getRange(st.rows.find((r) => r.key === 'added_courses')._row, 2).setValue('');
+  server.setup();
+  assert.equal(server.getCourses_().filter((c) => c.course_name === 'AI융합 간호정보학(전공심화과정)').length, 1, '없으면 추가');
+  server.setup();
+  assert.equal(server.getCourses_().filter((c) => c.course_name === 'AI융합 간호정보학(전공심화과정)').length, 1, '중복 추가 없음');
+  // 저장 시 이전 이름 입력도 받아 현재 이름으로 저장
+  const id = H.createCourse(server, s, { delivery_mode: '비대면' });
+  assert.equal(server.getCourses_().find((c) => c.course_id === id).delivery_mode, '온라인(비대면)');
+  const codes = server.getCourses_().map((c) => String(c.access_code).toUpperCase()).filter(Boolean);
+  assert.equal(new Set(codes).size, codes.length, '예시 교과목 접속코드 중복 없음');
 });

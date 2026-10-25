@@ -523,6 +523,11 @@ details > summary::-webkit-details-marker { display: none; }
 }
 .addr-box { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
 .addr-box code { display: block; margin-top: 4px; font-size: 14px; word-break: break-all; user-select: all; }
+.addr-box .addr-short { font-size: 22px; font-weight: 700; letter-spacing: .01em; }
+.addr-box .addr-long { word-break: break-all; }
+.linklike { background: none; border: 0; padding: 4px 2px; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; font: inherit; cursor: pointer; min-height: 24px; }
+.linklike:hover { color: var(--ink); }
+.present .addr-big.short { font-size: clamp(28px, 5vw, 64px); font-weight: 700; }
 .present .addr-big { font-size: clamp(16px, 2.6vw, 34px); font-weight: 600; word-break: break-all; max-width: 90vw; user-select: all; }
 .present .code-big { font-size: clamp(40px, 8vw, 96px); font-weight: 700; letter-spacing: .12em; font-variant-numeric: tabular-nums; }
 

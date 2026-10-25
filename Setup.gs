@@ -4,7 +4,7 @@
 
 /**
  * 공통 기본 문항 은행: [영역, 문항, 유형, 선택지, 표시 조건]
- * 표시 조건: 'online'=비대면·혼합 수업만, 'theory'=이론이 있는 교과목만, 'practice'=실습이 있는 교과목만
+ * 표시 조건: 'online'=온라인(비대면)·혼합 수업만, 'theory'=이론이 있는 교과목만, 'practice'=실습이 있는 교과목만
  * D 영역(학습성과·CLO)은 교과목마다 다르므로 교과목에서 입력합니다.
  */
 var DEFAULT_ITEMS = [
@@ -51,6 +51,17 @@ var SAMPLE_COURSES = [
   },
   {
     course_name: 'AI융합 간호정보학', grade: 3, section: '', enrollment: 0, delivery_mode: '혼합', course_type: '이론+실습',
+    clos: [
+      '나는 간호정보시스템(EMR)의 구조와 기능을 설명할 수 있게 되었다.',
+      '나는 AI 기반 임상의사결정지원 결과를 간호 근거에 비추어 검토할 수 있게 되었다.',
+      '나는 표준간호용어(NANDA·NIC·NOC 등)를 활용하여 간호기록을 구조화할 수 있게 되었다.',
+      '나는 간호 데이터를 수집·분석·시각화하여 간호문제 해결에 활용할 수 있게 되었다.',
+      '나는 의료정보 보안과 환자 개인정보 보호 원칙을 간호실무에 적용할 수 있게 되었다.'
+    ]
+  },
+  {
+    // 기존 시트에 없으면 setup이 추가합니다(ensure).
+    course_name: 'AI융합 간호정보학(전공심화과정)', grade: 4, section: '', enrollment: 0, delivery_mode: '온라인(비대면)', course_type: '이론+실습', ensure: true,
     clos: [
       '나는 간호정보시스템(EMR)의 구조와 기능을 설명할 수 있게 되었다.',
       '나는 AI 기반 임상의사결정지원 결과를 간호 근거에 비추어 검토할 수 있게 되었다.',
@@ -160,7 +171,22 @@ function setup() {
   if (getCourses_().length === 0) {
     SAMPLE_COURSES.forEach(createDemoCourse_);
     created = true;
+    setSetting_('added_courses', SAMPLE_COURSES.filter(function (x) { return x.ensure; }).map(function (x) { return x.course_name; }).join('\n'),
+      'setup이 추가한 기본 교과목(삭제해도 다시 만들지 않음). 직접 수정 금지');
+  } else {
+    // 새로 추가된 기본 교과목(ensure)은 처음 한 번만 넣습니다(교수가 삭제하면 다시 만들지 않음).
+    var names = getCourses_().map(function (c) { return String(c.course_name).trim(); });
+    var added = String(getSettingsMap_().added_courses || '').split('\n').filter(String);
+    SAMPLE_COURSES.forEach(function (spec) {
+      if (!spec.ensure || added.indexOf(spec.course_name) >= 0) return;
+      if (names.indexOf(spec.course_name) < 0) { createDemoCourse_(spec); created = true; }
+      added.push(spec.course_name);
+    });
+    setSetting_('added_courses', added.join('\n'), 'setup이 추가한 기본 교과목(삭제해도 다시 만들지 않음). 직접 수정 금지');
   }
+
+  // 수업 방식 이름 변경(비대면 → 온라인(비대면))을 시트에도 반영
+  renameDeliveryModes_();
 
   upgradeDefaults_();
   styleResponseHeaders_();
@@ -180,9 +206,9 @@ function annotateHeaders_() {
   var notes = {
     Courses: ['자동 생성 ID', '교과목명', '학년도(예: 2026)', '학기(1/2)', '학년', '분반(사용 안 함)', '수강인원(선택, 비우면 응답률 미표시)',
       '응답 시작일시', '응답 종료일시', 'code=접속코드, token=일회용 토큰', '접속코드(학생이 공통 주소에서 입력. 비우면 자동 생성)',
-      '준비/진행/마감(마감=수동 마감)', '결과공개일(비우면 즉시 공개)', '학과', '수업 방식(대면/비대면/혼합)', '교과목 유형(이론/실습/이론+실습)'],
+      '준비/진행/마감(마감=수동 마감)', '결과공개일(비우면 즉시 공개)', '학과', '수업 방식(대면/온라인(비대면)/혼합)', '교과목 유형(이론/실습/이론+실습)'],
     Items: ['문항 ID', "교과목 ID('TEMPLATE'=공통 기본 문항)", '영역', '문항', 'likert5|single|multi|select|text',
-      '필수 여부', '순서', '역문항 여부(likert5만)', '선택지(| 로 구분)', "표시 조건(online=비대면·혼합만, theory=이론 포함만, practice=실습 포함만, 빈칸=항상)"],
+      '필수 여부', '순서', '역문항 여부(likert5만)', '선택지(| 로 구분)', "표시 조건(online=온라인(비대면)·혼합만, theory=이론 포함만, practice=실습 포함만, 빈칸=항상)"],
     Tokens: ['교과목 ID', '토큰 해시(원문은 저장하지 않음)', '사용 여부'],
     Responses: ['응답 ID(UUID)', '교과목 ID', '제출 날짜(시각은 저장하지 않음)']
   };
@@ -375,7 +401,7 @@ function createDemoCourse_(spec) {
     start_at: start,
     end_at: end,
     access_mode: 'code',
-    access_code: 'NURSE' + randomString_(2, '23456789'),
+    access_code: demoAccessCode_(),
     status: APP.STATUS.OPEN,
     result_open_date: '',
     department: depts[0],
@@ -658,6 +684,29 @@ function fillMissingAccessCodes_() {
     r.access_code = code;
     t.sheet.getRange(r._row, col).setValue(asTextCell_(code));
     n++;
+  });
+  return n;
+}
+
+/** 예시 교과목 접속코드: NURSE + 숫자 2자리, 다른 교과목과 겹치지 않게(겹치면 무작위 6자리) */
+function demoAccessCode_() {
+  var used = {};
+  getCourses_().forEach(function (c) { used[String(c.access_code || '').trim().toUpperCase()] = true; });
+  for (var i = 0; i < 30; i++) {
+    var code = 'NURSE' + randomString_(2, '23456789');
+    if (!used[code]) return code;
+  }
+  return uniqueAccessCode_(readTable_(APP.SHEETS.COURSES).rows);
+}
+
+/** Courses 시트의 이전 수업 방식 이름을 현재 이름으로 바꿉니다. 바꾼 수를 돌려줍니다. */
+function renameDeliveryModes_() {
+  var t = readTable_(APP.SHEETS.COURSES);
+  var col = HEADERS.Courses.indexOf('delivery_mode') + 1;
+  var n = 0;
+  t.rows.forEach(function (r) {
+    var next = APP.DELIVERY_RENAMED[String(r.delivery_mode).trim()];
+    if (next) { t.sheet.getRange(r._row, col).setValue(next); n++; }
   });
   return n;
 }

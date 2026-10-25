@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css">
   <?!= include('Styles'); ?>
 </head>
-<body class="page-student cesstudentpage" data-course="<?= courseId ?>" data-token="<?= tokenPrefill ?>" data-code="<?= codePrefill ?>" data-admin-url="<?= adminUrl ?>">
+<body class="page-student cesstudentpage" data-legacy="<?= legacyLink ?>" data-admin-url="<?= adminUrl ?>">
   <a class="skip-link" href="#main">본문 바로가기</a>
   <div class="deco" aria-hidden="true"><span class="s1"></span><span class="s2"></span><span class="s3"></span><span class="s4"></span></div>
 
@@ -56,10 +56,10 @@
     var CHEERS = [[0.5, '벌써 절반 왔어요! 조금만 더 힘내요 💪'], [0.8, '거의 다 왔어요! 🙌']];
 
     var S = {
-      courseId: document.body.getAttribute('data-course') || '',
-      tokenPrefill: document.body.getAttribute('data-token') || '',
-      // 이전 버전 링크(?c=…&k=… / &t=…)에 담긴 접속코드(또는 토큰): 인증 단계에서 자동으로 확인해 입력을 생략합니다.
-      autoCred: document.body.getAttribute('data-code') || document.body.getAttribute('data-token') || '',
+      courseId: '',
+      tokenPrefill: '',
+      // 공통 주소에서 입력한 접속코드(또는 토큰): 인증 단계에서 자동으로 확인해 다시 입력하지 않게 합니다.
+      autoCred: '',
       course: null,
       items: [],
       labels: ['전혀 그렇지 않다', '그렇지 않다', '보통이다', '그렇다', '매우 그렇다'],
@@ -75,6 +75,11 @@
     };
     var DRAFT_KEY, DONE_KEY;
     var ADMIN_URL = document.body.getAttribute('data-admin-url') || '';
+    // 이전 버전 링크(?c=…&k=…)로 들어온 경우: 자동 접속 대신 안내 후 접속코드 입력
+    var LEGACY = document.body.getAttribute('data-legacy') === '1';
+    var LEGACY_MSG = '이전 방식의 링크입니다. 교수님이 안내한 접속코드를 입력해 주세요.';
+    // 같은 탭에서 새로 고쳐도 이어서 응답하도록, 접속코드로 찾은 교과목을 탭 안에만 기억합니다(탭을 닫으면 지워짐).
+    var ACTIVE_KEY = 'ces:active';
     function setCourseId(id) {
       S.courseId = id;
       DRAFT_KEY = 'ces:draft:' + id;
@@ -130,7 +135,12 @@
 
     /* ───── 1. 진입 ───── */
     function start() {
-      if (!S.courseId) { renderCodeEntry(); return; }
+      if (!S.courseId) {
+        if (LEGACY) { LEGACY = false; CES.store.remove(ACTIVE_KEY); renderCodeEntry('', LEGACY_MSG); return; }
+        var active = CES.store.get(ACTIVE_KEY);
+        if (!active) { renderCodeEntry(); return; }
+        setCourseId(String(active));
+      }
       CES.call('getCourseForStudent', [S.courseId]).then(function (res) {
         if (!res.ok) {
           if (res.code === 'NOT_FOUND') return recoverNotFound();
@@ -150,11 +160,12 @@
     }
 
     /* ───── 0. 공통 주소: 접속코드만 입력 ───── */
-    function renderCodeEntry(errorMsg) {
+    function renderCodeEntry(errorMsg, infoMsg) {
       render(
         '<form class="card pad-lg stack-lg rise" id="code-form" novalidate aria-labelledby="ce">' +
         '<div class="notice-icon">' + icon('key-round') + '</div>' +
         '<div class="center"><h1 id="ce">접속코드 입력</h1><p class="muted small" style="margin-top:6px">수업 시간에 안내받은 코드만 입력하면 바로 시작합니다.</p></div>' +
+        (infoMsg ? '<div class="callout info" role="status" data-legacy-note>' + icon('info') + '<p class="small">' + esc(infoMsg) + '</p></div>' : '') +
         '<div class="field">' +
         '<label for="code">접속코드</label>' +
         '<input id="code" class="input code" name="code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="12" inputmode="text" ' +
@@ -179,6 +190,7 @@
             return notice('ERROR', { retry: true });
           }
           setCourseId(res.course_id);
+          CES.store.set(ACTIVE_KEY, res.course_id);
           S.autoCred = v;
           if (res.token) S.tokenPrefill = v;
           start();
@@ -186,24 +198,12 @@
       });
     }
 
-    /**
-     * 링크의 교과목 ID가 없을 때(교과목을 다시 만들었거나 이전 버전 링크): 링크에 담긴 접속코드·토큰으로 다시 찾고,
-     * 그래도 없으면 막힌 화면 대신 접속코드 입력 화면으로 안내합니다.
-     */
+    /** 교과목이 그사이 삭제된 경우: 막힌 화면 대신 접속코드 입력 화면으로 안내합니다. */
     function recoverNotFound() {
-      var msg = '링크의 설문을 찾을 수 없습니다. 안내받은 접속코드를 입력해 주세요.';
-      var code = S.autoCred;
-      if (!code) { renderCodeEntry(msg); return; }
-      CES.call('findCourseByCode', [code]).then(function (res) {
-        if (res.ok && res.course_id !== S.courseId) {
-          setCourseId(res.course_id);
-          if (res.token) S.tokenPrefill = code;
-          start();
-        } else {
-          S.autoCred = '';
-          renderCodeEntry(msg);
-        }
-      });
+      S.autoCred = '';
+      S.courseId = '';
+      CES.store.remove(ACTIVE_KEY);
+      renderCodeEntry('설문을 찾을 수 없습니다. 안내받은 접속코드를 다시 확인해 주세요.');
     }
 
     function needsCredential() {
@@ -227,6 +227,7 @@
         (c.end_label ? '<p class="small muted">' + icon('calendar') + ' 마감: <span class="num">' + esc(c.end_label) + '</span></p>' : '') +
         (done && c.access_mode !== 'token' ? '<div class="callout">' + icon('info') + '<p class="small">이 기기에서 이미 제출한 기록이 있습니다. 한 사람은 한 번만 응답해 주세요.</p></div>' : '') +
         '<button type="button" class="btn primary block" data-act="to-auth">' + '시작하기' + icon('arrow-right') + '</button>' +
+        '<p class="tiny muted center"><button type="button" class="linklike" data-act="other-code">다른 접속코드 입력</button></p>' +
         '</section>'
       );
     }
@@ -650,6 +651,7 @@
       var act = t.getAttribute('data-act');
       if (act === 'reload') return start();
       if (act === 'to-auth') return renderAuth();
+      if (act === 'other-code') { CES.store.remove(ACTIVE_KEY); S.courseId = ''; S.course = null; S.autoCred = ''; S.tokenPrefill = ''; renderCodeEntry(); return; }
       if (act === 'to-intro') return renderIntro();
       if (act === 'begin') { buildSteps(); S.step = 0; saveDraft(); return renderSurvey(); }
       if (act === 'next') return next();

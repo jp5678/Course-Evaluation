@@ -75,17 +75,22 @@ function render(query) {
   const URL_NOW = urlFor(query.scenario);
   const { env, server } = H.makeServer({ setup: false, state: H.GasMock.revive(sc.state), url: URL_NOW });
   const params = Object.assign({}, query);
-  if (!params.page && params.c === undefined) params.c = sc.meta.courseId;
+  // 학생 화면: 기본은 「공통 주소에서 접속코드로 교과목을 찾은 뒤」 상태(탭에 기억된 교과목)로 시작합니다.
+  // ?course=ID로 다른 교과목. ?c=…(이전 버전 링크)이나 빈 c=(공통 주소)는 실제 주소처럼 처리합니다(탭 기억은 그대로).
+  let active = '';
+  if (!params.page) active = params.course || (params.c === undefined && params.k === undefined && params.t === undefined ? sc.meta.courseId : '');
+  delete params.course;
   const out = server.doGet({ parameter: params });
   const boot = `
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <script>window.__PREVIEW=${JSON.stringify(sc.meta)};window.__GAS_STATE=${JSON.stringify(sc.state)};</script>
+<script>try{${active ? `sessionStorage.setItem('ces:active', ${JSON.stringify(JSON.stringify(active))})` : ''}}catch(e){}</script>
 <script>${MOCK_SRC.replace(/<\/script/gi, '<\\/script')}</script>
 <script>
 (function(){
   var env = GasMock.createEnv({ state: GasMock.revive(window.__GAS_STATE), url: ${JSON.stringify(URL_NOW)}, fastSleep: true,
-    // 링크 점검 모의 응답: 정식 /exec 주소는 학생 화면, 그 밖은 Google 오류 페이지
-    fetch: function (u) { return u.indexOf(${JSON.stringify(URL_BASE)}) === 0 ? { code: 200, body: '<body class="page-student cesstudentpage">' } : { code: 404, body: 'drive.google.com/start/apps' }; } });
+    // 단축 주소(TinyURL) 모의 응답
+    fetch: function (u) { return u.indexOf('https://tinyurl.com/api-create.php?url=') === 0 ? { code: 200, body: 'https://tinyurl.com/ces-demo' } : { code: 404, body: '' }; } });
   var server = GasMock.loadServer(env, ${JSON.stringify(H.SOURCES).replace(/<\/script/gi, '<\\/script')});
   window.__server = server; window.__env = env;
   window.__runOpt = { latency: 60, failNext: {}, calls: [] , onCall: function(n){ window.__runOpt.calls.push(n); } };
