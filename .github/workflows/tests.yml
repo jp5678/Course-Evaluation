@@ -27,7 +27,7 @@ jobs:
         working-directory: tests
         env:
           TZ: Asia/Seoul
-        run: node --test --test-concurrency=1 server.test.js bundle.test.js concurrency.test.js qr.test.js contrast.test.js
+        run: node --test --test-concurrency=1 server.test.js bundle.test.js concurrency.test.js contrast.test.js
       - name: 정식 설치 파일로 서버 테스트 재실행
         working-directory: tests
         env:

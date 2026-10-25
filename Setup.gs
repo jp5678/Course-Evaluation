@@ -84,7 +84,7 @@ function onOpen() {
  * 여러 번 실행해도 기존 데이터는 지우지 않습니다(누락된 것만 추가).
  */
 function setup() {
-  var ss = connectSheet_();
+  var ss = ss_();
   var colors = { Settings: '#5B4BFF', Courses: '#5B4BFF', Items: '#5B4BFF', Tokens: '#6B6B76', Responses: '#6B6B76' };
   Object.keys(HEADERS).forEach(function (name) {
     var sh = ss.getSheetByName(name) || ss.insertSheet(name);
@@ -111,7 +111,7 @@ function setup() {
     ['affiliation', '청암대학교 간호학과', '소속(학교/학과)'],
     ['min_responses', 5, '결과를 공개하는 최소 응답 수(3 이상)'],
     ['departments', '간호학과', '교과목 설정의 학과 드롭다운 목록(줄바꿈으로 구분)'],
-    ['webapp_url', '', '학생 응답 링크·QR에 쓰는 웹 앱 주소(/exec). /exec로 접속하면 자동 저장'],
+    ['webapp_url', '', '학생 접속 주소(공통 주소)로 쓰는 웹 앱 주소(/exec). /exec로 접속하면 자동 저장'],
     ['pin_hash', '', '관리자 PIN 해시(SHA-256 + salt). 메뉴 ② 로 설정하세요. 직접 수정 금지'],
     ['pin_salt', '', 'PIN 해시용 salt. 직접 수정 금지'],
     ['token_salt', randomString_(32, APP.ID_ALPHABET), '토큰 해시용 salt. 변경하면 발급된 토큰이 모두 무효가 됩니다'],
@@ -121,20 +121,27 @@ function setup() {
   defaults.forEach(function (d) {
     if (!s.hasOwnProperty(d[0])) setSetting_(d[0], d[1], d[2]);
   });
+  // 이미 있는 행은 값은 그대로 두고 설명만 최신 문구로 맞춥니다(예: 예전 「링크·QR」 설명).
+  var st = readTable_(APP.SHEETS.SETTINGS);
+  defaults.forEach(function (d) {
+    var row = st.rows.filter(function (r) { return String(r.key).trim() === d[0]; })[0];
+    if (row && String(row.description || '') !== d[2]) st.sheet.getRange(row._row, 3).setValue(d[2]);
+  });
   setSetting_('app_version', APP.VERSION);
 
-  // 다른 Apps Script 프로젝트에서 처음 실행한 경우(스프레드시트 사본, 독립형으로 이전 등):
-  // 저장된 학생용 주소는 이전 프로젝트의 배포이므로 비웁니다. 새로 배포한 /exec 주소로 처음 접속하면 자동 저장되어 QR도 바뀝니다.
+  // 스프레드시트 사본에서 실행한 경우: 원본의 학생용 주소는 다른 프로젝트(원본)의 배포이므로 비웁니다.
+  // 비워 두면 사본에서 새로 배포한 /exec 주소로 처음 접속할 때 자동으로 저장되어 학생 접속 주소도 새 주소로 바뀝니다.
   var sheetId = ss.getId();
-  var scriptId = ScriptApp.getScriptId();
-  var cur = getSettingsMap_();
-  var knownSheet = String(cur.sheet_id || ''), knownScript = String(cur.script_id || '');
-  if ((knownSheet && knownSheet !== sheetId) || (knownScript && knownScript !== scriptId) || (!knownScript && isStandalone_())) {
-    setSetting_('webapp_url', '');
-    setSetting_('webapp_script_id', '', WEBAPP_OWNER_DESC);
-  }
+  var knownId = String(getSettingsMap_().sheet_id || '');
+  if (knownId && knownId !== sheetId) setSetting_('webapp_url', '');
   setSetting_('sheet_id', sheetId, '이 스프레드시트 ID(사본 감지용). 직접 수정 금지');
-  setSetting_('script_id', scriptId, '이 시트를 쓰는 Apps Script 프로젝트 ID(이전 감지용). 직접 수정 금지');
+
+  // v1.5 독립형 시험 설치의 흔적 정리: 학생용 주소가 독립형 배포를 가리킬 수 있으므로 비우고(이 프로젝트의 /exec로
+  // 관리자 화면에 접속하면 다시 자동 저장), 더 쓰지 않는 설정 행은 지웁니다.
+  if (removeSettings_(OBSOLETE_SETTINGS) > 0) setSetting_('webapp_url', '');
+
+  // 접속코드가 비어 있는 접속코드 방식 교과목(이전 버전의 「링크만으로 참여」)에 코드를 만들어 줍니다.
+  fillMissingAccessCodes_();
 
   // 공통 기본 문항(TEMPLATE)
   if (getItems_(APP.TEMPLATE_ID).length === 0) {
@@ -161,23 +168,18 @@ function setup() {
   rememberExecUrl_();
   SpreadsheetApp.flush();
 
-  var hasPin = !!getSettingsMap_().pin_hash;
   notify_('초기 설정 완료',
-    '탭·헤더·기본 문항' + (created ? '·이번 학기 교과목 예시 2개' : '') + '이 준비되었습니다.\n' +
-    (isStandalone_() ? '데이터 스프레드시트: ' + ss.getUrl() + '\n' : '') + '\n' +
+    '탭·헤더·기본 문항' + (created ? '·이번 학기 교과목 예시 2개' : '') + '이 준비되었습니다.\n\n' +
     '다음 단계\n' +
-    (hasPin ? '1) 관리자 PIN: 기존 PIN을 그대로 씁니다.\n'
-      : isStandalone_() ? '1) 코드 맨 위 CES_NEW_PIN에 숫자 6~12자리를 넣고 저장 → setAdminPinFromMenu 실행 → CES_NEW_PIN 다시 비우기\n'
-        : '1) 메뉴 [강의평가 Studio] ▸ ② 관리자 PIN 설정·재설정\n') +
+    '1) 메뉴 [강의평가 Studio] ▸ ② 관리자 PIN 설정·재설정\n' +
     '2) Apps Script 편집기에서 [배포] ▸ [새 배포] ▸ 웹 앱\n' +
-    '   (실행 사용자: 나, 액세스 권한: 모든 사용자)\n' +
-    '3) 웹 앱 URL 끝에 ?page=admin을 붙여 접속(학생용 주소 자동 저장) → [링크·QR]을 휴대폰으로 확인');
+    '   (실행 사용자: 나, 액세스 권한: 모든 사용자)');
 }
 
 function annotateHeaders_() {
   var notes = {
     Courses: ['자동 생성 ID', '교과목명', '학년도(예: 2026)', '학기(1/2)', '학년', '분반(사용 안 함)', '수강인원(선택, 비우면 응답률 미표시)',
-      '응답 시작일시', '응답 종료일시', 'code=접속코드, token=일회용 토큰', '접속코드(비우면 링크만으로 참여)',
+      '응답 시작일시', '응답 종료일시', 'code=접속코드, token=일회용 토큰', '접속코드(학생이 공통 주소에서 입력. 비우면 자동 생성)',
       '준비/진행/마감(마감=수동 마감)', '결과공개일(비우면 즉시 공개)', '학과', '수업 방식(대면/비대면/혼합)', '교과목 유형(이론/실습/이론+실습)'],
     Items: ['문항 ID', "교과목 ID('TEMPLATE'=공통 기본 문항)", '영역', '문항', 'likert5|single|multi|select|text',
       '필수 여부', '순서', '역문항 여부(likert5만)', '선택지(| 로 구분)', "표시 조건(online=비대면·혼합만, theory=이론 포함만, practice=실습 포함만, 빈칸=항상)"],
@@ -415,28 +417,7 @@ function createDemoCourse_(spec) {
 /* ───────────────────────────── PIN·주소 ───────────────────────────── */
 
 /** 스프레드시트 소유자만 접근할 수 있는 메뉴에서 PIN을 설정·재설정합니다(분실 시 복구 경로). */
-/**
- * 독립형 설치: 데이터 스프레드시트를 연결합니다(CES_SHEET_ID → 스크립트 속성 → 없으면 새로 만들기).
- * 연결된 설치면 그 스프레드시트를 그대로 씁니다.
- */
-function connectSheet_() {
-  if (!isStandalone_()) return ss_();
-  var props = PropertiesService.getScriptProperties();
-  var id = sheetIdFrom_(CES_SHEET_ID) || props.getProperty('CES_SHEET_ID');
-  var created = false;
-  if (!id) {
-    id = SpreadsheetApp.create('강의평가 Studio 데이터').getId();
-    created = true;
-  }
-  props.setProperty('CES_SHEET_ID', id);
-  ss_cache_ = null;
-  var ss = ss_();
-  console.log((created ? '새 데이터 스프레드시트를 만들었습니다: ' : '데이터 스프레드시트를 연결했습니다: ') + ss.getUrl());
-  return ss;
-}
-
 function setAdminPinFromMenu() {
-  if (!getUiOrNull_()) return setAdminPinFromEditor_();
   var ui = SpreadsheetApp.getUi();
   var first = ui.prompt('관리자 PIN 설정', '숫자 6~12자리 PIN을 입력하세요.', ui.ButtonSet.OK_CANCEL);
   if (first.getSelectedButton() !== ui.Button.OK) return;
@@ -455,25 +436,9 @@ function setAdminPinFromMenu() {
   ui.alert('PIN이 설정되었습니다. 기존 로그인 세션과 잠금은 모두 해제되었습니다.');
 }
 
-/** 독립형 설치(메뉴·대화상자 없음): 코드 맨 위 CES_NEW_PIN으로 PIN을 정합니다. */
-function setAdminPinFromEditor_() {
-  var pin = String(CES_NEW_PIN || '').trim();
-  if (!APP.PIN_PATTERN.test(pin)) {
-    console.log('PIN을 정하려면 코드 맨 위 CES_NEW_PIN에 숫자 6~12자리를 넣고 저장한 뒤 setAdminPinFromMenu를 다시 실행하세요.');
-    return { ok: false, code: 'PIN_FORMAT' };
-  }
-  storePin_(pin);
-  console.log('관리자 PIN을 설정했습니다. 보안을 위해 CES_NEW_PIN을 다시 빈칸(\'\')으로 바꾸고 저장하세요.');
-  return { ok: true };
-}
-
 function showWebAppUrl() {
   rememberExecUrl_();
   var url = studentBaseUrl_(getSettingsMap_());
-  if (!getUiOrNull_()) {
-    console.log(url ? '학생용 주소: ' + url + '\n관리자 화면: ' + url + '?page=admin' : '아직 정식 배포 주소(/exec)가 없습니다. [배포] ▸ [새 배포] ▸ 웹 앱으로 배포하세요.');
-    return url;
-  }
   var ui = SpreadsheetApp.getUi();
   if (!url) {
     ui.alert('학생용 웹 앱 주소(/exec)를 찾지 못했습니다.\n\n' +
@@ -485,7 +450,7 @@ function showWebAppUrl() {
   var html = HtmlService.createHtmlOutput(
     '<div style="font-family:sans-serif;font-size:14px;line-height:1.7">' +
     '<p><b>교수 관리자 화면</b><br><a href="' + url + '?page=admin" target="_blank">' + url + '?page=admin</a></p>' +
-    '<p><b>학생 응답 링크</b>는 관리자 화면 ▸ 교과목 ▸ [링크·QR]에서 교과목별로 확인하세요.</p></div>'
+    '<p><b>학생 접속 주소</b>는 관리자 화면 ▸ 교과목 ▸ [접속 주소]에서 확인하세요(공통 주소 + 접속코드).</p></div>'
   ).setWidth(520).setHeight(180);
   ui.showModalDialog(html, '웹 앱 주소');
 }
@@ -589,7 +554,7 @@ function deleteSampleData(skipConfirm) {
   if (skipConfirm !== true) {
     var ui = getUiOrNull_();
     if (ui) {
-      var ans = ui.alert('샘플 데이터 삭제', 'SAMPLE 응답만 삭제합니다. 교과목·문항·접속코드·QR은 그대로 유지됩니다. 계속할까요?', ui.ButtonSet.YES_NO);
+      var ans = ui.alert('샘플 데이터 삭제', 'SAMPLE 응답만 삭제합니다. 교과목·문항·접속코드는 그대로 유지됩니다. 계속할까요?', ui.ButtonSet.YES_NO);
       if (ans !== ui.Button.YES) return { ok: false, code: 'CANCELLED' };
     }
   }
@@ -598,12 +563,12 @@ function deleteSampleData(skipConfirm) {
       return String(r.response_id).indexOf('SAMPLE-') !== 0;
     });
     // 교과목(예시 교과목 포함)은 지우지 않습니다. 예시 교과목을 실제 수업에 쓰는 경우가 많고,
-    // 지웠다가 다시 만들면 교과목 ID·접속코드가 바뀌어 이미 안내한 QR·링크가 열리지 않기 때문입니다.
+    // 지웠다가 다시 만들면 교과목 ID·접속코드가 바뀌어 이미 안내한 접속코드가 바뀌기 때문입니다.
     pruneResponseColumns_();
     return { ok: true, removed: removed };
   });
   notify_('샘플 데이터 삭제', result.ok
-    ? '샘플 응답 ' + result.removed + '건을 삭제했습니다.\n교과목·문항·접속코드·QR은 그대로입니다.'
+    ? '샘플 응답 ' + result.removed + '건을 삭제했습니다.\n교과목·문항·접속코드는 그대로입니다.'
     : '다른 작업이 진행 중입니다.');
   return result;
 }
@@ -667,4 +632,32 @@ function notify_(title, message) {
     try { ui.alert(title, message, ui.ButtonSet.OK); return; } catch (e) { /* 편집기 실행 */ }
   }
   console.log(title + '\n' + message);
+}
+
+
+/** 더 이상 쓰지 않는 설정 키(v1.5 독립형 설치에서 추가) */
+var OBSOLETE_SETTINGS = ['script_id', 'webapp_script_id'];
+
+/** Settings 시트에서 주어진 키의 행을 지우고, 지운 행 수를 돌려줍니다. */
+function removeSettings_(keys) {
+  var t = readTable_(APP.SHEETS.SETTINGS);
+  var rows = t.rows.filter(function (r) { return keys.indexOf(String(r.key).trim()) >= 0; })
+    .map(function (r) { return r._row; }).sort(function (a, b) { return b - a; });
+  rows.forEach(function (n) { t.sheet.deleteRow(n); });
+  return rows.length;
+}
+
+/** 접속코드 방식인데 코드가 비어 있는 교과목에 겹치지 않는 코드를 채웁니다. 채운 수를 돌려줍니다. */
+function fillMissingAccessCodes_() {
+  var t = readTable_(APP.SHEETS.COURSES);
+  var col = HEADERS.Courses.indexOf('access_code') + 1;
+  var n = 0;
+  t.rows.forEach(function (r) {
+    if (String(r.access_mode) === 'token' || String(r.access_code || '').trim()) return;
+    var code = uniqueAccessCode_(t.rows);
+    r.access_code = code;
+    t.sheet.getRange(r._row, col).setValue(asTextCell_(code));
+    n++;
+  });
+  return n;
 }

@@ -7,7 +7,6 @@ const suites = [
   ['서버 로직·보안', 'server.test.js'],
   ['정식 설치 파일(단일 .gs) 동등성', 'bundle.test.js'],
   ['동시 제출(멀티 스레드)', 'concurrency.test.js'],
-  ['QR 인코더(jsQR 디코딩)', 'qr.test.js'],
   ['WCAG 대비', 'contrast.test.js'],
   ['브라우저 UI(Playwright, 360px·데스크톱·다크)', 'ui.test.js']
 ];

@@ -127,7 +127,7 @@ test('학생 360px: 진입→접속코드→익명 안내→설문(키보드 1~5
   assert.equal(draft, 0, '제출 후 임시 저장 삭제');
 });
 
-test('간단 접속: 공통 주소에서 코드만 입력 → 바로 시작, QR(코드 포함 링크)은 코드 입력 생략', async () => {
+test('간단 접속: 공통 주소에서 코드만 입력 → 바로 시작, 이전 버전 링크(코드 포함)는 코드 입력 생략', async () => {
   // ① 공통 주소(교과목 ID 없음): 접속코드 입력 화면 → 틀린 코드 안내 → 올바른 코드(소문자) → 교과목 카드
   const page = await newPage();
   await page.goto(base + '?scenario=student&c=');
@@ -150,7 +150,7 @@ test('간단 접속: 공통 주소에서 코드만 입력 → 바로 시작, QR(
   await page.getByRole('heading', { name: '익명으로 응답합니다' }).waitFor();
   assert.equal(await page.locator('#cred').count(), 0, '코드 재입력 없음');
 
-  // ② QR 링크(?c=…&k=코드): 시작하기 → 바로 익명 안내
+  // ② 이전 버전 링크(?c=…&k=코드): 시작하기 → 바로 익명 안내
   const p2 = await newPage();
   const cid = await page.evaluate(() => window.__PREVIEW.courseId);
   await p2.goto(base + '?scenario=student&c=' + cid + '&k=' + code);
@@ -164,7 +164,7 @@ test('간단 접속: 공통 주소에서 코드만 입력 → 바로 시작, QR(
   await p3.getByText('접속코드가 올바르지 않습니다').waitFor();
 });
 
-test('오래된 QR·링크: 교과목 ID가 없으면 링크의 접속코드로 다시 찾고, 코드도 없으면 접속코드 입력 화면', async () => {
+test('이전 버전 링크: 교과목 ID가 없으면 링크의 접속코드로 다시 찾고, 코드도 없으면 접속코드 입력 화면', async () => {
   const page = await newPage();
   await page.goto(base + '?scenario=student');
   const code = await page.evaluate(() => window.__PREVIEW.accessCode);
@@ -265,7 +265,7 @@ test('기간 외 접속·마감·토큰 재사용 안내 화면', async () => {
   await p2.goto(base + '?scenario=tokenused');
   const tok = await p2.evaluate(() => window.__PREVIEW.tokens[0]);
   await p2.goto(base + '?scenario=tokenused&t=' + tok.replace('-', ''));
-  // QR 링크의 토큰은 입력 없이 자동 확인 → 이미 사용된 토큰 안내
+  // 이전 버전 링크의 토큰은 입력 없이 자동 확인 → 이미 사용된 토큰 안내
   await p2.getByRole('button', { name: '시작하기' }).click();
   await p2.getByRole('heading', { name: '이미 사용된 토큰입니다' }).waitFor();
   await shot(p2, 'm07-token-used');
@@ -331,7 +331,7 @@ test('교수 360px: PIN 오류 안내→로그인→대시보드→결과(차트
   await shot(page, 'm12-admin-courses');
 });
 
-test('교수 데스크톱: 결과 잠금/해제·비교 차트·QR·토큰 인쇄 시트·CLO 일괄 입력·내보내기', async () => {
+test('교수 데스크톱: 결과 잠금/해제·비교 차트·접속 주소·토큰 인쇄 시트·CLO 일괄 입력·내보내기', async () => {
   // 전체 페이지 캡처 시 뷰포트가 바뀌어 차트가 다시 애니메이션되므로, 캡처 정확도를 위해 모션 최소화로 실행
   const page = await newPage({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, reducedMotion: 'reduce' });
   await page.goto(base + '?scenario=admin&page=admin');
@@ -385,18 +385,18 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·QR·토큰 인�
   await page.getByText(/명 이상 모이면 결과가 열립니다/).waitFor();
   await shot(page, 'd12-results-locked');
 
-  // 교과목: QR 모달
+  // 교과목: 학생 접속 주소 창
   await page.getByRole('tab', { name: '교과목' }).click();
-  await page.locator('[data-act="qr"]').first().click();
-  await page.waitForSelector('.qr-box svg');
-  // 학생 링크 복사·링크 점검·새 창에서 열기는 삭제, 공통 주소 복사만 남김
-  for (const sel of ['[data-open-link]', '[data-check-link]', '[data-copy]', '.modal-body .linkbox']) {
+  await page.locator('[data-act="access"]').first().click();
+  await page.waitForSelector('[data-access-addr]');
+  // QR 접속 삭제: 주소·접속코드로만 접속(QR·QR 저장 없음)
+  for (const sel of ['.modal .qr-box', '[data-svg]', '[data-open-link]', '[data-check-link]', '[data-copy]', '.modal-body .linkbox']) {
     assert.equal(await page.locator(sel).count(), 0, sel + ' 없음');
   }
   assert.equal(await page.getByText('시크릿 창').count(), 0, '시크릿 창 안내 문구 없음');
-  await shot(page, 'd13-qr-modal');
+  await shot(page, 'd13-access-modal');
   const ov = await page.$eval('.modal-body', (el) => [el.scrollWidth, el.clientWidth]);
-  assert.ok(ov[0] <= ov[1], 'QR 모달 가로 넘침 없음: ' + ov);
+  assert.ok(ov[0] <= ov[1], '접속 주소 창 가로 넘침 없음: ' + ov);
   await page.keyboard.press('Escape');
 
   // 토큰 생성 → 절취형 인쇄 시트
@@ -406,6 +406,8 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·QR·토큰 인�
   await page.getByRole('button', { name: '생성' }).click();
   await page.waitForSelector('.slip');
   assert.equal(await page.locator('.modal .slip').count(), 12);
+  assert.equal(await page.locator('.modal .slip svg').count(), 0, '토큰 시트에 QR 없음');
+  assert.equal(await page.locator('.modal .slip .u').count(), 12, '토큰마다 접속 주소');
   await shot(page, 'd14-token-sheet');
   await page.emulateMedia({ media: 'print' });
   await page.evaluate(() => { document.getElementById('print-area').innerHTML = document.querySelector('.modal .slips').outerHTML; document.body.classList.add('printing'); });
@@ -521,7 +523,7 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·QR·토큰 인�
   }
 });
 
-test('관리자를 테스트용(/dev) 주소로 연 경우: 원인 안내 → 설정에 /exec 주소 저장 → 링크·QR 정상', async () => {
+test('관리자를 테스트용(/dev) 주소로 연 경우: 원인 안내 → 설정에 /exec 주소 저장 → 접속 주소 정상', async () => {
   const page = await newPage({ viewport: { width: 1280, height: 900 } });
   await page.goto(base + '?scenario=dev&page=admin');
   await page.locator('#pin').fill('123456');
@@ -529,9 +531,9 @@ test('관리자를 테스트용(/dev) 주소로 연 경우: 원인 안내 → �
   await page.getByText('테스트용(/dev) 주소로 열었습니다').first().waitFor();
   await shot(page, 'd20-dev-banner');
   await page.getByRole('tab', { name: '교과목' }).click();
-  await page.locator('[data-act="qr"]').first().click();
-  await page.getByText('학생 링크·QR을 만들지 않았습니다').waitFor();
-  assert.equal(await page.locator('.qr-box').count(), 0, '/dev 링크로 QR을 만들지 않음');
+  await page.locator('[data-act="access"]').first().click();
+  await page.getByText('학생 접속 주소를 만들지 않았습니다').waitFor();
+  assert.equal(await page.locator('[data-access-addr]').count(), 0, '/dev 주소는 안내하지 않음');
   await page.getByRole('button', { name: '설정으로 이동' }).click();
   await page.locator('#s-url').fill('https://script.google.com/macros/s/PREVIEW/dev');
   await page.getByRole('button', { name: '저장' }).first().click();
@@ -540,27 +542,31 @@ test('관리자를 테스트용(/dev) 주소로 연 경우: 원인 안내 → �
   await page.getByRole('button', { name: '저장' }).first().click();
   await page.getByText('설정을 저장했습니다.').waitFor();
   await page.getByRole('tab', { name: '교과목' }).click();
-  await page.locator('[data-act="qr"]').first().click();
-  await page.waitForSelector('.qr-box svg');
-  // QR에 담긴 학생 링크가 저장한 /exec 주소를 사용
-  const links = await page.evaluate(() => window.__server.getCourses_().map((c) => window.__server.courseSummary_(c, 0, new Date(), window.__server.studentBaseUrl_(window.__server.getSettingsMap_())).link));
-  assert.ok(links.every((l) => /PREVIEW\/exec\?c=/.test(l)), links.join(','));
+  await page.locator('[data-act="access"]').first().click();
+  await page.waitForSelector('[data-access-addr]');
+  assert.match(await page.locator('[data-access-addr] code').innerText(), /PREVIEW\/exec$/, '저장한 /exec 주소 표시');
 });
 
-test('교수 360px: 링크·QR 모달 가로 넘침 없음(짧은 안내·공통 주소 복사 버튼)', async () => {
+test('교수 360px: 접속 주소 창 가로 넘침 없음(주소·안내문 복사·수업 화면)', async () => {
   const page = await newPage();
   await page.goto(base + '?scenario=admin&page=admin');
   await page.locator('#pin').fill('123456');
   await page.getByRole('button', { name: '로그인' }).click();
   await page.getByRole('tab', { name: '교과목' }).click();
   const cid = await page.evaluate(() => window.__PREVIEW.courseId); // 접속코드 방식 교과목
-  await page.locator(`[data-act="qr"][data-id="${cid}"]`).click();
-  await page.waitForSelector('.qr-box svg');
-  await page.getByRole('button', { name: /공통 주소 복사/ }).waitFor();
+  await page.locator(`[data-act="access"][data-id="${cid}"]`).click();
+  await page.waitForSelector('[data-access-addr]');
+  await page.getByRole('button', { name: /안내문 복사/ }).waitFor();
+  await page.getByRole('button', { name: '수업 화면에 띄우기' }).click();
+  await page.locator('.present .addr-big').waitFor();
+  await noHorizontalScroll(page, '수업 화면 접속 안내');
+  await page.keyboard.press('Escape');
+  await page.locator(`[data-act="access"][data-id="${cid}"]`).click();
+  await page.waitForSelector('[data-access-addr]');
   const ov = await page.$eval('.modal-body', (el) => [el.scrollWidth, el.clientWidth]);
-  assert.ok(ov[0] <= ov[1], 'QR 모달 가로 넘침 없음(360px): ' + ov);
-  await noHorizontalScroll(page, 'QR 모달');
-  await shot(page, 'm13-qr-modal');
+  assert.ok(ov[0] <= ov[1], '접속 주소 창 가로 넘침 없음(360px): ' + ov);
+  await noHorizontalScroll(page, '접속 주소 창');
+  await shot(page, 'm13-access-modal');
 });
 
 test('사용 매뉴얼 탭: 맨 위 메뉴 끝, 12개 장, 차례로 펼치기·모두 펼치기, 360px 넘침 없음', async () => {

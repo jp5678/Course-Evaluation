@@ -586,7 +586,7 @@ test('학생 링크 주소: 테스트용 /dev로 접속하면 링크를 만들�
   let b = server.getAdminBootstrap(s);
   assert.equal(b.devMode, true);
   assert.equal(b.webAppUrl, '', '/dev는 학생 링크로 쓰지 않음');
-  assert.ok(b.courses.every((c) => c.link === ''));
+  assert.ok(b.courses.every((c) => c.base_url === ''));
 
   const base = { professor_name: '정종필', affiliation: '청암대학교 간호학과', min_responses: 5, departments: '간호학과' };
   let r = server.saveSettings(s, Object.assign({}, base, { webapp_url: DEV }));
@@ -595,8 +595,8 @@ test('학생 링크 주소: 테스트용 /dev로 접속하면 링크를 만들�
   assert.equal(server.saveSettings(s, Object.assign({}, base, { webapp_url: EXEC + '?page=admin' })).ok, true, '쿼리는 떼고 저장');
   b = server.getAdminBootstrap(s);
   assert.equal(b.webAppUrl, EXEC);
-  assert.ok(b.courses.every((c) => c.link.startsWith(EXEC + '?c=')));
-  assert.equal(server.generateTokens(s, b.courses[0].course_id, 1).course.link.startsWith(EXEC), true, '토큰 시트 링크도 /exec');
+  assert.ok(b.courses.every((c) => c.base_url === EXEC && !('link' in c)), 'QR용 링크 없음, 공통 주소만');
+  assert.equal(server.generateTokens(s, b.courses[0].course_id, 1).course.base_url, EXEC, '토큰 시트 주소도 /exec');
   // Workspace 도메인 형식도 허용
   assert.equal(server.saveSettings(s, Object.assign({}, base, { webapp_url: 'https://script.google.com/a/macros/cheongam.ac.kr/s/AKfyc123/exec' })).ok, true);
 });
@@ -693,7 +693,7 @@ test('간단 접속: 링크·QR에 접속코드 포함, 공통 주소에서 코�
   const boot = server.getAdminBootstrap(s);
   const sum = boot.courses.find((c) => c.course_id === demo.course_id);
   assert.equal(sum.base_url, 'https://script.google.com/macros/s/ABC/exec');
-  assert.equal(sum.link, sum.base_url + '?c=' + demo.course_id + '&k=' + demo.access_code.toUpperCase(), 'QR에 코드 포함');
+  assert.ok(!('link' in sum), 'QR용 링크 필드 없음');
 
   // 공통 주소: 코드만으로 찾기(대소문자·공백·하이픈 무시)
   const f = server.findCourseByCode(' ' + demo.access_code.toLowerCase() + ' ');
@@ -701,12 +701,11 @@ test('간단 접속: 링크·QR에 접속코드 포함, 공통 주소에서 코�
   assert.equal(server.findCourseByCode('ZZZZZZ').code, 'BAD_CODE');
   assert.equal(server.findCourseByCode('').code, 'BAD_CODE');
 
-  // 토큰 방식: 토큰으로 교과목 찾기, 링크에는 코드 없음
+  // 토큰 방식: 토큰으로 교과목 찾기
   const tid = H.createCourse(server, s, { access_mode: 'token', access_code: '' });
   const tok = server.generateTokens(s, tid, 2).tokens[0];
   const ft = server.findCourseByCode(tok);
   assert.deepEqual([ft.ok, ft.course_id, ft.token], [true, tid, true]);
-  assert.ok(!/&k=/.test(server.getAdminBootstrap(s).courses.find((c) => c.course_id === tid).link));
 
   // 코드 중복 금지(자기 자신 재저장은 허용)
   const dup = server.saveCourse(s, Object.assign({}, { course_name: '중복', year: 2026, semester: '2', grade: 3, department: '간호학과', delivery_mode: '대면',
@@ -977,79 +976,54 @@ test('스프레드시트 사본에서 setup: 원본 배포의 학생용 주소�
   assert.equal(cs.getSettingsMap_().sheet_id, 'SHEET-COPY');
   assert.deepEqual(cs.getCourses_().map((c) => c.course_id + ':' + c.access_code), courses, '교과목·접속코드 유지');
   assert.equal(cs.adminLogin(PIN).ok, true, 'PIN 유지');
-  // 사본에서 새 배포 주소로 첫 접속 → 자동 저장 → QR이 새 주소
+  // 사본에서 새 배포 주소로 첫 접속 → 자동 저장 → 학생 접속 주소가 새 주소
   const { server: copy } = H.makeServer({ setup: false, state: H.GasMock.revive(H.GasMock.serialize(cenv.__store.read())), url: NEW });
   copy.doGet({ parameter: { page: 'admin' } });
   assert.equal(copy.getSettingsMap_().webapp_url, NEW);
   const s2 = H.login(copy, PIN);
-  assert.ok(copy.getAdminBootstrap(s2).courses.every((c) => c.link.indexOf(NEW + '?c=') === 0), 'QR이 새 주소');
+  assert.ok(copy.getAdminBootstrap(s2).courses.every((c) => c.base_url === NEW), '학생 접속 주소가 새 주소');
 });
 
-test('독립형 설치: 기존 데이터 시트 연결(주소로)·이전 연결형 주소 비움·새 /exec 자동 저장, 새 시트 자동 생성·편집기 PIN 설정', () => {
-  // 1) 기존 연결형 설치(데이터·PIN·예전 배포 주소)
-  const OLD = 'https://script.google.com/macros/s/AKfycbwBOUND/exec';
-  const NEW = 'https://script.google.com/macros/s/AKfycbwSTANDALONE/exec';
-  const { env, server } = H.makeServer({ pin: PIN, url: OLD });
-  server.doGet({ parameter: { page: 'admin' } });
+test('setup: v1.5 독립형 시험 설치의 흔적(script_id·webapp_script_id 행, 독립형 학생 주소) 정리', () => {
+  const BOUND = 'https://script.google.com/macros/s/AKfycbwBOUND/exec';
+  const { server } = H.makeServer({ pin: '246810', url: BOUND });
+  server.setSetting_('webapp_url', 'https://script.google.com/macros/s/AKfycbwSTANDALONE/exec');
+  server.setSetting_('script_id', 'SCRIPT-STANDALONE');
+  server.setSetting_('webapp_script_id', 'SCRIPT-STANDALONE');
   server.setup();
-  const before = server.getCourses_().map((c) => c.course_id + ':' + c.access_code);
-  const state = H.GasMock.serialize(env.__store.read());
+  const set = server.getSettingsMap_();
+  assert.ok(!('script_id' in set) && !('webapp_script_id' in set), '쓰지 않는 설정 행 삭제');
+  assert.equal(set.webapp_url, BOUND, '독립형 주소를 지우고 이 프로젝트의 /exec 주소로 다시 저장');
+  server.setup();
+  assert.equal(server.getSettingsMap_().webapp_url, BOUND, '흔적이 없으면 setup 재실행해도 주소 유지');
+});
 
-  // 2) 독립형 프로젝트(다른 스크립트 ID, 활성 시트 없음)에서 CES_SHEET_ID에 시트 주소를 넣고 setup
-  const mk = (extra) => H.makeServer(Object.assign({ setup: false, state: H.GasMock.revive(state), standalone: true, scriptId: 'SCRIPT-STANDALONE',
-    url: 'https://script.google.com/macros/s/AKfycbwSTANDALONE/dev' }, extra));
-  const a = mk();
-  assert.throws(() => a.server.ss_(), /SETUP_REQUIRED/, '시트 미지정이면 설정 필요');
-  // CES_SHEET_ID 상수 대신 스크립트 속성으로 지정(setup이 CES_SHEET_ID 값을 이 속성에 저장하므로 같은 효과)
-  const b = mk({ scriptProps: { CES_SHEET_ID: 'SHEET-ORIGINAL' } });
-  b.server.setup();
-  const set = b.server.getSettingsMap_();
-  assert.equal(set.webapp_url, '', '이전 연결형 배포 주소 비움');
-  assert.equal(set.script_id, 'SCRIPT-STANDALONE');
-  assert.deepEqual(b.server.getCourses_().map((c) => c.course_id + ':' + c.access_code), before, '기존 교과목·접속코드 그대로');
-  assert.equal(b.server.adminLogin(PIN).ok, true, '기존 PIN 그대로');
-  // 독립형 새 배포 주소로 첫 접속 → 자동 저장 → QR이 새 주소
-  const c = H.makeServer({ setup: false, state: H.GasMock.revive(H.GasMock.serialize(b.env.__store.read())), standalone: true, scriptId: 'SCRIPT-STANDALONE',
-    scriptProps: { CES_SHEET_ID: 'SHEET-ORIGINAL' }, url: NEW });
-  c.server.doGet({ parameter: { page: 'admin' } });
-  assert.equal(c.server.getSettingsMap_().webapp_url, NEW);
-  const s = H.login(c.server, PIN);
-  assert.ok(c.server.getAdminBootstrap(s).courses.every((x) => x.link.indexOf(NEW + '?c=') === 0), 'QR이 독립형 주소');
-  c.server.setup();
-  assert.equal(c.server.getSettingsMap_().webapp_url, NEW, '같은 독립형 프로젝트에서 setup 재실행은 주소 유지');
+test('QR 삭제 후 접속: 접속코드 방식은 코드가 꼭 있어야 함 — 저장·setup 시 빈 코드 자동 생성', () => {
+  const { server } = H.makeServer({ pin: '246810' });
+  const s = H.login(server, '246810');
+  const id = H.createCourse(server, s, { access_mode: 'code', access_code: '' });
+  const c = server.getCourses_().find((x) => x.course_id === id);
+  assert.match(String(c.access_code), /^[A-Z0-9]{6}$/, '저장 시 자동 생성');
+  assert.equal(server.findCourseByCode(c.access_code).course_id, id, '공통 주소에서 찾기');
+  // 이전 버전에서 코드 없이 만든 교과목 → setup이 채움
+  const col = server.HEADERS.Courses.indexOf('access_code') + 1;
+  const t = server.readTable_('Courses');
+  const row = t.rows.find((r) => r.course_id === id);
+  t.sheet.getRange(row._row, col).setValue('');
+  server.setup();
+  const after = server.getCourses_().find((x) => x.course_id === id);
+  assert.match(String(after.access_code), /^[A-Z0-9]{6}$/, 'setup 시 자동 생성');
+  const codes = server.getCourses_().filter((x) => x.access_mode !== 'token').map((x) => String(x.access_code).toUpperCase());
+  assert.equal(new Set(codes).size, codes.length, '코드 중복 없음');
+});
 
-  const cb = c.server.getAdminBootstrap(s);
-  assert.equal(cb.bound, false, '독립형: 연결형 경고 없음');
-  assert.equal(cb.urlTag, 'AKfycbwS…LONE', 'QR 배포 ID 표시');
-
-  // 2-1) 이전 후 예전 연결형 주소가 다시 저장된 경우(구버전 코드가 기록 → 소유 프로젝트 없음, 신버전 → 연결형 ID)
-  //      독립형 관리자 화면을 열면 자기 주소로 교체되어 QR이 바뀐다.
-  for (const owner of ['', 'SCRIPT-BOUND']) {
-    const st = H.GasMock.serialize(c.env.__store.read());
-    const d = H.makeServer({ setup: false, state: H.GasMock.revive(st), standalone: true, scriptId: 'SCRIPT-STANDALONE',
-      scriptProps: { CES_SHEET_ID: 'SHEET-ORIGINAL' }, url: NEW });
-    d.server.setSetting_('webapp_url', OLD);
-    d.server.setSetting_('webapp_script_id', owner);
-    const ds = H.login(d.server, PIN);
-    assert.ok(d.server.getAdminBootstrap(ds).courses.every((x) => x.link.indexOf(NEW + '?c=') === 0), '옛 연결형 주소 교체(' + (owner || '소유 미기록') + ')');
-    assert.equal(d.server.getSettingsMap_().webapp_script_id, 'SCRIPT-STANDALONE');
-  }
-  // 같은 독립형 프로젝트가 저장한 주소는 다른 배포로 실행돼도 유지(수동 지정 존중)
-  const e2 = H.makeServer({ setup: false, state: H.GasMock.revive(H.GasMock.serialize(c.env.__store.read())), standalone: true, scriptId: 'SCRIPT-STANDALONE',
-    scriptProps: { CES_SHEET_ID: 'SHEET-ORIGINAL' }, url: 'https://script.google.com/macros/s/AKfycbwOTHERDEPLOY/exec' });
-  e2.server.doGet({ parameter: { page: 'admin' } });
-  assert.equal(e2.server.getSettingsMap_().webapp_url, NEW, '같은 프로젝트 저장값 유지');
-  // 연결형 프로젝트에서는 경고 표시
-  const bs = H.login(server, PIN);
-  assert.equal(server.getAdminBootstrap(bs).bound, true, '연결형: 휴대폰 차단 경고');
-
-  // 3) 시트를 지정하지 않은 새 독립형 설치: 데이터 시트 자동 생성, 편집기에서 PIN 설정
-  const fresh = H.GasMock.createEnv({ readFile: H.readFile, fastSleep: true, standalone: true, scriptId: 'SCRIPT-FRESH', console: { log() {}, info() {}, warn() {}, error: console.error } });
-  const fs = H.GasMock.loadServer(fresh, H.SOURCES);
-  fs.setup();
-  assert.match(fresh.PropertiesService.getScriptProperties().getProperty('CES_SHEET_ID'), /^SHEET-NEW-/, '새 데이터 시트 ID 저장');
-  assert.equal(fs.getCourses_().length, 2, '예시 교과목 생성');
-  assert.equal(fs.setAdminPinFromMenu().code, 'PIN_FORMAT', 'CES_NEW_PIN이 비어 있으면 안내만');
-  assert.equal(fs.sheetIdFrom_('https://docs.google.com/spreadsheets/d/1CPuAk0HXjjl3ET1SiiYf2LlUGa_8khnxd92Q-AEaEnE/edit?usp=sharing'), '1CPuAk0HXjjl3ET1SiiYf2LlUGa_8khnxd92Q-AEaEnE');
-  assert.equal(fs.sheetIdFrom_('nope'), '');
+test('setup: 기존 설정 행의 설명을 최신 문구로(값은 유지)', () => {
+  const { server } = H.makeServer({ pin: '246810' });
+  const t = server.readTable_('Settings');
+  const row = t.rows.find((r) => r.key === 'webapp_url');
+  t.sheet.getRange(row._row, 2, 1, 2).setValues([['https://script.google.com/macros/s/KEEP/exec', '학생 응답 링크·QR에 쓰는 웹 앱 주소']]);
+  server.setup();
+  const r2 = server.readTable_('Settings').rows.find((r) => r.key === 'webapp_url');
+  assert.doesNotMatch(String(r2.description), /QR/);
+  assert.equal(r2.value, 'https://script.google.com/macros/s/KEEP/exec');
 });

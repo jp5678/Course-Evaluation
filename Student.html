@@ -58,7 +58,7 @@
     var S = {
       courseId: document.body.getAttribute('data-course') || '',
       tokenPrefill: document.body.getAttribute('data-token') || '',
-      // 링크·QR에 담긴 접속코드(또는 토큰): 인증 단계에서 자동으로 확인해 입력을 생략합니다.
+      // 이전 버전 링크(?c=…&k=… / &t=…)에 담긴 접속코드(또는 토큰): 인증 단계에서 자동으로 확인해 입력을 생략합니다.
       autoCred: document.body.getAttribute('data-code') || document.body.getAttribute('data-token') || '',
       course: null,
       items: [],
@@ -97,7 +97,7 @@
     function notice(kind, extra) {
       var c = S.course || {};
       var map = {
-        INVALID: ['link-2-off', 'warn', '유효하지 않은 링크입니다', '교수님이 안내한 링크나 QR 코드로 다시 접속해 주세요.'],
+        INVALID: ['link-2-off', 'warn', '유효하지 않은 링크입니다', '교수님이 안내한 주소에서 접속코드를 입력해 주세요.'],
         NOT_FOUND: ['search-x', 'warn', '설문을 찾을 수 없습니다', '링크가 정확한지 확인하거나 교수님께 문의해 주세요.'],
         NOT_STARTED: ['calendar-clock', 'warn', '아직 응답 기간이 아닙니다',
           c.start_label ? '응답은 ' + c.start_label + '부터 할 수 있습니다. 그때 다시 접속해 주세요.' : '응답 기간이 시작되면 다시 접속해 주세요.'],
@@ -187,7 +187,7 @@
     }
 
     /**
-     * 링크의 교과목 ID가 없을 때(교과목을 다시 만들었거나 오래된 QR): 링크에 담긴 접속코드·토큰으로 다시 찾고,
+     * 링크의 교과목 ID가 없을 때(교과목을 다시 만들었거나 이전 버전 링크): 링크에 담긴 접속코드·토큰으로 다시 찾고,
      * 그래도 없으면 막힌 화면 대신 접속코드 입력 화면으로 안내합니다.
      */
     function recoverNotFound() {

@@ -351,14 +351,14 @@
       const total = cs.reduce((a, c) => a + c.response_count, 0);
       const todayN = cs.reduce((a, c) => a + (c.today_count || 0), 0);
       const sub = todayN ? `오늘 새 응답 ${todayN}건이 들어왔어요. 학생들의 목소리를 확인해 보세요.`
-        : open.length ? `진행 중인 설문 ${open.length}개에서 학생들의 목소리가 모이고 있어요.` : '새 설문을 준비해 볼까요? 교과목을 만들고 QR로 안내하면 됩니다.';
+        : open.length ? `진행 중인 설문 ${open.length}개에서 학생들의 목소리가 모이고 있어요.` : '새 설문을 준비해 볼까요? 교과목을 만들고 접속 주소·코드를 안내하면 됩니다.';
       return `<section class="hero rise" aria-labelledby="hero-h">
           <div class="hero-text">
             <p class="hero-date">${esc(today)}</p>
             <h1 id="hero-h">${greet}${name ? `, ${esc(name)} 교수님` : ''} <span class="wave" aria-hidden="true">👋</span></h1>
             <p class="hero-sub">${esc(sub)}</p>
             <div class="row hero-actions">
-              <button type="button" class="btn primary sm" data-go="courses">${icon('qr-code')}교과목·QR</button>
+              <button type="button" class="btn primary sm" data-go="courses">${icon('link')}교과목·접속 주소</button>
               <button type="button" class="btn sm" data-go="results">${icon('chart-column')}결과 보기</button>
             </div>
           </div>
@@ -435,7 +435,7 @@
       const id = esc(c.course_id);
       const access = c.access_mode === 'token'
         ? `${icon('ticket')} 일회용 토큰 <span class="num">${c.tokens_used}/${c.tokens_total}</span> 사용`
-        : c.access_code ? `${icon('key-round')} 접속코드 <strong class="num">${esc(c.access_code)}</strong>` : `${icon('link')} 링크만으로 참여`;
+        : c.access_code ? `${icon('key-round')} 접속코드 <strong class="num">${esc(c.access_code)}</strong>` : `${icon('key-round')} 접속코드 자동 생성 예정`;
       return `
         <article class="card stack" aria-labelledby="cn-${id}">
           <div class="row-between"><div class="meta">${statusBadge(c)}<span class="badge">${esc(term(c))}</span></div>
@@ -449,7 +449,7 @@
           </div>
           <p class="small">${access}</p>
           <div class="row">
-            <button type="button" class="btn sm primary" data-act="qr" data-id="${id}">${icon('qr-code')}링크·QR</button>
+            <button type="button" class="btn sm primary" data-act="access" data-id="${id}">${icon('link')}접속 주소</button>
             ${c.access_mode === 'token' ? `<button type="button" class="btn sm" data-act="tokens" data-id="${id}">${icon('ticket')}토큰</button>` : ''}
             <button type="button" class="btn sm" data-items="${id}">${icon('list-checks')}문항</button>
             <button type="button" class="btn sm" data-results="${id}">${icon('chart-column')}결과</button>
@@ -501,7 +501,7 @@
             <label for="f-code">접속코드</label>
             <div class="row"><input class="input code grow" id="f-code" name="access_code" maxlength="12" value="${esc(c.access_code)}" style="flex:1" aria-describedby="f-code-h">
               <button type="button" class="btn sm" data-act="gen-code">${icon('refresh-cw')}자동 생성</button></div>
-            <p class="hint" id="f-code-h">영문·숫자 12자 이내. 비우면 링크만으로 참여할 수 있습니다.</p>
+            <p class="hint" id="f-code-h">영문·숫자 12자 이내. 학생이 공통 주소에서 입력합니다. 비우면 저장할 때 자동으로 만듭니다.</p>
           </div>
           ${isEdit ? `<label class="check full"><input type="checkbox" name="manual_close"${c.manual_close ? ' checked' : ''}> 지금 수동으로 마감(기간과 관계없이 응답 차단)</label>` : ''}
           <p class="error full hidden" id="course-err" role="alert"></p>
@@ -612,20 +612,20 @@
       go('courses');
     }
 
-    /* ───── 링크·QR ───── */
+    /* ───── 학생 접속 주소 ───── */
     /** 학생용 주소(/exec)를 못 찾았을 때의 원인·해결 안내 */
     function urlNotice() {
       const dev = A.data.devMode;
       return `<div class="callout" role="alert">${icon('triangle-alert')}<div class="small stack" style="margin:0">
         <p><strong>${dev ? '지금 관리자 화면을 테스트용(/dev) 주소로 열었습니다.' : '학생용 웹 앱 주소(/exec)를 아직 찾지 못했습니다.'}</strong>
-        ${dev ? '테스트 주소로 만든 링크는 편집 권한이 없는 학생이 열 수 없어서, 학생 링크·QR을 만들지 않았습니다.' : ''}</p>
+        ${dev ? '테스트 주소(/dev)는 편집 권한이 없는 학생이 열 수 없어서, 학생 접속 주소를 만들지 않았습니다.' : ''}</p>
         <p>해결: Apps Script 편집기 ▸ <strong>[배포] ▸ [배포 관리]</strong>에 있는 <strong>웹 앱 URL(…/exec)</strong>을 복사해
         ① 그 주소 뒤에 <code>?page=admin</code>을 붙여 관리자 화면에 다시 접속하거나(주소가 자동 저장됨),
         ② [설정] 탭의 「학생용 웹 앱 주소」에 붙여 넣고 저장하세요.</p></div></div>`;
     }
 
-    /** QR은 항상 최신 교과목 정보로(다른 곳에서 교과목·접속코드가 바뀌었을 수 있음) */
-    async function openQrFresh(id, btn) {
+    /** 접속 안내는 항상 최신 교과목 정보로(다른 곳에서 교과목·접속코드가 바뀌었을 수 있음) */
+    async function openAccessFresh(id, btn) {
       const restore = CES.busyButton(btn, '불러오는 중…');
       await refresh();
       restore();
@@ -635,49 +635,54 @@
         if (A.tab === 'courses') renderCourses();
         return;
       }
-      openQr(c);
+      openAccess(c);
     }
 
-    function openQr(c) {
-      if (!c.link) {
-        CES.modal({ title: '링크·QR', html: urlNotice(),
+    /** 학생 접속 안내: 공통 주소 + 접속코드(토큰)로 접속 */
+    function accessNotice(c) {
+      return c.access_mode === 'token'
+        ? `[${c.course_name} 강의평가]\n주소: ${c.base_url}\n받은 일회용 토큰을 입력하세요. (익명)`
+        : `[${c.course_name} 강의평가]\n주소: ${c.base_url}\n접속코드: ${c.access_code}\n주소를 열고 접속코드를 입력하세요. (익명${c.est_minutes ? ', 약 ' + c.est_minutes + '분' : ''})`;
+    }
+
+    function openAccess(c) {
+      if (!c.base_url) {
+        CES.modal({ title: '학생 접속 주소', html: urlNotice(),
           footer: `<button type="button" class="btn primary" data-close data-go="settings">${icon('settings')}설정으로 이동</button>` });
         return;
       }
-      let svg = '';
-      try { svg = CES.QR.toSvg(c.link, { label: c.course_name + ' 응답 링크 QR 코드' }); } catch (e) { svg = '<p class="small">QR을 만들 수 없습니다.</p>'; }
+      const isCode = c.access_mode !== 'token';
       const m = CES.modal({
-        title: '응답 링크·QR',
+        title: '학생 접속 주소',
         html: `<div class="stack-lg">
             <p class="small muted">${esc(c.course_name)} · ${esc(termFull(c))}</p>
-            <div class="qr-box">${svg}</div>
-            ${c.access_mode === 'code' && c.access_code ? `<div class="center"><div class="small muted">접속코드</div><div class="mid-num" style="letter-spacing:.12em">${esc(c.access_code)}</div></div>` : ''}
-            ${c.access_mode !== 'token' ? `<div class="callout info">${icon('smartphone')}<div class="small">
-              <p><strong>학생 접속</strong> ① QR 찍기(코드 입력 없음) ② 공통 주소에서 코드 입력</p>
-              ${c.base_url ? `<button type="button" class="btn sm" data-copy-base style="margin-top:8px">${icon('copy')}공통 주소 복사(LMS 공지용)</button>` : ''}
-            </div></div>` : ''}
-            ${A.data.urlTag ? `<p class="small muted center" data-url-tag>QR 주소의 배포 ID: <code>${esc(A.data.urlTag)}</code></p>` : ''}
-            ${A.data.bound ? `<div class="callout" role="alert" data-bound-warn>${icon('triangle-alert')}<p class="small"><strong>스프레드시트에 연결된 프로젝트</strong>에서 실행 중입니다. 이 주소는 휴대폰에서 「현재 파일을 열 수 없습니다」로 막힐 수 있습니다. <strong>독립형 설치</strong>(사용 매뉴얼 2장)로 옮긴 뒤, 새 주소의 관리자 화면에서 QR을 다시 여세요.</p></div>` : ''}
-            ${c.access_mode === 'token' ? `<div class="callout info">${icon('ticket')}<p class="small">토큰 방식: 학생은 종이 토큰을 입력합니다(토큰 시트의 QR은 입력 없이 시작).</p></div>` : ''}
+            <div class="addr-box" data-access-addr><div class="small muted">접속 주소</div><code>${esc(c.base_url)}</code></div>
+            ${isCode && c.access_code ? `<div class="center"><div class="small muted">접속코드</div><div class="mid-num" style="letter-spacing:.12em">${esc(c.access_code)}</div></div>` : ''}
+            <div class="callout info">${icon('smartphone')}<div class="small">
+              <p><strong>학생 접속</strong> 주소 열기 → ${isCode ? '접속코드 입력' : '받은 일회용 토큰 입력'}</p>
+              <div class="row wrap" style="gap:8px;margin-top:8px">
+                <button type="button" class="btn sm" data-copy-base>${icon('copy')}주소 복사</button>
+                <button type="button" class="btn sm" data-copy-notice>${icon('clipboard-list')}안내문 복사(LMS 공지용)</button>
+              </div>
+            </div></div>
           </div>`,
-        footer: `<button type="button" class="btn" data-svg>${icon('download')}QR 저장(SVG)</button>
-          <button type="button" class="btn primary" data-present>${icon('presentation')}수업 화면에 띄우기</button>`
+        footer: `<button type="button" class="btn primary" data-present>${icon('presentation')}수업 화면에 띄우기</button>`
       });
-      const copyBase = $('[data-copy-base]', m.el);
-      if (copyBase) copyBase.addEventListener('click', () => CES.copy(c.base_url));
-      $('[data-svg]', m.el).addEventListener('click', () => CES.download(`QR_${c.course_name}_${term(c)}.svg`.replace(/\s+/g, '_'), svg, 'image/svg+xml'));
-      $('[data-present]', m.el).addEventListener('click', () => { m.close(); present(c, svg); });
+      $('[data-copy-base]', m.el).addEventListener('click', () => CES.copy(c.base_url));
+      $('[data-copy-notice]', m.el).addEventListener('click', () => CES.copy(accessNotice(c)));
+      $('[data-present]', m.el).addEventListener('click', () => { m.close(); present(c); });
     }
 
-    function present(c, svg) {
+    function present(c) {
       const el = document.createElement('div');
       el.className = 'present';
       el.setAttribute('role', 'dialog');
       el.setAttribute('aria-modal', 'true');
-      el.setAttribute('aria-label', '수업 화면용 QR');
-      el.innerHTML = `<h1>${esc(c.course_name)} 강의평가</h1><div class="qr-box">${svg}</div>
-        ${c.access_mode === 'code' && c.access_code ? `<div><div class="muted">접속코드</div><div class="code-big">${esc(c.access_code)}</div></div>` : ''}
-        <p class="muted">휴대폰 카메라로 QR을 찍으면 바로 시작합니다 · 익명${c.est_minutes ? ' · 약 ' + c.est_minutes + '분' : ''}</p>
+      el.setAttribute('aria-label', '수업 화면용 접속 안내');
+      el.innerHTML = `<h1>${esc(c.course_name)} 강의평가</h1>
+        <div><div class="muted">접속 주소</div><div class="addr-big">${esc(c.base_url)}</div></div>
+        ${c.access_mode !== 'token' && c.access_code ? `<div><div class="muted">접속코드</div><div class="code-big">${esc(c.access_code)}</div></div>` : '<p class="muted">받은 일회용 토큰을 입력하세요</p>'}
+        <p class="muted">LMS 공지의 주소를 열고 코드를 입력하세요 · 익명${c.est_minutes ? ' · 약 ' + c.est_minutes + '분' : ''}</p>
         <button type="button" class="btn" data-x>${icon('x')}닫기 (Esc)</button>`;
       document.body.appendChild(el);
       CES.icons();
@@ -709,25 +714,21 @@
         restore();
         if (!res.ok) return fail(res);
         m.close();
-        showTokenSheet(c, res.tokens, res.course.link || c.link);
+        showTokenSheet(c, res.tokens, res.course.base_url || c.base_url);
         refresh().then(() => { if (A.tab === 'courses') renderCourses(); });
       });
     }
 
-    function slipsHtml(c, tokens, link) {
-      return `<div class="slips">${tokens.map((t) => {
-        const url = link ? link + '&t=' + t.replace('-', '') : '';
-        let qr = '';
-        try { qr = url ? CES.QR.toSvg(url, { quiet: 1 }) : ''; } catch (e) { qr = ''; }
-        return `<div class="slip">${qr ? `<div class="qr">${qr}</div>` : ''}<div>
+    function slipsHtml(c, tokens, base) {
+      return `<div class="slips">${tokens.map((t) => `<div class="slip"><div>
           <div class="c"><strong>강의평가 일회용 토큰</strong><br>${esc(c.course_name)} (${esc(term(c))}${c.section ? ' ' + esc(c.section) + '반' : ''})</div>
           <div class="t">${esc(t)}</div>
-          <div class="g">QR 스캔 또는 링크 접속 후 입력 · 1회용 · 익명</div></div></div>`;
-      }).join('')}</div>`;
+          <div class="g">아래 주소에 접속해 토큰 입력 · 1회용 · 익명</div>
+          ${base ? `<div class="u">${esc(base)}</div>` : ''}</div></div>`).join('')}</div>`;
     }
 
-    function showTokenSheet(c, tokens, link) {
-      const sheet = slipsHtml(c, tokens, link);
+    function showTokenSheet(c, tokens, base) {
+      const sheet = slipsHtml(c, tokens, base);
       const m = CES.modal({
         title: `토큰 ${tokens.length}개 생성됨`,
         wide: true,
@@ -744,14 +745,14 @@
       });
       $('[data-print]', m.el).addEventListener('click', () => printSheet(sheet));
       $('[data-csv]', m.el).addEventListener('click', () => {
-        const rows = [['번호', '토큰', '토큰 입력 링크']].concat(tokens.map((t, i) => [i + 1, t, link ? link + '&t=' + t.replace('-', '') : '']));
+        const rows = [['번호', '토큰', '접속 주소']].concat(tokens.map((t, i) => [i + 1, t, base || '']));
         CES.download(`토큰_${c.course_name}_${term(c)}.csv`.replace(/\s+/g, '_'), rows.map((r) => r.join(',')).join('\r\n'), 'text/csv');
       });
       $('[data-html]', m.el).addEventListener('click', () => {
         const css = `body{font-family:"Pretendard Variable",Pretendard,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;margin:0}
           @page{size:A4;margin:10mm}.slips{display:grid;grid-template-columns:repeat(3,1fr)}
           .slip{border:1px dashed #9a9a9a;padding:4mm;height:33mm;display:flex;gap:3mm;align-items:center;break-inside:avoid}
-          .slip .qr{width:24mm;height:24mm;flex:none}.slip .qr svg{width:100%;height:100%}
+          .u{font-size:6pt;color:#444;word-break:break-all;margin-top:.6mm}
           .t{font-size:15pt;font-weight:700;letter-spacing:.06em}.c{font-size:7.5pt;line-height:1.3}.g{font-size:6.5pt;color:#444;margin-top:1mm}`;
         CES.download(`토큰_${c.course_name}_${term(c)}.html`.replace(/\s+/g, '_'),
           `<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><title>강의평가 토큰</title><style>${css}</style></head><body>${sheet}<script>window.onload=function(){window.print()}<\/script></body></html>`, 'text/html');
@@ -1533,7 +1534,7 @@
               <div class="field"><label for="s-url">학생용 웹 앱 주소 (/exec)</label>
                 <input class="input" id="s-url" name="webapp_url" type="url" inputmode="url" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec"
                   value="${esc(s.webapp_url || '')}" aria-describedby="s-url-h">
-                <p class="hint" id="s-url-h">학생 링크·QR에 쓰는 주소입니다. [배포] ▸ [배포 관리]의 웹 앱 URL을 붙여 넣으세요. 비어 있으면 /exec 주소로 관리자 화면에 접속할 때 자동으로 채워지고, 입력한 주소는 자동으로 바뀌지 않습니다. 테스트용 /dev 주소는 학생이 열 수 없어 저장되지 않습니다.</p>
+                <p class="hint" id="s-url-h">학생 접속 주소로 쓰는 주소입니다. [배포] ▸ [배포 관리]의 웹 앱 URL을 붙여 넣으세요. 비어 있으면 /exec 주소로 관리자 화면에 접속할 때 자동으로 채워지고, 입력한 주소는 자동으로 바뀌지 않습니다. 테스트용 /dev 주소는 학생이 열 수 없어 저장되지 않습니다.</p>
                 ${A.data.currentUrl && s.webapp_url && A.data.currentUrl !== s.webapp_url ? `<p class="hint" style="color:var(--danger-ink)">${icon('info')} 지금 관리자 화면은 다른 주소(<code>${esc(A.data.currentUrl)}</code>)로 실행 중입니다. 학생 링크가 열리지 않으면 [배포 관리]의 현재 주소로 바꾸세요.</p>` : ''}</div>
               <div class="field"><label for="s-min">최소 공개 응답 수</label>
                 <input class="input num" id="s-min" name="min_responses" type="number" min="3" max="50" value="${s.min_responses}" aria-describedby="s-min-h">
@@ -1551,7 +1552,7 @@
           <section class="card sky span-4" aria-labelledby="s3"><h2 id="s3" style="margin-bottom:12px">웹 앱 주소</h2>
             ${url ? `<div class="stack"><div class="small">교수 관리자 화면(즐겨찾기 권장)</div>
               <div class="linkbox"><code>${esc(url)}?page=admin</code><button type="button" class="btn sm" data-copy-url="${esc(url)}?page=admin">${icon('copy')}복사</button></div>
-              <p class="small">학생 응답 링크는 [교과목] 탭의 [링크·QR]에서 교과목별로 확인하세요.</p></div>`
+              <p class="small">학생 접속 주소는 [교과목] 탭의 [접속 주소]에서 교과목별로 확인하세요.</p></div>`
               : urlNotice()}
             <p class="tiny muted" style="margin-top:12px">버전 ${esc(A.data.version)}</p>
           </section>
@@ -1625,7 +1626,7 @@
         case 'edit-course': return openCourseForm(c);
         case 'dup-course': return openDuplicate(c);
         case 'del-course': return deleteCourse(c);
-        case 'qr': return openQrFresh(t.dataset.id, t);
+        case 'access': return openAccessFresh(t.dataset.id, t);
         case 'tokens': return openTokens(c);
         case 'add-item':
           A.items.push({ domain: A.items.length ? A.items[A.items.length - 1].domain : DOMAINS[0], text: '', type: 'likert5', required: true, reverse: false, options: [] });
