@@ -35,7 +35,7 @@ Google 스프레드시트 하나와 Apps Script만으로 동작하며 외부 서
 - **결과 한눈에 보기**: 응답 수·전체 평균·전반적 만족도·추천 의향을 보여 줍니다. 영역별 평균은 전체 평균 기준선과 함께 정렬한 막대로, 영역별 부정·보통·긍정 분포는 막대로 보여 줍니다. 교수가 드롭다운 문항을 직접 추가하면 그 문항의 집단별 비교도 제공합니다(소규모 집단은 자동 숨김).
 - **서술형 워드 클라우드**: 전체 또는 문항별로 볼 수 있습니다. 단어를 누르면 그 단어가 들어간 응답만 강조해서 모아 보여 줍니다.
 - 상세 분석: 문항별 평균·표준편차·분포, 영역 레이더 차트, 학기 간 비교(교과목명 기준, 다른 학기끼리), 서술형 응답(무작위 순서)을 제공합니다. 같은 교과목이 같은 학기에 여러 개(이전 버전의 분반 자료)일 때만 분반 간 비교가 나타납니다.
-- 내보내기: 원자료 PDF, CQI 요약표 PDF. **서술형 응답 AI 분석**: 범위(전체·문항별) 선택 → AI용으로 복사(간호교육 CQI 요청 문구 포함)·TXT → AI 요약 붙여넣기 → 서술형 응답 PDF(보고·인쇄용).
+- 내보내기: **화면 그대로 PDF**(결과 분석 화면을 A4 여러 쪽 이미지 PDF로, html2canvas·jsPDF를 내려받기 때 불러옴), 원자료 PDF, CQI 요약표 PDF. **서술형 응답 AI 분석**: 범위(전체·문항별) 선택 → AI용으로 복사(간호교육 CQI 요청 문구 포함)·TXT → AI 요약 붙여넣기 → 서술형 응답 PDF(보고·인쇄용).
 - 대시보드: 환영 배너(오늘 새 응답·누적 응답·마감 임박), 교과목 카드의 「오늘 +N」, 결과 공개 기준·응답률 80% 도달 축하
 - 사용 매뉴얼: 관리자 화면 맨 위 메뉴의 **사용 매뉴얼** 탭에서 장별 요약을 볼 수 있습니다(전체 PDF: `docs/강의평가Studio_사용자매뉴얼.pdf`).
 - **응답이 최소 공개 수(기본 5명) 미만이면 결과를 잠급니다.** 결과공개일을 지정하면 그 이전에도 잠깁니다(성적 처리 전 열람 방지).
@@ -261,7 +261,7 @@ Courses·Items·Tokens·Responses 탭에는 직접 편집하면 경고가 뜨도
 | `dist/Code.gs`, `dist/CourseEvaluationStudio.gs` | **정식 설치 파일**(단일 파일, 두 파일은 내용 동일. `tools/build-installer.js`로 생성 — 직접 수정하지 마세요) |
 | `.github/workflows/tests.yml` | 푸시·PR마다 테스트와 설치 파일(dist) 최신 여부 검사 |
 
-외부 리소스는 jsDelivr의 **Pretendard Variable 1.3.9, Lucide 0.460.0, Chart.js 4.4.1** 세 가지만 사용합니다.
+외부 리소스는 jsDelivr의 **Pretendard Variable 1.3.9, Lucide 0.460.0, Chart.js 4.4.1**과, 「화면 그대로 PDF」를 누를 때만 불러오는 **html2canvas 1.4.1, jsPDF 2.5.1**을 사용합니다.
 
 ---
 
@@ -271,7 +271,7 @@ Apps Script 서비스(SpreadsheetApp·LockService·CacheService·HtmlService)를
 
 ```bash
 cd tests
-npm install          # chart.js, lucide, pretendard (테스트 전용)
+npm install          # chart.js, lucide, pretendard, html2canvas, jspdf (테스트 전용)
 npm test             # 전체 실행(Playwright Chromium 필요)
 node preview-server.js 8787   # 브라우저 미리보기: http://127.0.0.1:8787/exec?scenario=student
 ```
