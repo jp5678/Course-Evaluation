@@ -947,3 +947,14 @@ test('서술형 AI 분석: 범위(문항별) TXT·PDF, 잘못된 문항 거부, 
   assert.equal((html.match(/<h2>/g) || []).length, 2, '범위 1문항 + AI 요약 결과');
   assert.equal(server.exportPdf(s, dl.course_id, 'text', { itemId: 'bad' }).code, 'VALIDATION');
 });
+
+test('대시보드: 교과목별 오늘(한국 시간) 새 응답 수', () => {
+  const { server } = H.makeServer({ pin: PIN });
+  const s = H.login(server, PIN);
+  const [dl, ai] = server.getCourses_();
+  const items = server.itemsForCourse_(server.findCourse_(dl.course_id));
+  for (let i = 0; i < 3; i++) assert.equal(server.submitResponse(dl.course_id, dl.access_code, H.fullAnswers(items)).ok, true);
+  const cs = server.getAdminBootstrap(s).courses;
+  assert.equal(cs.find((c) => c.course_id === dl.course_id).today_count, 3);
+  assert.equal(cs.find((c) => c.course_id === ai.course_id).today_count, 0);
+});

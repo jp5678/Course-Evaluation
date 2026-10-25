@@ -688,7 +688,13 @@ body.page-student, body.page-admin { background: var(--bg); position: relative; 
 .hero-sub { margin: 0; color: var(--ink); opacity: .85; }
 .hero-actions { margin-top: 14px; }
 .hero-stickers .sticker { background: var(--surface) !important; box-shadow: var(--shadow); }
+.hero-stickers { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.hero-stickers .sticker { aspect-ratio: auto; display: flex; align-items: center; justify-content: flex-start; gap: 8px; padding: 12px 14px; text-align: left; border-radius: 18px; flex-wrap: wrap; }
+.hero-stickers .sticker .emo { font-size: 1.5rem; }
 .hero-stickers .sticker b { font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+.hero-stickers .sticker.is-new { outline: 2px solid var(--primary); outline-offset: -2px; }
+.hero-stickers .sticker.is-new .emo { animation: emo-bounce .6s var(--spring) .4s both, bob 3s ease-in-out 1s infinite; }
+.today-chip { display: inline-block; font-size: .6875rem; font-weight: 700; color: var(--on-primary); background: var(--primary); border-radius: 999px; padding: 1px 7px; vertical-align: middle; }
 .wave { display: inline-block; transform-origin: 70% 70%; animation: wave 2.4s ease-in-out 1s 2; }
 @keyframes wave { 0%, 60%, 100% { transform: rotate(0); } 10%, 30% { transform: rotate(14deg); } 20% { transform: rotate(-8deg); } 40% { transform: rotate(-4deg); } 50% { transform: rotate(10deg); } }
 .page-title { display: flex; align-items: center; gap: 10px; }
@@ -697,7 +703,7 @@ body.page-student, body.page-admin { background: var(--bg); position: relative; 
 .page-admin .bento > .card:hover, .page-admin .course-pulse:hover { transform: translateY(-3px); box-shadow: var(--shadow); }
 .view-enter { animation: rise-in .45s var(--ease) both; }
 @media (max-width: 760px) { .hero { grid-template-columns: 1fr; padding: 20px; } }
-@media (prefers-reduced-motion: reduce) { .hero::after, .wave, .ptile, .view-enter { animation: none !important; } .page-admin .bento > .card:hover, .page-admin .course-pulse:hover { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .hero::after, .wave, .ptile, .view-enter, .hero-stickers .sticker.is-new .emo { animation: none !important; } .page-admin .bento > .card:hover, .page-admin .course-pulse:hover { transform: none; } }
 /* 사용 매뉴얼 탭 */
 .manual details { border-top: 1px solid var(--line); padding: 12px 0; }
 .manual details:first-of-type { margin-top: 12px; }

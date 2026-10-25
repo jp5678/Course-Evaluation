@@ -613,6 +613,30 @@ test('문항 편집: 영역 드롭다운에 모든 영역 표시, 영역 변경,
   await shot(page, 'd31-domain-select');
 });
 
+test('대시보드: 오늘 새 응답 스티커·카드 칩, 목표 도달 축하는 교과목·목표마다 한 번만', async () => {
+  const page = await newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(base + '?scenario=admin&page=admin');
+  await page.locator('#pin').fill('123456');
+  await page.getByRole('button', { name: '로그인' }).click();
+  await page.getByText('진행 중 교과목', { exact: true }).waitFor();
+  // 미리보기 데이터는 오늘 제출한 응답이 있음(분반 B 9건 등)
+  const today = Number(await page.locator('[data-today] b').innerText());
+  assert.ok(today > 0, '오늘 새 응답 수');
+  assert.ok(await page.locator('.today-chip').count() >= 1, '교과목 카드의 오늘 +N');
+  // 결과 공개 기준을 넘은 교과목 → 축하 알림(처음 한 번)
+  await page.locator('#toast-host').getByText(/🎉 .*결과 공개 기준\(5명\) 달성/).first().waitFor();
+  const keys = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('ces:cele:')).length);
+  assert.ok(keys >= 1);
+  await page.reload();
+  // 미리보기 서버는 새로 고침마다 모의 상태를 새로 만들므로 다시 로그인(축하 기록은 브라우저 localStorage에 남음)
+  await page.locator('#pin').fill('123456');
+  await page.getByRole('button', { name: '로그인' }).click();
+  await page.getByText('진행 중 교과목', { exact: true }).waitFor();
+  await page.waitForTimeout(800);
+  assert.equal(await page.locator('#toast-host').getByText(/🎉/).count(), 0, '다시 열면 축하하지 않음');
+  await shot(page, 'd43-dash-today');
+});
+
 test('브라우저 콘솔 오류 없음', () => {
   const real = consoleErrors.filter((e) => !/favicon/.test(e));
   assert.deepEqual(real, []);

@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.4.0',
+  VERSION: '1.4.1',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -278,6 +278,8 @@ function getAdminBootstrap(session) {
       summary.domains = st ? st.domains.map(function (d) { return { domain: d.domain, mean: d.mean, pos_pct: d.pos_pct }; }) : [];
       summary.item_count = its.length;
       summary.est_minutes = estMinutes_(its);
+      var todayKey = fmtD_(now);
+      summary.today_count = rows.filter(function (r) { return dateOnly_(r.submitted_date) === todayKey; }).length; // 오늘(한국 시간) 새 응답
       summary.tokens_total = (tokenStats[c.course_id] || {}).total || 0;
       summary.tokens_used = (tokenStats[c.course_id] || {}).used || 0;
       return summary;

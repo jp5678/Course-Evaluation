@@ -336,6 +336,7 @@
           </section>
         </div>`);
       CES.animateIn(view);
+      celebrateMilestones(cs);
     }
 
     /** 탭 제목 앞 이모지 타일(장식) */
@@ -348,7 +349,9 @@
       const name = (A.data.settings && A.data.settings.professor_name) || '';
       const today = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
       const total = cs.reduce((a, c) => a + c.response_count, 0);
-      const sub = open.length ? `진행 중인 설문 ${open.length}개에서 학생들의 목소리가 모이고 있어요.` : '새 설문을 준비해 볼까요? 교과목을 만들고 QR로 안내하면 됩니다.';
+      const todayN = cs.reduce((a, c) => a + (c.today_count || 0), 0);
+      const sub = todayN ? `오늘 새 응답 ${todayN}건이 들어왔어요. 학생들의 목소리를 확인해 보세요.`
+        : open.length ? `진행 중인 설문 ${open.length}개에서 학생들의 목소리가 모이고 있어요.` : '새 설문을 준비해 볼까요? 교과목을 만들고 QR로 안내하면 됩니다.';
       return `<section class="hero rise" aria-labelledby="hero-h">
           <div class="hero-text">
             <p class="hero-date">${esc(today)}</p>
@@ -361,11 +364,39 @@
           </div>
           <div class="stickers hero-stickers" aria-hidden="true">
             <div class="sticker" style="--i:0"><span class="emo">📡</span><b>${open.length}</b>개 진행 중</div>
-            <div class="sticker" style="--i:1"><span class="emo">💬</span><b>${total}</b>건 응답</div>
-            <div class="sticker" style="--i:2"><span class="emo">⏰</span><b>${soon.length}</b>개 마감 임박</div>
+            <div class="sticker${todayN ? ' is-new' : ''}" style="--i:1" data-today><span class="emo">✨</span><b>${todayN}</b>건 오늘 응답</div>
+            <div class="sticker" style="--i:2"><span class="emo">💬</span><b>${total}</b>건 누적 응답</div>
+            <div class="sticker" style="--i:3"><span class="emo">⏰</span><b>${soon.length}</b>개 마감 임박</div>
           </div>
-          <p class="sr-only">진행 중 ${open.length}개, 누적 응답 ${total}건, 72시간 이내 마감 ${soon.length}개</p>
+          <p class="sr-only">진행 중 ${open.length}개, 오늘 새 응답 ${todayN}건, 누적 응답 ${total}건, 72시간 이내 마감 ${soon.length}개</p>
         </section>`;
+    }
+
+    /**
+     * 목표 도달 축하: 결과 공개 기준(최소 응답 수) 도달, 수강인원이 있으면 80% 응답 도달.
+     * 교과목·목표마다 이 브라우저에서 한 번만 confetti와 알림을 보여 줍니다(모션 최소화 설정이면 confetti 생략).
+     */
+    function celebrateMilestones(cs) {
+      const minN = Number((A.data.settings || {}).min_responses) || 5;
+      const byGoal = {}; // 목표 이름 → 달성한 교과목 이름(학기·분반 포함)
+      cs.forEach((c) => {
+        const goals = [['open', minN, `결과 공개 기준(${minN}명)`]];
+        if (c.enrollment > 0) goals.push(['80', Math.ceil(c.enrollment * 0.8), '응답률 80%']);
+        goals.forEach(([id, target, label]) => {
+          if (c.response_count < target) return;
+          const key = `ces:cele:${c.course_id}:${id}`;
+          if (CES.store.get(key, window.localStorage)) return;
+          CES.store.set(key, 1, window.localStorage);
+          (byGoal[label] = byGoal[label] || []).push(`${c.course_name}(${term(c)}${c.section ? ' ' + c.section + '반' : ''})`);
+        });
+      });
+      const labels = Object.keys(byGoal);
+      if (!labels.length) return;
+      CES.confetti();
+      CES.toast('🎉 ' + labels.map((l) => {
+        const names = byGoal[l];
+        return `${l} 달성: ${names.slice(0, 2).join(', ')}${names.length > 2 ? ` 외 ${names.length - 2}개` : ''}`;
+      }).join(' / '));
     }
 
     function pulseCard(c) {
@@ -379,7 +410,7 @@
           : CES.ring(c.response_rate / 100, Math.round(c.response_rate) + '%', '응답률', { small: true, label: `응답률 ${c.response_rate}%` })}
         <span style="min-width:0;display:block">
           <span class="meta" style="margin-bottom:4px;display:flex">${statusBadge(c)}</span>
-          <strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.course_name)}</strong>
+          <strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.course_name)}${c.today_count ? ` <span class="today-chip">오늘 +${c.today_count}</span>` : ''}</strong>
           <span class="tiny muted" style="display:block">${esc(termFull(c))}</span>
           ${c.mean != null ? `<span class="row" style="gap:6px;margin-top:4px;display:flex"><span class="mid-num" style="font-size:1.5rem">${fmt(c.mean)}</span><span class="tiny muted">/ 5 · 긍정 ${Math.round(c.pos_pct)}%</span></span>` : `<span class="tiny muted" style="margin-top:6px;display:block">${icon('lock')} ${lock}</span>`}
         </span>
