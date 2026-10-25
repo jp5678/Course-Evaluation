@@ -123,6 +123,13 @@ function setup() {
   });
   setSetting_('app_version', APP.VERSION);
 
+  // 스프레드시트 사본에서 실행한 경우: 원본의 학생용 주소는 다른 프로젝트(원본)의 배포이므로 비웁니다.
+  // 비워 두면 사본에서 새로 배포한 /exec 주소로 처음 접속할 때 자동으로 저장되어 QR도 새 주소로 바뀝니다.
+  var sheetId = ss.getId();
+  var knownId = String(getSettingsMap_().sheet_id || '');
+  if (knownId && knownId !== sheetId) setSetting_('webapp_url', '');
+  setSetting_('sheet_id', sheetId, '이 스프레드시트 ID(사본 감지용). 직접 수정 금지');
+
   // 공통 기본 문항(TEMPLATE)
   if (getItems_(APP.TEMPLATE_ID).length === 0) {
     var rows = DEFAULT_ITEMS.map(function (d, i) {

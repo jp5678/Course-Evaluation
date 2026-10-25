@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.4.1',
+  VERSION: '1.4.2',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -1609,12 +1609,6 @@ function rememberExecUrl_(settings) {
   } catch (e) { /* 기록 실패는 화면 표시에 영향 없음 */ }
 }
 
-/**
- * 학생 링크 점검: 로그인하지 않은 학생과 같은 조건(쿠키 없음)으로 링크를 직접 열어 결과를 판정합니다.
- * result: OK(열림) | LOGIN(Google 로그인 요구) | ACCESS(배포는 살아 있으나 로그인 없이 열 수 없음 = 액세스 권한 문제)
- *         | UNAVAILABLE(배포를 열 수 없음) | UNKNOWN(판정 불가, 세부 정보 확인) | NEED_AUTH | NO_URL | ERROR
- * 판정 근거(hops: 상태 코드·호스트, title)를 함께 돌려줍니다.
- */
 /* ───────────────────────────── 보안 유틸 ───────────────────────────── */
 
 function adminApi_(session, fn) {
