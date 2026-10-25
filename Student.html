@@ -47,7 +47,7 @@
     // 영역 첫 글자 → 아이콘·색(배경 톤)
     var DOMAIN_LOOK = {
       A: ['compass', 'sky'], B: ['presentation', 'primary'], C: ['clipboard-check', 'butter'], D: ['target', 'accent'],
-      E: ['building-2', 'sky'], F: ['cpu', 'primary'], G: ['heart', 'accent'], H: ['monitor-play', 'butter']
+      E: ['building-2', 'sky'], F: ['cpu', 'primary'], G: ['heart', 'accent'], H: ['monitor-play', 'butter'], I: ['stethoscope', 'sky']
     };
     function domainTag(domain) {
       var look = DOMAIN_LOOK[String(domain).charAt(0)] || (/서술/.test(domain) ? ['message-circle', 'butter'] : ['user-round', 'plain']);
