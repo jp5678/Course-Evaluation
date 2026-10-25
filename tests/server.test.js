@@ -1136,15 +1136,35 @@ test('새 학기 준비: 학기 교과목 일괄 복제(새 접속코드·문항
   assert.equal(server.prepareNewTerm('nope', data).code, 'AUTH');
 });
 
-test('전공심화과정: 2026-2학기, 실무 적용 문항 2개(F 영역 끝), 기존 교과목엔 응답 없을 때 1회만', () => {
+test('전공심화과정: 2026-2학기, 실무 적용 문항 2개(I 영역, 서술형 앞), 기존 교과목엔 응답 없을 때 1회만', () => {
   const { server } = H.makeServer({ pin: '246810' });
   const deep = server.getCourses_().find((c) => c.course_name === 'AI융합 간호정보학(전공심화과정)');
   assert.deepEqual([deep.year, deep.semester, deep.grade, deep.course_type, deep.delivery_mode], [2026, '2', '4', '이론+실습', '온라인(비대면)']);
   const items = server.itemsForCourse_(deep);
   assert.equal(items.length, 34, '32 + 실무 적용 2');
-  const f = items.map((i, k) => [i.domain, i.text, k]).filter((x) => x[0] === 'F. 디지털·AI 활용');
-  assert.match(f[f.length - 1][1], /효율성/);
-  assert.match(f[f.length - 2][1], /임상 현장에 적용/);
+  const doms = items.map((i) => i.domain);
+  const iIdx = doms.map((d, k) => (d === 'I. 실무 적용' ? k : -1)).filter((k) => k >= 0);
+  assert.equal(iIdx.length, 2, 'I. 실무 적용 2문항');
+  assert.match(items[iIdx[0]].text, /임상 현장에 적용/);
+  assert.match(items[iIdx[1]].text, /효율성/);
+  assert.equal(doms[iIdx[0] - 1], 'H. 온라인(비대면) 강의', 'H 영역 바로 뒤');
+  assert.equal(doms[iIdx[1] + 1], '서술형', '서술형 바로 앞');
+  assert.ok(!items.some((i) => i.domain === 'F. 디지털·AI 활용' && /임상 현장에 적용|효율성을 높이/.test(i.text)), 'F 영역에는 없음');
+  // 결과 화면에서도 영역으로 분리
+  const s0 = H.login(server, '246810');
+  server.generateSampleResponses();
+  const res = server.getResults(s0, deep.course_id);
+  assert.ok(res.ok && res.stats.domains.some((d) => d.domain === 'I. 실무 적용' && d.item_count === 2), '결과 영역 I');
+  server.deleteSampleData(true);
+  // 이전 버전(v1.4.5)처럼 F 영역에 들어간 경우 → setup이 I 영역으로 옮김
+  const t = server.readTable_('Items');
+  const dcol = t.headers.indexOf('domain') + 1;
+  t.rows.filter((r) => r.course_id === deep.course_id && /임상 현장에 적용|효율성을 높이/.test(r.text)).forEach((r) => t.sheet.getRange(r._row, dcol).setValue('F. 디지털·AI 활용'));
+  server.setup();
+  const moved = server.itemsForCourse_(deep);
+  assert.equal(moved.filter((i) => i.domain === 'I. 실무 적용').length, 2, 'F → I 이동');
+  assert.equal(moved.length, 34);
+  assert.equal(moved[moved.length - 4].domain, 'I. 실무 적용', '서술형 앞 위치');
   // CLO는 AI융합 간호정보학과 동일
   const base = server.getCourses_().find((c) => c.course_name === 'AI융합 간호정보학');
   const clo = (c) => server.getItems_(c.course_id).filter((i) => i.domain === 'D. 학습성과(CLO)').map((i) => i.text);

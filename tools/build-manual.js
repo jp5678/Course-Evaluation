@@ -213,7 +213,7 @@ code { font-family: "Pretendard", monospace; background: var(--soft); padding: 0
 <tr><th style="width:28%">구분</th><th>내용</th></tr>
 <tr><td>교수</td><td>교과목 등록 → 접속 주소·접속코드 안내 → 응답 현황 확인 → 결과 분석·CQI 요약표 내보내기</td></tr>
 <tr><td>학생</td><td>공통 주소 열기 → 접속코드 입력 → 익명 안내 확인 → 28~32문항 응답(약 5분) → 제출</td></tr>
-<tr><td>평가 영역</td><td>A 강의 설계 · B 교수학습방법 · C 평가 및 과제 · D 학습성과(CLO) · E 학습 환경 · F 디지털·AI 활용 · G 종합 · H 온라인(비대면) 강의 · 서술형 3문항</td></tr>
+<tr><td>평가 영역</td><td>A 강의 설계 · B 교수학습방법 · C 평가 및 과제 · D 학습성과(CLO) · E 학습 환경 · F 디지털·AI 활용 · G 종합 · H 온라인(비대면) 강의 · I 실무 적용(전공심화과정만) · 서술형 3문항</td></tr>
 <tr><td>참여 방식</td><td><b>접속코드</b>(간편, 공통 주소에서 입력) 또는 <b>일회용 토큰</b>(1인 1회 보장)</td></tr>
 <tr><td>필요한 것</td><td>Google 계정, 크롬 등 최신 브라우저. 학생은 로그인 없이 휴대폰으로 응답합니다.</td></tr>
 </table>
@@ -228,6 +228,7 @@ code { font-family: "Pretendard", monospace; background: var(--soft); padding: 0
 <tr><td>F. 디지털·AI 활용</td><td>5</td><td>학습 도움, 간호실무 활용, 사용 방법 안내, AI 정보의 비판적 검토, 윤리·저작권·환자정보 보호</td></tr>
 <tr><td>G. 종합</td><td>2</td><td>전반적 만족도, 후배 추천 의향</td></tr>
 <tr><td>H. 온라인 강의</td><td>4</td><td>온라인(비대면)·혼합 교과목에만 표시</td></tr>
+<tr><td>I. 실무 적용</td><td>2</td><td>임상 현장 적용 가능성, 간호 업무 효율성 향상 — 전공심화과정 교과목에만</td></tr>
 <tr><td>서술형</td><td>3</td><td>도움이 된 점, 개선이 필요한 점, 다음 학기에 바라는 점</td></tr>
 </table>
 <p>모든 문항은 기본적으로 <b>필수 응답</b>이며, [문항] 탭에서 문항별로 바꿀 수 있습니다.</p>
@@ -246,7 +247,7 @@ code { font-family: "Pretendard", monospace; background: var(--soft); padding: 0
 <ol class="steps">
   <li>「승인 필요」 창에서 <span class="kbd">권한 검토</span> → 본인 계정을 선택합니다.</li>
   <li>「Google에서 확인하지 않은 앱」 화면이 나오면 <span class="kbd">고급</span> ▸ <span class="kbd">강의평가 Studio(으)로 이동</span>을 누릅니다. 개인이 만든 스크립트에 항상 나오는 정상 절차입니다.</li>
-  <li><span class="kbd">허용</span>을 누르고, setup을 한 번 더 실행합니다. 시트에 Settings·Courses·Items·Tokens·Responses 탭과 예시 교과목 3개(디지털리터러시와 AI활용·AI융합 간호정보학·AI융합 간호정보학(전공심화과정))가 만들어집니다. 전공심화과정은 2026학년도 2학기·4학년·이론+실습·온라인(비대면)이며, CLO는 AI융합 간호정보학과 같고 현직 간호사를 위한 <b>실무 적용 문항 2개</b>(F 영역)가 더해져 34문항입니다.</li>
+  <li><span class="kbd">허용</span>을 누르고, setup을 한 번 더 실행합니다. 시트에 Settings·Courses·Items·Tokens·Responses 탭과 예시 교과목 3개(디지털리터러시와 AI활용·AI융합 간호정보학·AI융합 간호정보학(전공심화과정))가 만들어집니다. 전공심화과정은 2026학년도 2학기·4학년·이론+실습·온라인(비대면)이며, CLO는 AI융합 간호정보학과 같고 현직 간호사를 위한 <b>「I. 실무 적용」 영역 2문항</b>(서술형 바로 앞)이 더해져 34문항이며, 결과 화면에서도 별도 영역으로 분석됩니다.</li>
 </ol>
 <p>요청 권한은 <b>이 스프레드시트만 보고 편집</b>, <b>스프레드시트 메뉴·대화상자 표시</b> 두 가지뿐입니다.</p>
 <h3>2-3. 관리자 PIN 설정</h3>

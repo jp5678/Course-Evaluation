@@ -37,6 +37,8 @@ var DEFAULT_ITEMS = [
   ['서술형', '다음 학기 수업에 바라는 점이 있다면 적어 주세요.', 'text'] // 모든 문항은 필수(setup이 기본 문항을 필수로 생성)
 ];
 
+var PRACTICE_DOMAIN = 'I. 실무 적용';
+
 /** 이번 학기 교과목 예시(샘플). 교과목명·학년은 실제 담당 교과목, 수강인원·기간은 예시값입니다. */
 var SAMPLE_COURSES = [
   {
@@ -62,10 +64,10 @@ var SAMPLE_COURSES = [
   {
     // 기존 시트에 없으면 setup이 추가합니다(ensure).
     course_name: 'AI융합 간호정보학(전공심화과정)', year: 2026, semester: '2', grade: 4, section: '', enrollment: 0, delivery_mode: '온라인(비대면)', course_type: '이론+실습', ensure: true,
-    // 현직 간호사가 많은 전공심화과정: 실무 적용 가능성 문항(F 영역 끝에 추가)
+    // 현직 간호사가 많은 전공심화과정: 실무 적용 가능성 문항(별도 영역 I, 서술형 앞)
     extra: [
-      { domain: 'F. 디지털·AI 활용', text: '이 수업에서 배운 간호정보·AI 활용 내용을 현재(또는 앞으로) 근무하는 임상 현장에 적용할 수 있다.', type: 'likert5' },
-      { domain: 'F. 디지털·AI 활용', text: '이 수업은 나의 간호 업무(간호기록·정보 관리 등)의 효율성을 높이는 데 도움이 되었다.', type: 'likert5' }
+      { domain: PRACTICE_DOMAIN, text: '이 수업에서 배운 간호정보·AI 활용 내용을 현재(또는 앞으로) 근무하는 임상 현장에 적용할 수 있다.', type: 'likert5' },
+      { domain: PRACTICE_DOMAIN, text: '이 수업은 나의 간호 업무(간호기록·정보 관리 등)의 효율성을 높이는 데 도움이 되었다.', type: 'likert5' }
     ],
     clos: [
       '나는 간호정보시스템(EMR)의 구조와 기능을 설명할 수 있게 되었다.',
@@ -341,6 +343,12 @@ function addMissingItems_(courseId, wanted, baseCount) {
   var domain = wanted[0].domain;
   var last = -1;
   items.forEach(function (it, i) { if (it.domain === domain) last = i; });
+  if (last < 0) {
+    // 아직 없는 영역: 알파벳 순서상 뒤 영역(또는 서술형) 바로 앞에 넣습니다.
+    var after = -1;
+    items.forEach(function (it, i) { if (domainRank_(it.domain) <= domainRank_(domain)) after = i; });
+    last = after;
+  }
   var merged = items.slice(0, last + 1).concat(missing.map(function (w) {
     return { item_id: '', domain: w.domain, text: w.text, type: w.type, required: true, reverse: false, options: [], scope: w.scope || '' };
   }), items.slice(last + 1));
@@ -730,10 +738,35 @@ function addCourseExtraItems_() {
   var n = 0;
   getCourses_().forEach(function (c) {
     var spec = SAMPLE_COURSES.filter(function (x) { return x.extra && x.course_name === String(c.course_name).trim(); })[0];
-    if (!spec || done.indexOf(c.course_id) >= 0) return;
+    if (!spec) return;
+    if (!used[c.course_id]) n += moveExtraItems_(c.course_id, spec.extra);
+    if (done.indexOf(c.course_id) >= 0) return;
     if (!used[c.course_id]) n += addMissingItems_(c.course_id, spec.extra, 0);
     done.push(c.course_id);
   });
   setSetting_('extra_items_added', done.join('\n'), '교과목별 추가 문항을 넣은 교과목 ID(다시 넣지 않음). 직접 수정 금지');
   return n;
+}
+
+/** 영역 정렬 순서: 'A.'~'Z.' 알파벳 순, 그 밖(서술형 등)은 맨 뒤 */
+function domainRank_(d) {
+  var m = /^([A-Z])\./.exec(String(d || ''));
+  return m ? m[1].charCodeAt(0) : 1000;
+}
+
+/** 추가 문항이 다른 영역에 들어가 있으면(이전 버전: F 영역) 지정 영역으로 옮기고 위치를 맞춥니다. */
+function moveExtraItems_(courseId, extra) {
+  var texts = extra.map(function (w) { return w.text; });
+  var items = getItems_(courseId);
+  var wrong = items.filter(function (it) { return texts.indexOf(it.text) >= 0 && it.domain !== extra[0].domain; });
+  if (!wrong.length) return 0;
+  var rest = items.filter(function (it) { return texts.indexOf(it.text) < 0; });
+  var all = readTable_(APP.SHEETS.ITEMS);
+  var kept = all.rows.filter(function (r) { return String(r.course_id) !== courseId; })
+    .map(function (r) { return HEADERS.Items.map(function (h) { return r[h] == null ? '' : r[h]; }); });
+  rewriteBody_(all.sheet, HEADERS.Items.length, kept.concat(rest.map(function (it, i) {
+    var c = JSON.parse(JSON.stringify(it)); c.course_id = courseId; c.order = i + 1; return itemToRow_(c);
+  })));
+  addMissingItems_(courseId, extra, 0);
+  return wrong.length;
 }
