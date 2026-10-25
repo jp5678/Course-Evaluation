@@ -513,6 +513,19 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·접속 주소·�
     await pd.saveAs(pf);
     assert.match(fs.readFileSync(pf, 'utf8').slice(0, 40), /^%PDF/, kind + ' PDF 바이트');
   }
+  // 결과 분석 화면 그대로 PDF(html2canvas + jsPDF): 여러 쪽 A4, 버튼은 찍히지 않음
+  const [sc] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.getByRole('button', { name: '화면 그대로 PDF' }).click()]);
+  const names2 = await page.evaluate(() => window.__dlNames);
+  assert.match(names2[names2.length - 1], /^결과분석_디지털리터러시와_AI활용_2026-1학기\.pdf$/);
+  const sf = path.join(OUT, 'export-screen.pdf');
+  await sc.saveAs(sf);
+  const buf = fs.readFileSync(sf);
+  assert.match(buf.slice(0, 8).toString('latin1'), /^%PDF/, '화면 PDF 바이트');
+  const pages = (buf.toString('latin1').match(/\/Type \/Page[^s]/g) || []).length;
+  assert.ok(pages >= 2, '여러 쪽: ' + pages);
+  assert.ok(buf.length > 80000, '화면 이미지 포함: ' + buf.length);
+  await page.getByText(/화면 그대로 PDF \d+쪽을 저장했습니다/).waitFor();
+  assert.equal(await page.locator('#view.pdf-capture').count(), 0, '찍은 뒤 원래 화면');
 });
 
 test('관리자를 테스트용(/dev) 주소로 연 경우: 원인 안내 → 설정에 /exec 주소 저장 → 접속 주소 정상', async () => {

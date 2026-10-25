@@ -549,6 +549,10 @@ details > summary::-webkit-details-marker { display: none; }
   body.printing > *:not(#print-area) { display: none !important; }
   body.printing #print-area { display: block !important; }
   body.printing { background: #fff; }
+  /* 결과 화면 인쇄(「화면 그대로 PDF」를 만들지 못했을 때의 대안): 메뉴·버튼·장식 숨김 */
+  body:not(.printing) .topbar, body:not(.printing) .tabs, body:not(.printing) .deco,
+  body:not(.printing) footer, body:not(.printing) #view button { display: none !important; }
+  body:not(.printing) .card { break-inside: avoid; }
 }
 
 
@@ -772,3 +776,6 @@ mark { background: var(--butter); color: var(--ink); border-radius: 4px; padding
   .dist > span { forced-color-adjust: none; }
 }
 </style>
+
+/* 화면 그대로 PDF: 찍는 동안 전환·애니메이션 끄기 */
+.pdf-capture, .pdf-capture * { transition: none !important; animation: none !important; }
