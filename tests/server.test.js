@@ -1018,6 +1018,31 @@ test('독립형 설치: 기존 데이터 시트 연결(주소로)·이전 연결
   c.server.setup();
   assert.equal(c.server.getSettingsMap_().webapp_url, NEW, '같은 독립형 프로젝트에서 setup 재실행은 주소 유지');
 
+  const cb = c.server.getAdminBootstrap(s);
+  assert.equal(cb.bound, false, '독립형: 연결형 경고 없음');
+  assert.equal(cb.urlTag, 'AKfycbwS…LONE', 'QR 배포 ID 표시');
+
+  // 2-1) 이전 후 예전 연결형 주소가 다시 저장된 경우(구버전 코드가 기록 → 소유 프로젝트 없음, 신버전 → 연결형 ID)
+  //      독립형 관리자 화면을 열면 자기 주소로 교체되어 QR이 바뀐다.
+  for (const owner of ['', 'SCRIPT-BOUND']) {
+    const st = H.GasMock.serialize(c.env.__store.read());
+    const d = H.makeServer({ setup: false, state: H.GasMock.revive(st), standalone: true, scriptId: 'SCRIPT-STANDALONE',
+      scriptProps: { CES_SHEET_ID: 'SHEET-ORIGINAL' }, url: NEW });
+    d.server.setSetting_('webapp_url', OLD);
+    d.server.setSetting_('webapp_script_id', owner);
+    const ds = H.login(d.server, PIN);
+    assert.ok(d.server.getAdminBootstrap(ds).courses.every((x) => x.link.indexOf(NEW + '?c=') === 0), '옛 연결형 주소 교체(' + (owner || '소유 미기록') + ')');
+    assert.equal(d.server.getSettingsMap_().webapp_script_id, 'SCRIPT-STANDALONE');
+  }
+  // 같은 독립형 프로젝트가 저장한 주소는 다른 배포로 실행돼도 유지(수동 지정 존중)
+  const e2 = H.makeServer({ setup: false, state: H.GasMock.revive(H.GasMock.serialize(c.env.__store.read())), standalone: true, scriptId: 'SCRIPT-STANDALONE',
+    scriptProps: { CES_SHEET_ID: 'SHEET-ORIGINAL' }, url: 'https://script.google.com/macros/s/AKfycbwOTHERDEPLOY/exec' });
+  e2.server.doGet({ parameter: { page: 'admin' } });
+  assert.equal(e2.server.getSettingsMap_().webapp_url, NEW, '같은 프로젝트 저장값 유지');
+  // 연결형 프로젝트에서는 경고 표시
+  const bs = H.login(server, PIN);
+  assert.equal(server.getAdminBootstrap(bs).bound, true, '연결형: 휴대폰 차단 경고');
+
   // 3) 시트를 지정하지 않은 새 독립형 설치: 데이터 시트 자동 생성, 편집기에서 PIN 설정
   const fresh = H.GasMock.createEnv({ readFile: H.readFile, fastSleep: true, standalone: true, scriptId: 'SCRIPT-FRESH', console: { log() {}, info() {}, warn() {}, error: console.error } });
   const fs = H.GasMock.loadServer(fresh, H.SOURCES);

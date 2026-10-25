@@ -20,7 +20,7 @@ var CES_NEW_PIN = '';
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.5.0',
+  VERSION: '1.5.1',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -273,6 +273,7 @@ function getAdminBootstrap(session) {
     var respByCourse = groupBy_(readResponses_(), 'course_id');
     var tokenStats = getTokenStats_();
     var now = new Date();
+    rememberExecUrl_(settings);
     var url = studentBaseUrl_(settings);
     var current = webAppUrl_();
 
@@ -312,6 +313,8 @@ function getAdminBootstrap(session) {
       webAppUrl: url,
       currentUrl: APP.EXEC_URL_RE.test(current) ? current : '',
       devMode: isDevUrl_(current),
+      bound: !isStandalone_(),
+      urlTag: deploymentTag_(url),
       now: fmtDT_(now),
       version: APP.VERSION
     };
@@ -784,7 +787,10 @@ function saveSettings(session, data) {
       setSetting_('affiliation', aff);
       setSetting_('min_responses', minN);
       setSetting_('departments', depts.join('\n'));
-      if (data.webapp_url !== undefined) setSetting_('webapp_url', execUrl);
+      if (data.webapp_url !== undefined) {
+        setSetting_('webapp_url', execUrl);
+        setSetting_('webapp_script_id', execUrl ? ScriptApp.getScriptId() : '', WEBAPP_OWNER_DESC);
+      }
     });
     return { ok: true };
   });
@@ -1630,9 +1636,12 @@ function studentBaseUrl_(settings) {
 }
 
 /**
- * 정식 배포 주소(/exec)로 실행되면, 저장된 주소가 없을 때만 그 주소를 기억합니다.
- * (교수가 [설정]에 입력한 주소가 항상 우선합니다. getUrl()이 다른 배포의 주소를 돌려주는 경우가 있어
- *  저장값을 자동으로 덮어쓰지 않습니다. 다를 때는 관리자 화면이 알려 줍니다.)
+ * 정식 배포 주소(/exec)로 실행되면 학생용 주소로 기억합니다.
+ * - 저장된 주소가 없으면 지금 주소를 저장합니다.
+ * - 저장된 주소가 다른 Apps Script 프로젝트(예: 예전 스프레드시트 연결형)의 배포이면 지금 프로젝트 주소로 바꿉니다.
+ *   (연결형 배포는 휴대폰에서 「현재 파일을 열 수 없습니다」로 막힐 수 있어, 독립형으로 옮긴 뒤 옛 주소가 남으면 안 됩니다.)
+ * - 같은 프로젝트 안에서는 저장값을 덮어쓰지 않습니다(getUrl()이 다른 배포의 주소를 돌려주는 경우가 있음).
+ * settings 객체도 함께 갱신해 같은 요청 안의 계산에 바로 반영합니다.
  */
 function rememberExecUrl_(settings) {
   try {
@@ -1640,8 +1649,30 @@ function rememberExecUrl_(settings) {
     if (!APP.EXEC_URL_RE.test(current)) return;
     settings = settings || getSettingsMap_();
     if (!settings.hasOwnProperty('webapp_url') && !settings.hasOwnProperty('token_salt')) return; // setup 이전
-    if (!APP.EXEC_URL_RE.test(String(settings.webapp_url || ''))) setSetting_('webapp_url', current);
+    var saved = String(settings.webapp_url || '');
+    var owner = String(settings.webapp_script_id || '');
+    var me = ScriptApp.getScriptId();
+    var foreign = owner ? owner !== me : isStandalone_();
+    if (!APP.EXEC_URL_RE.test(saved) || (foreign && saved !== current)) {
+      setSetting_('webapp_url', current);
+      setSetting_('webapp_script_id', me, WEBAPP_OWNER_DESC);
+      settings.webapp_url = current;
+      settings.webapp_script_id = me;
+    } else if (!owner && saved === current) {
+      setSetting_('webapp_script_id', me, WEBAPP_OWNER_DESC);
+      settings.webapp_script_id = me;
+    }
   } catch (e) { /* 기록 실패는 화면 표시에 영향 없음 */ }
+}
+
+var WEBAPP_OWNER_DESC = '학생용 주소(webapp_url)를 배포한 Apps Script 프로젝트 ID. 직접 수정 금지';
+
+/** /exec 주소에서 배포 ID 앞뒤 일부(확인용): AKfycbwa…o8IN */
+function deploymentTag_(url) {
+  var m = /\/s\/([A-Za-z0-9_-]+)\/exec/.exec(String(url || ''));
+  if (!m) return '';
+  var id = m[1];
+  return id.length > 14 ? id.slice(0, 8) + '…' + id.slice(-4) : id;
 }
 
 /* ───────────────────────────── 보안 유틸 ───────────────────────────── */
