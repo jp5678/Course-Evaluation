@@ -490,11 +490,11 @@
           <div class="field"><label for="f-type">교과목 유형</label>${selectHtml('course_type', 'f-type', COURSE_TYPES, c.course_type)}
             <p class="hint">이론: 실습실 문항 제외 · 실습: 이론 강의실 문항 제외 · 이론+실습: 모두 표시</p></div>
           <div class="field"><label for="f-grade">학년</label>${selectHtml('grade', 'f-grade', GRADES, c.grade, (g) => g + '학년')}</div>
+          <div class="field"><label for="f-start">응답 시작일시</label><input class="input" id="f-start" name="start_at" type="datetime-local" value="${esc(c.start_at)}"></div>
+          <div class="field"><label for="f-end">응답 종료일시</label><input class="input" id="f-end" name="end_at" type="datetime-local" value="${esc(c.end_at)}"></div>
           <div class="field"><label for="f-open">결과공개일 <span class="muted small">(선택)</span></label>
             <input class="input" id="f-open" name="result_open_date" type="date" value="${esc(c.result_open_date)}" aria-describedby="f-open-h">
             <p class="hint" id="f-open-h">이 날짜 전에는 결과를 잠급니다(성적 처리 전 열람 방지).</p></div>
-          <div class="field"><label for="f-start">응답 시작일시</label><input class="input" id="f-start" name="start_at" type="datetime-local" value="${esc(c.start_at)}"></div>
-          <div class="field"><label for="f-end">응답 종료일시</label><input class="input" id="f-end" name="end_at" type="datetime-local" value="${esc(c.end_at)}"></div>
           <fieldset class="field full" style="border:0;padding:0;margin:0">
             <legend class="field-label">참여 방식</legend>
             <label class="check"><input type="radio" name="access_mode" value="code"${c.access_mode !== 'token' ? ' checked' : ''}> 접속코드 — 수업 중 코드를 알려 주는 방식(간편)</label>
@@ -585,9 +585,9 @@
             <div class="field"><label for="d-sem">학기</label><select class="select" id="d-sem" name="semester">${SEMS.map((s) => `<option value="${s}"${s === nextSem.s ? ' selected' : ''}>${s}학기</option>`).join('')}</select></div>
             <div class="field"><label for="d-mode">수업 방식</label>${selectHtml('delivery_mode', 'd-mode', DELIVERY, c.delivery_mode)}</div>
             <div class="field"><label for="d-type">교과목 유형</label>${selectHtml('course_type', 'd-type', COURSE_TYPES, c.course_type)}</div>
-            <div class="field"><label for="d-open">결과공개일 <span class="muted small">(선택)</span></label><input class="input" id="d-open" name="result_open_date" type="date"></div>
             <div class="field"><label for="d-start">응답 시작일시</label><input class="input" id="d-start" name="start_at" type="datetime-local" value="${localDT(start)}"></div>
             <div class="field"><label for="d-end">응답 종료일시</label><input class="input" id="d-end" name="end_at" type="datetime-local" value="${localDT(end)}"></div>
+            <div class="field"><label for="d-open">결과공개일 <span class="muted small">(선택)</span></label><input class="input" id="d-open" name="result_open_date" type="date"></div>
             <p class="error full hidden" id="course-err" role="alert"></p>
           </form>`,
         footer: `<button type="button" class="btn" data-close>취소</button><button type="button" class="btn primary" data-save>${icon('copy-plus')}복제</button>`
