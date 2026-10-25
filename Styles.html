@@ -503,11 +503,6 @@ details > summary::-webkit-details-marker { display: none; }
 
 .confetti-canvas { position: fixed; inset: 0; pointer-events: none; z-index: 250; }
 
-.qr-box {
-  background: #fff; padding: 16px; border-radius: 20px; border: 1px solid var(--line);
-  width: min(100%, 280px); margin: 0 auto;
-}
-.qr-box svg { width: 100%; height: auto; }
 .linkbox {
   display: flex; gap: 8px; align-items: center; padding: 8px 8px 8px 14px; border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm); background: var(--surface-2); font-size: .875rem;
@@ -526,7 +521,9 @@ details > summary::-webkit-details-marker { display: none; }
   position: fixed; inset: 0; z-index: 400; background: var(--surface); display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 24px; padding: 24px; text-align: center;
 }
-.present .qr-box { width: min(70vh, 80vw); }
+.addr-box { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.addr-box code { display: block; margin-top: 4px; font-size: 14px; word-break: break-all; user-select: all; }
+.present .addr-big { font-size: clamp(16px, 2.6vw, 34px); font-weight: 600; word-break: break-all; max-width: 90vw; user-select: all; }
 .present .code-big { font-size: clamp(40px, 8vw, 96px); font-weight: 700; letter-spacing: .12em; font-variant-numeric: tabular-nums; }
 
 /* ───── 토큰 인쇄 시트(A4 절취형) ───── */
@@ -536,7 +533,7 @@ details > summary::-webkit-details-marker { display: none; }
   border: 1px dashed #9a9a9a; padding: 4mm; height: 33mm; display: flex; gap: 3mm; align-items: center;
   break-inside: avoid; color: #000; background: #fff; font-family: inherit;
 }
-.slip .qr { width: 24mm; height: 24mm; flex: none; }
+.slip .u { font-size: 6pt; color: #444; word-break: break-all; margin-top: .6mm; }
 .slip .t { font-size: 15pt; font-weight: 700; letter-spacing: .06em; font-variant-numeric: tabular-nums; }
 .slip .c { font-size: 7.5pt; line-height: 1.3; }
 .slip .g { font-size: 6.5pt; color: #444; margin-top: 1mm; }

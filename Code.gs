@@ -5,22 +5,12 @@
  * 모든 공개 API(google.script.run 대상)는 { ok: boolean, ... } 객체를 반환합니다.
  * 날짜는 문자열로만 반환합니다(google.script.run은 Date 반환을 허용하지 않음).
  *
- * 설치 방식 두 가지:
- *  ① 스프레드시트에 연결된 설치: 스프레드시트 ▸ 확장 프로그램 ▸ Apps Script에 붙여 넣기(그 시트를 데이터로 사용)
- *  ② 독립형 설치(권장): script.google.com ▸ 새 프로젝트에 붙여 넣기 → 아래 CES_SHEET_ID에 데이터 시트 주소를
- *     넣거나(기존 시트 계속 사용) 비워 두고 setup 실행(새 데이터 시트 자동 생성)
- *     — 스프레드시트에 연결된 웹 앱이 휴대폰에서 「현재 파일을 열 수 없습니다」로 막히는 경우 독립형을 쓰세요.
+ * @OnlyCurrentDoc
  */
-
-/* ───── 독립형 설치 설정(스프레드시트에 연결된 설치면 비워 두세요) ───── */
-// 데이터 스프레드시트 주소 또는 ID. 예: 'https://docs.google.com/spreadsheets/d/1AbC…/edit'
-var CES_SHEET_ID = '';
-// 새 데이터 시트에 관리자 PIN을 처음 정할 때만: 숫자 6~12자리를 넣고 setAdminPinFromMenu 실행 → 설정 후 다시 비우세요.
-var CES_NEW_PIN = '';
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.5.1',
+  VERSION: '1.4.3',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -273,7 +263,6 @@ function getAdminBootstrap(session) {
     var respByCourse = groupBy_(readResponses_(), 'course_id');
     var tokenStats = getTokenStats_();
     var now = new Date();
-    rememberExecUrl_(settings);
     var url = studentBaseUrl_(settings);
     var current = webAppUrl_();
 
@@ -313,8 +302,6 @@ function getAdminBootstrap(session) {
       webAppUrl: url,
       currentUrl: APP.EXEC_URL_RE.test(current) ? current : '',
       devMode: isDevUrl_(current),
-      bound: !isStandalone_(),
-      urlTag: deploymentTag_(url),
       now: fmtDT_(now),
       version: APP.VERSION
     };
@@ -338,6 +325,8 @@ function saveCourse(session, data) {
         c.course_id = newCourseId_(table.rows);
       }
       c.status = data.manual_close ? APP.STATUS.CLOSED : statusByDates_(c, new Date());
+      // 학생은 공통 주소에서 접속코드로만 들어오므로, 접속코드 방식인데 코드가 비어 있으면 자동으로 만듭니다.
+      if (c.access_mode !== 'token' && !String(c.access_code || '').trim()) c.access_code = uniqueAccessCode_(table.rows);
       // 공통 주소에서 접속코드만으로 교과목을 찾으므로 코드는 교과목마다 달라야 합니다.
       var code = String(c.access_code || '').toUpperCase();
       if (c.access_mode !== 'token' && code && table.rows.some(function (r) {
@@ -787,10 +776,7 @@ function saveSettings(session, data) {
       setSetting_('affiliation', aff);
       setSetting_('min_responses', minN);
       setSetting_('departments', depts.join('\n'));
-      if (data.webapp_url !== undefined) {
-        setSetting_('webapp_url', execUrl);
-        setSetting_('webapp_script_id', execUrl ? ScriptApp.getScriptId() : '', WEBAPP_OWNER_DESC);
-      }
+      if (data.webapp_url !== undefined) setSetting_('webapp_url', execUrl);
     });
     return { ok: true };
   });
@@ -1334,9 +1320,7 @@ function courseSummary_(c, n, now, url) {
     delivery_mode: c.delivery_mode,
     course_type: c.course_type,
     hours_left: status === APP.STATUS.OPEN && hoursLeft != null ? Math.round(hoursLeft * 10) / 10 : null,
-    // 접속코드 방식은 링크·QR에 코드를 담아 학생이 코드를 입력하지 않아도 되게 합니다.
-    link: url ? url + '?c=' + encodeURIComponent(c.course_id) +
-      (c.access_mode !== 'token' && c.access_code ? '&k=' + encodeURIComponent(String(c.access_code).trim().toUpperCase()) : '') : '',
+    // 학생 접속 주소(공통 주소). 학생은 이 주소에서 접속코드나 토큰을 입력합니다.
     base_url: url || ''
   };
 }
@@ -1521,32 +1505,7 @@ function getTokenStats_() {
 
 /* ───────────────────────────── 시트 유틸 ───────────────────────────── */
 
-var ss_cache_ = null;
-/**
- * 데이터 스프레드시트: 연결된 설치면 그 시트, 독립형이면 CES_SHEET_ID 또는 스크립트 속성(setup이 저장)의 시트.
- */
-function ss_() {
-  if (ss_cache_) return ss_cache_;
-  var active = null;
-  try { active = SpreadsheetApp.getActiveSpreadsheet(); } catch (e) { active = null; }
-  if (active) return (ss_cache_ = active);
-  var id = sheetIdFrom_(CES_SHEET_ID) || PropertiesService.getScriptProperties().getProperty('CES_SHEET_ID');
-  if (!id) throw new Error('SETUP_REQUIRED');
-  return (ss_cache_ = SpreadsheetApp.openById(id));
-}
-
-/** 독립형 설치인지(스프레드시트에 연결되지 않은 프로젝트) */
-function isStandalone_() {
-  try { return !SpreadsheetApp.getActiveSpreadsheet(); } catch (e) { return true; }
-}
-
-/** 스프레드시트 주소 또는 ID에서 ID만 꺼냅니다. */
-function sheetIdFrom_(v) {
-  var s = String(v == null ? '' : v).trim();
-  var m = /\/d\/([A-Za-z0-9_-]{20,})/.exec(s);
-  if (m) return m[1];
-  return /^[A-Za-z0-9_-]{20,}$/.test(s) ? s : '';
-}
+function ss_() { return SpreadsheetApp.getActiveSpreadsheet(); }
 
 function sheet_(name) {
   var sh = ss_().getSheetByName(name);
@@ -1624,7 +1583,7 @@ function isDevUrl_(url) {
 }
 
 /**
- * 학생 응답 링크·QR의 기준 주소.
+ * 학생 접속 주소(공통 주소)의 기준 주소.
  * ① 설정에 저장된 /exec 주소 → ② 현재 실행 주소(테스트용 /dev 제외) → ③ 없음('')
  * getUrl()은 테스트 배포(/dev)로 실행 중이면 /dev 주소를 돌려주는데, 학생은 /dev를 열 수 없습니다.
  */
@@ -1636,12 +1595,9 @@ function studentBaseUrl_(settings) {
 }
 
 /**
- * 정식 배포 주소(/exec)로 실행되면 학생용 주소로 기억합니다.
- * - 저장된 주소가 없으면 지금 주소를 저장합니다.
- * - 저장된 주소가 다른 Apps Script 프로젝트(예: 예전 스프레드시트 연결형)의 배포이면 지금 프로젝트 주소로 바꿉니다.
- *   (연결형 배포는 휴대폰에서 「현재 파일을 열 수 없습니다」로 막힐 수 있어, 독립형으로 옮긴 뒤 옛 주소가 남으면 안 됩니다.)
- * - 같은 프로젝트 안에서는 저장값을 덮어쓰지 않습니다(getUrl()이 다른 배포의 주소를 돌려주는 경우가 있음).
- * settings 객체도 함께 갱신해 같은 요청 안의 계산에 바로 반영합니다.
+ * 정식 배포 주소(/exec)로 실행되면, 저장된 주소가 없을 때만 그 주소를 기억합니다.
+ * (교수가 [설정]에 입력한 주소가 항상 우선합니다. getUrl()이 다른 배포의 주소를 돌려주는 경우가 있어
+ *  저장값을 자동으로 덮어쓰지 않습니다. 다를 때는 관리자 화면이 알려 줍니다.)
  */
 function rememberExecUrl_(settings) {
   try {
@@ -1649,30 +1605,8 @@ function rememberExecUrl_(settings) {
     if (!APP.EXEC_URL_RE.test(current)) return;
     settings = settings || getSettingsMap_();
     if (!settings.hasOwnProperty('webapp_url') && !settings.hasOwnProperty('token_salt')) return; // setup 이전
-    var saved = String(settings.webapp_url || '');
-    var owner = String(settings.webapp_script_id || '');
-    var me = ScriptApp.getScriptId();
-    var foreign = owner ? owner !== me : isStandalone_();
-    if (!APP.EXEC_URL_RE.test(saved) || (foreign && saved !== current)) {
-      setSetting_('webapp_url', current);
-      setSetting_('webapp_script_id', me, WEBAPP_OWNER_DESC);
-      settings.webapp_url = current;
-      settings.webapp_script_id = me;
-    } else if (!owner && saved === current) {
-      setSetting_('webapp_script_id', me, WEBAPP_OWNER_DESC);
-      settings.webapp_script_id = me;
-    }
+    if (!APP.EXEC_URL_RE.test(String(settings.webapp_url || ''))) setSetting_('webapp_url', current);
   } catch (e) { /* 기록 실패는 화면 표시에 영향 없음 */ }
-}
-
-var WEBAPP_OWNER_DESC = '학생용 주소(webapp_url)를 배포한 Apps Script 프로젝트 ID. 직접 수정 금지';
-
-/** /exec 주소에서 배포 ID 앞뒤 일부(확인용): AKfycbwa…o8IN */
-function deploymentTag_(url) {
-  var m = /\/s\/([A-Za-z0-9_-]+)\/exec/.exec(String(url || ''));
-  if (!m) return '';
-  var id = m[1];
-  return id.length > 14 ? id.slice(0, 8) + '…' + id.slice(-4) : id;
 }
 
 /* ───────────────────────────── 보안 유틸 ───────────────────────────── */
