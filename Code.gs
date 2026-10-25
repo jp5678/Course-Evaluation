@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.4.6',
+  VERSION: '1.4.7',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -1663,6 +1663,17 @@ function deliveryMode_(v) {
   var s = String(v == null ? '' : v).trim();
   s = APP.DELIVERY_RENAMED[s] || s;
   return APP.DELIVERY.indexOf(s) >= 0 ? s : '대면';
+}
+
+/** 단축 주소 지우기(잘못 만들었거나 다른 주소를 가리킬 때) */
+function clearShortUrl(session) {
+  return adminApi_(session, function () {
+    withLock_(function () {
+      setSetting_('short_url', '', SHORT_URL_DESC);
+      setSetting_('short_url_target', '', SHORT_TARGET_DESC);
+    });
+    return { ok: true };
+  });
 }
 
 function minResponses_(settings) {

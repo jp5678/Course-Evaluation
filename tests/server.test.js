@@ -1176,3 +1176,12 @@ test('전공심화과정: 2026-2학기, 실무 적용 문항 2개(I 영역, 서�
   server.setup();
   assert.equal(server.itemsForCourse_(deep).length, 32, '교수가 지운 문항은 다시 넣지 않음');
 });
+
+test('단축 주소 지우기: 로그인 필요, 지우면 bootstrap에서 사라짐', () => {
+  const { server } = H.makeServer({ pin: '246810', url: 'https://script.google.com/macros/s/AKfycbwX/exec', fetch: () => ({ code: 200, body: 'https://tinyurl.com/abc123' }) });
+  const s = H.login(server, '246810');
+  assert.equal(server.createShortUrl(s).ok, true);
+  assert.equal(server.clearShortUrl('bad').code, 'AUTH');
+  assert.equal(server.clearShortUrl(s).ok, true);
+  assert.equal(server.getAdminBootstrap(s).settings.short_url, '');
+});
