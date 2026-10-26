@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.4.16',
+  VERSION: '1.4.17',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -1679,7 +1679,7 @@ function deliveryMode_(v) {
 }
 
 /**
- * 대시보드 「응답 추이」: 날짜별 응답 수(응답 시작일 ~ 오늘 또는 종료일, 최대 60일).
+ * 대시보드 「응답 추이」: 날짜별 응답 수(응답 시작일 ~ 오늘 또는 종료일, 길면 최근 60일).
  * 진행 중이거나 최근 14일 안에 마감한 교과목만. 날짜별 개수만 보내고 응답 내용·시각은 보내지 않습니다.
  */
 function responseTimeline_(course, rows, now) {
@@ -1689,7 +1689,9 @@ function responseTimeline_(course, rows, now) {
   var counts = {};
   rows.forEach(function (r) { var k = dateOnly_(r.submitted_date); if (k) counts[k] = (counts[k] || 0) + 1; });
   var last = course.end_at.getTime() < now.getTime() ? course.end_at : now;
-  var day = new Date(course.start_at.getTime());
+  // 기간이 60일보다 길면 최근 60일(끝 날짜 기준)만 — 오늘 응답이 잘리지 않게
+  var from = Math.max(course.start_at.getTime(), last.getTime() - 59 * 86400000);
+  var day = new Date(from);
   var out = [], guard = 0, endKey = fmtD_(last);
   while (guard++ < 60) {
     var key = fmtD_(day);

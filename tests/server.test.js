@@ -1222,3 +1222,14 @@ test('응답 추이: 진행 중 교과목의 날짜별 응답 수(시작일~오�
   assert.deepEqual(server.getAdminBootstrap(s).courses.find((x) => x.course_id === old).timeline, [], '오래전 마감은 제외');
   H.GasMock.assertSerializable(server.getAdminBootstrap(s));
 });
+
+test('응답 추이: 응답 기간이 60일보다 길면 최근 60일(오늘 포함)만', () => {
+  const { server } = H.makeServer({ pin: '246810' });
+  const s = H.login(server, '246810');
+  const now = Date.now();
+  const id = H.createCourse(server, s, { start_at: H.iso(new Date(now - 100 * 86400000)), end_at: H.iso(new Date(now + 10 * 86400000)) });
+  server.submitResponse(id, H.codeOf(server, id), H.fullAnswers(server.itemsForCourse_(server.findCourse_(id))));
+  const tl = server.getAdminBootstrap(s).courses.find((x) => x.course_id === id).timeline;
+  assert.equal(tl.length, 60, '최근 60일');
+  assert.equal(tl[tl.length - 1].n, 1, '마지막 날(오늘) 응답 포함');
+});

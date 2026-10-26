@@ -374,7 +374,8 @@
       const ink = cssVar('--ink'), muted = cssVar('--muted'), line = cssVar('--line');
       const sets = tc.map((c, i) => {
         const byDay = Object.fromEntries(c.timeline.map((x) => [x.d, x.n]));
-        let acc = 0;
+        // 누적은 그래프 기간(최근 60일) 이전에 들어온 응답부터 이어서 셉니다.
+        let acc = Math.max(0, c.response_count - c.timeline.reduce((a, x) => a + x.n, 0));
         const first = c.timeline[0].d, last = c.timeline[c.timeline.length - 1].d;
         const color = TREND_COLORS[i % TREND_COLORS.length];
         return {
