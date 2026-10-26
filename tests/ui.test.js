@@ -598,6 +598,60 @@ test('새 학기 준비: 대상 교과목 표시 → 준비하기 → 새 접속
   await shot(page, 'm14-new-term');
 });
 
+test('날짜 즉시 확인·결과공개일 비우면 비공개(정하기 버튼)·다크 모드에서도 보고서 차트는 흰 배경', async () => {
+  const page = await newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'dark' });
+  await page.goto(base + '?scenario=admin&page=admin');
+  await page.locator('#pin').fill('123456');
+  await page.getByRole('button', { name: '로그인' }).click();
+  // ① 종료일시가 시작일시보다 빠르면 입력 즉시 안내·저장 잠금
+  await page.getByRole('tab', { name: '교과목' }).click();
+  await page.getByRole('button', { name: '새 교과목' }).first().click();
+  await page.locator('#f-start').fill('2026-11-10T09:00');
+  await page.locator('#f-end').fill('2026-11-01T09:00');
+  await page.getByText('응답 종료일시는 시작일시보다 늦어야 합니다.').waitFor();
+  assert.equal(await page.locator('#f-end').getAttribute('aria-invalid'), 'true');
+  assert.equal(await page.locator('.modal [data-save]').isDisabled(), true, '저장 잠금');
+  await page.locator('#f-end').fill('2026-11-20T09:00');
+  assert.equal(await page.getByText('응답 종료일시는 시작일시보다 늦어야 합니다.').count(), 0, '고치면 안내 사라짐');
+  assert.equal(await page.locator('.modal [data-save]').isDisabled(), false);
+  await page.keyboard.press('Escape');
+  // ② 결과공개일을 비운 교과목 → 비공개 안내와 「결과공개일 정하기」
+  const cid = await page.evaluate(() => window.__PREVIEW.courseId);
+  await page.evaluate((id) => {
+    const t = window.__server.readTable_('Courses');
+    const r = t.rows.find((x) => x.course_id === id);
+    t.sheet.getRange(r._row, window.__server.HEADERS.Courses.indexOf('result_open_date') + 1).setValue('');
+  }, cid);
+  await page.getByRole('tab', { name: '결과', exact: true }).click();
+  await page.locator('#res-course').waitFor();
+  await page.selectOption('#res-course', cid);
+  await page.getByRole('heading', { name: '결과공개일을 정하지 않아 비공개입니다' }).waitFor();
+  await page.getByRole('button', { name: '결과공개일 정하기' }).click();
+  await page.locator('#f-open').waitFor();
+  const today = await page.evaluate(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); });
+  await page.locator('#f-open').fill(today);
+  await page.locator('.modal [data-save]').click();
+  await page.locator('#res-body .section-head').first().waitFor();
+  // ③ 다크 모드여도 보고서 그림은 밝은 배경(왼쪽 위 픽셀이 흰색)
+  await page.evaluate(() => {
+    window.__dlNames = [];
+    const orig = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () { if (this.download) window.__dlNames.push(this.download); return orig.call(this); };
+  });
+  const [rp] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.getByRole('button', { name: '결과 보고서 PDF' }).first().click()]);
+  const f = path.join(OUT, 'export-report-dark.pdf');
+  await rp.saveAs(f);
+  const html = fs.readFileSync(f, 'utf8');
+  const imgs = html.match(/data:image\/png;base64,[A-Za-z0-9+\/=]+/g) || [];
+  assert.ok(imgs.length >= 2, '레이더·워드 클라우드 등 그림: ' + imgs.length);
+  assert.ok(/width="480" height="360"/.test(html), '그림 크기 고정');
+  const px = await page.evaluate(async (srcs) => Promise.all(srcs.map((src) => new Promise((ok) => {
+    const im = new Image(); im.onload = () => { const c = document.createElement('canvas'); c.width = im.width; c.height = im.height; const g = c.getContext('2d'); g.drawImage(im, 0, 0); ok(Array.from(g.getImageData(2, 2, 1, 1).data).slice(0, 3)); }; im.src = src;
+  }))), imgs);
+  px.forEach((p) => assert.deepEqual(p, [255, 255, 255], '흰 배경'));
+  assert.equal(await page.evaluate(() => document.documentElement.getAttribute('data-theme')), null, '화면 테마 원래대로');
+});
+
 test('사용 매뉴얼 탭: 맨 위 메뉴 끝, 12개 장, 차례로 펼치기·모두 펼치기, 360px 넘침 없음', async () => {
   const page = await newPage();
   await page.goto(base + '?scenario=admin&page=admin');

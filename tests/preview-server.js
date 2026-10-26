@@ -42,8 +42,8 @@ function scenario(name) {
   if (name === 'admin') {
     server.generateSampleResponses();
     // 학기 간·분반 간 비교용 자료
-    const prev = server.duplicateCourse(s, demo.course_id, { year: demo.year - 1, semester: demo.semester, section: 'A', start_at: (demo.year - 1) + '-06-01T09:00', end_at: (demo.year - 1) + '-06-20T23:59' }).course_id;
-    const secB = server.duplicateCourse(s, demo.course_id, { year: demo.year, semester: demo.semester, section: 'B', start_at: H.iso(new Date(now - 86400000)), end_at: H.iso(new Date(now + 86400000 * 2)) }).course_id;
+    const prev = server.duplicateCourse(s, demo.course_id, { year: demo.year - 1, semester: demo.semester, section: 'A', start_at: (demo.year - 1) + '-06-01T09:00', end_at: (demo.year - 1) + '-06-20T23:59', result_open_date: (demo.year - 1) + '-07-01' }).course_id;
+    const secB = server.duplicateCourse(s, demo.course_id, { year: demo.year, semester: demo.semester, section: 'B', start_at: H.iso(new Date(now - 86400000)), end_at: H.iso(new Date(now + 86400000 * 2)), result_open_date: '2020-01-01' }).course_id;
     const fill = (id, n, base, cred) => {
       const items = server.getItems_(id);
       for (let i = 0; i < n; i++) {

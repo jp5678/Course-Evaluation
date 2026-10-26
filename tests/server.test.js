@@ -231,7 +231,8 @@ test('최소 공개 응답 수 미만 잠금(결과·내보내기·대시보드 
   assert.equal(r.reason, 'MIN_RESPONSES');
   assert.equal(r.n, 4);
   assert.equal(r.stats, undefined, '잠금 시 통계 미포함');
-  for (const fn of ['exportCsv', 'exportCqi', 'exportText']) assert.equal(server[fn](s, id).locked, true, fn + ' 잠금');
+  assert.equal(server.exportText(s, id).locked, true, 'exportText 잠금');
+  for (const k of ['raw', 'text', 'report']) assert.equal(server.exportPdf(s, id, k).locked, true, k + ' PDF 잠금');
   assert.equal(server.getAdminBootstrap(s).courses.find((c) => c.course_id === id).mean, null);
 
   assert.equal(server.submitResponse(id, H.codeOf(server, id), H.fullAnswers(items, 5)).ok, true);
@@ -269,7 +270,7 @@ test('결과공개일 이전 잠금', () => {
   assert.equal(r.open_date, tomorrow);
 });
 
-test('역문항 환산, 서술형 무작위 순서, CQI·CSV 내보내기', () => {
+test('역문항 환산, 서술형 무작위 순서, CSV 내보내기 삭제(원자료 PDF)', () => {
   const { server } = H.makeServer({ pin: PIN });
   const s = H.login(server, PIN);
   const id = H.createCourse(server, s);
@@ -291,12 +292,10 @@ test('역문항 환산, 서술형 무작위 순서, CQI·CSV 내보내기', () =
   for (let k = 0; k < 10; k++) orders.add(server.getResults(s, id).texts[0].answers.join('|'));
   assert.ok(orders.size > 1, '서술형 순서가 호출마다 무작위');
 
-  const csv = server.exportCsv(s, id);
-  assert.equal(csv.ok, true);
-  assert.equal(csv.content.split('\r\n').length, 9);
-  assert.ok(!/response_id|[0-9a-f]{8}-[0-9a-f]{4}/.test(csv.content), 'CSV에 응답 ID 없음');
-  const cqi = server.exportCqi(s, id);
-  assert.ok(cqi.content.includes('강점') && cqi.content.includes('개선점'));
+  assert.equal(typeof server.exportCsv, 'undefined', 'CSV 내보내기 삭제');
+  assert.equal(typeof server.exportCqi, 'undefined', 'CQI CSV 내보내기 삭제');
+  const rawPdf = Buffer.from(server.exportPdf(s, id, 'raw').base64, 'base64').toString('utf8');
+  assert.ok(!/response_id|[0-9a-f]{8}-[0-9a-f]{4}/.test(rawPdf), '원자료 PDF에 응답 ID 없음');
   const txt = server.exportText(s, id);
   assert.ok(txt.content.includes('응답0') && txt.content.includes('[AI 요약 요청]') && txt.content.includes('CQI 개선 과제 3가지'));
 });
@@ -460,9 +459,9 @@ test('드롭다운(교수가 추가한 성별 문항): 소규모 집단이면 �
   assert.equal(r.groups[0].groups, undefined, '수치 없음');
   const st = r.stats.items.find((x) => x.type === 'select');
   assert.equal(st.options, undefined, '인원 분포도 숨김');
-  const csv = server.exportCsv(s, id);
-  assert.equal(csv.omitted, 1);
-  assert.ok(!csv.content.includes('성별'), 'CSV에서 성별 열 제외');
+  const rawPdf = server.exportPdf(s, id, 'raw');
+  assert.equal(rawPdf.omitted, 1);
+  assert.ok(!Buffer.from(rawPdf.base64, 'base64').toString('utf8').includes('성별'), '원자료에서 성별 열 제외');
 
   for (let i = 0; i < 4; i++) submit('남', 3);
   r = server.getResults(s, id);
@@ -472,7 +471,7 @@ test('드롭다운(교수가 추가한 성별 문항): 소규모 집단이면 �
   assert.equal(byLabel['남'].n, 5);
   assert.equal(byLabel['여'].overall, 4);
   assert.equal(byLabel['남'].overall, 2.8); // (2 + 3*4) / 5
-  assert.equal(server.exportCsv(s, id).omitted, 0);
+  assert.equal(server.exportPdf(s, id, 'raw').omitted, 0);
   // 성별은 필수: 비워 두면 제출 거부
   const a = H.fullAnswers(items, 1); a[g.item_id] = '';
   assert.deepEqual(server.submitResponse(id, H.codeOf(server, id), a).missing, [g.item_id]);
@@ -560,7 +559,7 @@ test('google.script.run 반환값에 Date가 없음(모든 공개 API)', () => {
   const calls = [
     server.getCourseForStudent(demo.course_id), server.verifyAccess(demo.course_id, demo.access_code),
     server.getAdminBootstrap(s), server.getItemsAdmin(s, demo.course_id), server.getItemsAdmin(s, 'TEMPLATE'),
-    server.getResults(s, demo.course_id), server.exportCsv(s, demo.course_id), server.exportCqi(s, demo.course_id),
+    server.getResults(s, demo.course_id), server.exportPdf(s, demo.course_id, 'report'),
     server.exportText(s, demo.course_id), server.generateTokens(s, demo.course_id, 2)
   ];
   calls.forEach((r) => { assert.equal(r.ok, true, JSON.stringify(r).slice(0, 200)); H.GasMock.assertSerializable(r); });
@@ -627,7 +626,7 @@ test('교과목 편집에서 반·수강인원 없이 저장, 응답률 대신 �
   const { server } = H.makeServer({ pin: PIN });
   const s = H.login(server, PIN);
   const r = server.saveCourse(s, { course_name: '기본간호학', year: 2026, semester: '2', grade: 1, department: '간호학과', delivery_mode: '대면',
-    start_at: H.iso(new Date(Date.now() - 3600000)), end_at: H.iso(new Date(Date.now() + 86400000)), access_mode: 'code', access_code: 'AB12' });
+    start_at: H.iso(new Date(Date.now() - 3600000)), end_at: H.iso(new Date(Date.now() + 86400000)), access_mode: 'code', access_code: 'AB12', result_open_date: '2020-01-01' });
   assert.equal(r.ok, true, '반·수강인원 없이 저장');
   const c = server.getAdminBootstrap(s).courses.find((x) => x.course_id === r.course_id);
   assert.equal(c.section, '');
@@ -638,7 +637,7 @@ test('교과목 편집에서 반·수강인원 없이 저장, 응답률 대신 �
   const res = server.getResults(s, r.course_id);
   assert.equal(res.n, 5);
   assert.equal(res.course.response_rate, null);
-  assert.ok(server.exportCqi(s, r.course_id).content.includes('응답 수,5'));
+  assert.ok(Buffer.from(server.exportPdf(s, r.course_id, 'report').base64, 'base64').toString('utf8').includes('5명'), '보고서 응답 수');
   assert.equal(server.saveCourse(s, Object.assign({}, c, { section: 'G' })).field, 'section', '값이 오면 A~F만');
 });
 
@@ -1184,4 +1183,27 @@ test('결과 보고서 PDF(매뉴얼형): 장 구성·강점/개선점 상자·�
   const big = 'data:image/png;base64,' + 'A'.repeat(3 * 1024 * 1024 + 10);
   const r2 = server.exportPdf(s, demo.course_id, 'report', { images: { radar: big } });
   assert.ok(!Buffer.from(r2.base64, 'base64').toString('utf8').includes('<img'), '3MB 초과 제외');
+});
+
+test('결과공개일을 비우면 비공개: 결과·보고서·대시보드 평균 잠금, 날짜를 정하면 그날부터 공개', () => {
+  const { server } = H.makeServer({ pin: '246810' });
+  const s = H.login(server, '246810');
+  const id = H.createCourse(server, s, { result_open_date: '' });
+  for (let i = 0; i < 6; i++) server.submitResponse(id, H.codeOf(server, id), H.fullAnswers(server.itemsForCourse_(server.findCourse_(id))));
+  const r = server.getResults(s, id);
+  assert.deepEqual([r.locked, r.reason], [true, 'NO_OPEN_DATE']);
+  assert.equal(server.exportPdf(s, id, 'report').reason, 'NO_OPEN_DATE');
+  const b = server.getAdminBootstrap(s).courses.find((c) => c.course_id === id);
+  assert.deepEqual([b.locked_reason, b.mean], ['NO_OPEN_DATE', null]);
+  // 미래 날짜 → 그 날짜 전 잠금, 오늘 → 공개
+  const c = server.getCourses_().find((x) => x.course_id === id);
+  const base = { course_id: id, course_name: c.course_name, year: c.year, semester: c.semester, grade: c.grade, department: c.department,
+    delivery_mode: c.delivery_mode, course_type: c.course_type, start_at: H.iso(c.start_at), end_at: H.iso(c.end_at), access_mode: 'code', access_code: c.access_code };
+  assert.equal(server.saveCourse(s, Object.assign({}, base, { result_open_date: '2099-01-01' })).ok, true);
+  assert.equal(server.getResults(s, id).reason, 'BEFORE_OPEN_DATE');
+  const today = new Date(); const ymd = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+  assert.equal(server.saveCourse(s, Object.assign({}, base, { result_open_date: ymd })).ok, true);
+  assert.equal(server.getResults(s, id).locked, false, '오늘 날짜면 공개');
+  // 예시 교과목은 setup 때 공개일을 넣어 바로 연습 가능
+  assert.ok(server.getCourses_().filter((x) => /^demo/.test(x.course_id)).every((x) => x.result_open_date), '예시 교과목 공개일');
 });

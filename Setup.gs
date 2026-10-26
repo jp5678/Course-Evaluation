@@ -419,7 +419,7 @@ function createDemoCourse_(spec) {
     access_mode: 'code',
     access_code: demoAccessCode_(),
     status: APP.STATUS.OPEN,
-    result_open_date: '',
+    result_open_date: start, // 예시 교과목은 바로 결과를 볼 수 있게(비워 두면 비공개)
     department: depts[0],
     delivery_mode: spec.delivery_mode,
     course_type: spec.course_type || '이론+실습'
