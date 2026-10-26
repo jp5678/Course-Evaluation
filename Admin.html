@@ -402,8 +402,7 @@
     function pulseCard(c) {
       const doms = (c.domains || []);
       const lock = c.locked_reason === 'MIN_RESPONSES' ? `응답 ${c.response_count}/${A.data.settings.min_responses}명 — 결과 잠김`
-        : c.locked_reason === 'BEFORE_OPEN_DATE' ? `결과 공개일 ${esc(c.result_open_date)} 전 — 전체 평균에서 제외`
-        : c.locked_reason === 'NO_OPEN_DATE' ? '결과공개일 미설정 — 비공개' : '';
+        : c.locked_reason === 'BEFORE_OPEN_DATE' ? `결과 공개일 ${esc(c.result_open_date)} 전 — 전체 평균에서 제외` : '';
       return `<button type="button" class="card interactive course-pulse" style="text-align:left;box-shadow:none" data-results="${esc(c.course_id)}"
           aria-label="${esc(c.course_name)} ${esc(termFull(c))} 결과 보기">
         ${c.response_rate == null
@@ -493,9 +492,9 @@
           <div class="field"><label for="f-grade">학년</label>${selectHtml('grade', 'f-grade', GRADES, c.grade, (g) => g + '학년')}</div>
           <div class="field"><label for="f-start">응답 시작일시</label><input class="input" id="f-start" name="start_at" type="datetime-local" value="${esc(c.start_at)}"></div>
           <div class="field"><label for="f-end">응답 종료일시</label><input class="input" id="f-end" name="end_at" type="datetime-local" value="${esc(c.end_at)}"></div>
-          <div class="field"><label for="f-open">결과공개일 <span class="muted small">(비우면 비공개)</span></label>
+          <div class="field"><label for="f-open">결과공개일 <span class="muted small">(선택)</span></label>
             <input class="input" id="f-open" name="result_open_date" type="date" value="${esc(c.result_open_date)}" aria-describedby="f-open-h">
-            <p class="hint" id="f-open-h">이 날짜부터 결과를 볼 수 있습니다. 비워 두면 결과를 공개하지 않습니다(성적 처리 전 열람 방지).</p></div>
+            <p class="hint" id="f-open-h">비워 두면 응답 중에도 바로 결과를 볼 수 있습니다. 날짜를 정하면 그날 전까지 결과를 잠급니다(성적 처리 전 열람 방지). 학생에게는 결과가 공개되지 않습니다.</p></div>
           <fieldset class="field full" style="border:0;padding:0;margin:0">
             <legend class="field-label">참여 방식</legend>
             <label class="check"><input type="radio" name="access_mode" value="code"${c.access_mode !== 'token' ? ' checked' : ''}> 접속코드 — 수업 중 코드를 알려 주는 방식(간편)</label>
@@ -615,7 +614,7 @@
             <div class="field"><label for="d-type">교과목 유형</label>${selectHtml('course_type', 'd-type', COURSE_TYPES, c.course_type)}</div>
             <div class="field"><label for="d-start">응답 시작일시</label><input class="input" id="d-start" name="start_at" type="datetime-local" value="${localDT(start)}"></div>
             <div class="field"><label for="d-end">응답 종료일시</label><input class="input" id="d-end" name="end_at" type="datetime-local" value="${localDT(end)}"></div>
-            <div class="field"><label for="d-open">결과공개일 <span class="muted small">(비우면 비공개)</span></label><input class="input" id="d-open" name="result_open_date" type="date"></div>
+            <div class="field"><label for="d-open">결과공개일 <span class="muted small">(선택)</span></label><input class="input" id="d-open" name="result_open_date" type="date"></div>
             <p class="error full hidden" id="course-err" role="alert"></p>
           </form>`,
         footer: `<button type="button" class="btn" data-close>취소</button><button type="button" class="btn primary" data-save>${icon('copy-plus')}복제</button>`
@@ -655,7 +654,7 @@
             <div class="field"><label for="t-sem">새 학기</label><select class="select" id="t-sem" name="semester">${SEMS.map((s) => `<option value="${s}"${s === next.s ? ' selected' : ''}>${s}학기</option>`).join('')}</select></div>
             <div class="field"><label for="t-start">응답 시작일시</label><input class="input" id="t-start" name="start_at" type="datetime-local" value="${localDT(start)}"></div>
             <div class="field"><label for="t-end">응답 종료일시</label><input class="input" id="t-end" name="end_at" type="datetime-local" value="${localDT(end)}"></div>
-            <div class="field"><label for="t-open">결과공개일 <span class="muted small">(비우면 비공개)</span></label><input class="input" id="t-open" name="result_open_date" type="date"></div>
+            <div class="field"><label for="t-open">결과공개일 <span class="muted small">(선택)</span></label><input class="input" id="t-open" name="result_open_date" type="date"></div>
             <label class="check full"><input type="checkbox" name="close_old" checked> 복제한 학기의 교과목을 지금 마감(이전 접속코드로는 응답 불가)</label>
             <div class="full small muted" id="t-list"></div>
             <p class="error full hidden" id="course-err" role="alert"></p>
@@ -1232,19 +1231,11 @@
           <p class="small muted">${esc(c.course_name)} · ${esc(termFull(c))} · 마감 ${esc(dt(c.end_at))}</p>
         </section>`;
       }
-      if (r.reason === 'NO_OPEN_DATE') {
-        return `<section class="card pad-lg center stack-lg" style="max-width:640px;margin:0 auto" data-no-open-date>
-          <div class="notice-icon">${icon('lock')}</div>
-          <div><h2>결과공개일을 정하지 않아 비공개입니다</h2>
-            <p class="muted small" style="margin-top:8px">결과공개일을 비워 두면 결과를 공개하지 않습니다. 날짜를 정하면 그날부터 결과·보고서를 볼 수 있습니다(오늘 날짜를 넣으면 바로 공개).</p></div>
-          <p class="small">현재 응답 <strong class="num">${r.n}</strong>명</p>
-          <div><button type="button" class="btn primary" data-act="edit-course" data-id="${esc(c.course_id)}">${icon('calendar-clock')}결과공개일 정하기</button></div>
-        </section>`;
-      }
       return `<section class="card pad-lg center stack-lg" style="max-width:640px;margin:0 auto">
           <div class="notice-icon">${icon('calendar-clock')}</div>
           <div><h2>${esc(r.open_date)}부터 결과를 볼 수 있습니다</h2>
-            <p class="muted small" style="margin-top:8px">성적 처리 전 열람을 막기 위해 결과공개일을 설정했습니다. [교과목 ▸ 편집]에서 바꿀 수 있습니다.</p></div>
+            <p class="muted small" style="margin-top:8px">성적 처리 전 열람을 막기 위해 결과공개일을 설정했습니다. 결과공개일을 비우면 응답 중에도 바로 볼 수 있습니다.</p></div>
+          <div><button type="button" class="btn" data-act="edit-course" data-id="${esc(c.course_id)}">${icon('calendar-clock')}결과공개일 바꾸기</button></div>
           <p class="small">현재 응답 <strong class="num">${r.n}</strong>명</p>
         </section>`;
     }

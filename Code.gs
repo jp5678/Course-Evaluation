@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.4.14',
+  VERSION: '1.4.15',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -918,8 +918,8 @@ function lockedResult_(ctx) {
 /** 잠금 사유: 'MIN_RESPONSES' | 'BEFORE_OPEN_DATE' | null */
 function resultLock_(course, n, minN, now) {
   if (n < minN) return 'MIN_RESPONSES';
-  if (!course.result_open_date) return 'NO_OPEN_DATE'; // 결과공개일을 정하지 않으면 비공개
-  if (fmtD_(now) < fmtD_(course.result_open_date)) return 'BEFORE_OPEN_DATE';
+  // 결과공개일은 선택: 비워 두면 응답 중에도 바로 공개, 정하면 그날 전까지 잠금(교수 화면 기준, 학생에게는 결과가 공개되지 않음)
+  if (course.result_open_date && fmtD_(now) < fmtD_(course.result_open_date)) return 'BEFORE_OPEN_DATE';
   return null;
 }
 
