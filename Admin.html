@@ -49,7 +49,7 @@
     const view = document.getElementById('view');
     const tabsEl = document.getElementById('tabs');
     const SESSION_KEY = 'ces:admin';
-    const DOMAINS = ['A. 강의 설계', 'B. 교수학습방법', 'C. 평가 및 과제', 'D. 학습성과(CLO)', 'E. 학습 환경', 'F. 디지털·AI 활용', 'G. 종합', 'H. 온라인(비대면) 강의', 'I. 실무 적용', '서술형'];
+    const DOMAINS = ['A. 강의 설계', 'B. 교수학습방법', 'C. 평가 및 과제', 'D. 학습성과(CLO)', 'E. 학습 환경', 'F. 디지털·AI 활용', 'G. 학습 참여(자기평가)', 'H. 종합', 'I. 온라인(비대면) 강의', 'J. 실무 적용', '서술형'];
     const TYPES = { likert5: '5점 리커트', single: '단일 선택', multi: '복수 선택', select: '드롭다운', text: '서술형' };
     const SEMS = ['1', '2'];
     const GRADES = [1, 2, 3, 4];
@@ -570,7 +570,7 @@
           <div class="field"><label for="f-sem">학기</label><select class="select" id="f-sem" name="semester">${SEMS.map((s) => `<option value="${s}"${sel(c.semester, s)}>${s}학기</option>`).join('')}</select></div>
           <div class="field"><label for="f-dept">학과</label>${selectHtml('department', 'f-dept', deptList, c.department)}</div>
           <div class="field"><label for="f-mode">수업 방식</label>${selectHtml('delivery_mode', 'f-mode', DELIVERY, c.delivery_mode)}
-            <p class="hint">온라인(비대면)·혼합이면 온라인 강의 문항(H 영역)이 함께 표시됩니다.</p></div>
+            <p class="hint">온라인(비대면)·혼합이면 온라인 강의 문항(I 영역)이 함께 표시됩니다.</p></div>
           <div class="field"><label for="f-type">교과목 유형</label>${selectHtml('course_type', 'f-type', COURSE_TYPES, c.course_type)}
             <p class="hint">이론: 실습실 문항 제외 · 실습: 이론 강의실 문항 제외 · 이론+실습: 모두 표시</p></div>
           <div class="field"><label for="f-grade">학년</label>${selectHtml('grade', 'f-grade', GRADES, c.grade, (g) => g + '학년')}</div>

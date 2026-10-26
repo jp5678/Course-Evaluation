@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.4.17',
+  VERSION: '1.4.18',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -1466,12 +1466,15 @@ function getItems_(courseId) {
   return getAllItems_().filter(function (it) { return it.course_id === courseId; });
 }
 
+/** 영역 기호 재배치(v1.4.18): 이전 이름 → 새 이름. 읽을 때 바꾸므로 이전 학기와 비교해도 영역이 맞습니다. */
+var DOMAIN_RENAMED = { 'G. 종합': 'H. 종합', 'H. 온라인(비대면) 강의': 'I. 온라인(비대면) 강의', 'I. 실무 적용': 'J. 실무 적용' };
+
 function normalizeItem_(r) {
   var type = APP.ITEM_TYPES.indexOf(String(r.type)) >= 0 ? String(r.type) : 'likert5';
   return {
     item_id: String(r.item_id).trim(),
     course_id: String(r.course_id).trim(),
-    domain: String(r.domain || ''),
+    domain: DOMAIN_RENAMED[String(r.domain || '')] || String(r.domain || ''),
     text: String(r.text || ''),
     type: type,
     required: toBool_(r.required),
