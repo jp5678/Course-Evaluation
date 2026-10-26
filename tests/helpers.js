@@ -64,7 +64,7 @@ function createCourse(server, session, overrides = {}) {
     course_name: '테스트 교과목', year: 2026, semester: '2', grade: 3, section: 'A', enrollment: 40,
     department: '간호학과', delivery_mode: '대면',
     start_at: iso(new Date(now - 86400000)), end_at: iso(new Date(now + 86400000 * 7)),
-    access_mode: 'code', access_code: 'ABC' + String(100 + codeSeq), result_open_date: '2020-01-01' // 비우면 비공개 — 다른 기능 테스트는 공개 상태로
+    access_mode: 'code', access_code: 'ABC' + String(100 + codeSeq), result_open_date: '' // 비우면 바로 공개
   }, overrides);
   const r = server.saveCourse(session, data);
   if (!r.ok) throw new Error('saveCourse failed: ' + JSON.stringify(r));

@@ -598,7 +598,7 @@ test('새 학기 준비: 대상 교과목 표시 → 준비하기 → 새 접속
   await shot(page, 'm14-new-term');
 });
 
-test('날짜 즉시 확인·결과공개일 비우면 비공개(정하기 버튼)·다크 모드에서도 보고서 차트는 흰 배경', async () => {
+test('날짜 즉시 확인·결과공개일 바꾸기(비우면 바로 공개)·다크 모드에서도 보고서 차트는 흰 배경', async () => {
   const page = await newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'dark' });
   await page.goto(base + '?scenario=admin&page=admin');
   await page.locator('#pin').fill('123456');
@@ -613,23 +613,21 @@ test('날짜 즉시 확인·결과공개일 비우면 비공개(정하기 버튼
   assert.equal(await page.locator('.modal [data-save]').isDisabled(), true, '저장 잠금');
   await page.locator('#f-end').fill('2026-11-20T09:00');
   assert.equal(await page.getByText('응답 종료일시는 시작일시보다 늦어야 합니다.').count(), 0, '고치면 안내 사라짐');
-  assert.equal(await page.locator('.modal [data-save]').isDisabled(), false);
   await page.keyboard.press('Escape');
-  // ② 결과공개일을 비운 교과목 → 비공개 안내와 「결과공개일 정하기」
+  // ② 결과공개일을 미래로 정한 교과목 → 잠금 안내와 「결과공개일 바꾸기」 → 비우면 응답 중에도 바로 공개
   const cid = await page.evaluate(() => window.__PREVIEW.courseId);
   await page.evaluate((id) => {
     const t = window.__server.readTable_('Courses');
     const r = t.rows.find((x) => x.course_id === id);
-    t.sheet.getRange(r._row, window.__server.HEADERS.Courses.indexOf('result_open_date') + 1).setValue('');
+    t.sheet.getRange(r._row, window.__server.HEADERS.Courses.indexOf('result_open_date') + 1).setValue(new Date(2099, 0, 1));
   }, cid);
   await page.getByRole('tab', { name: '결과', exact: true }).click();
   await page.locator('#res-course').waitFor();
   await page.selectOption('#res-course', cid);
-  await page.getByRole('heading', { name: '결과공개일을 정하지 않아 비공개입니다' }).waitFor();
-  await page.getByRole('button', { name: '결과공개일 정하기' }).click();
+  await page.getByRole('heading', { name: /부터 결과를 볼 수 있습니다/ }).waitFor();
+  await page.getByRole('button', { name: '결과공개일 바꾸기' }).click();
   await page.locator('#f-open').waitFor();
-  const today = await page.evaluate(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); });
-  await page.locator('#f-open').fill(today);
+  await page.locator('#f-open').fill('');
   await page.locator('.modal [data-save]').click();
   await page.locator('#res-body .section-head').first().waitFor();
   // ③ 다크 모드여도 보고서 그림은 밝은 배경(왼쪽 위 픽셀이 흰색)

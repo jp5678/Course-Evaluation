@@ -1185,25 +1185,25 @@ test('결과 보고서 PDF(매뉴얼형): 장 구성·강점/개선점 상자·�
   assert.ok(!Buffer.from(r2.base64, 'base64').toString('utf8').includes('<img'), '3MB 초과 제외');
 });
 
-test('결과공개일을 비우면 비공개: 결과·보고서·대시보드 평균 잠금, 날짜를 정하면 그날부터 공개', () => {
+test('결과공개일(선택): 비워 두면 응답 중에도 바로 공개, 정하면 그날 전까지 잠금, 최소 응답 수 잠금은 유지', () => {
   const { server } = H.makeServer({ pin: '246810' });
   const s = H.login(server, '246810');
-  const id = H.createCourse(server, s, { result_open_date: '' });
-  for (let i = 0; i < 6; i++) server.submitResponse(id, H.codeOf(server, id), H.fullAnswers(server.itemsForCourse_(server.findCourse_(id))));
+  const id = H.createCourse(server, s, { result_open_date: '' }); // 응답 기간 진행 중
+  const ans = () => server.submitResponse(id, H.codeOf(server, id), H.fullAnswers(server.itemsForCourse_(server.findCourse_(id))));
+  for (let i = 0; i < 4; i++) ans();
+  assert.equal(server.getResults(s, id).reason, 'MIN_RESPONSES', '5명 미만은 익명성 보호로 잠금');
+  ans();
   const r = server.getResults(s, id);
-  assert.deepEqual([r.locked, r.reason], [true, 'NO_OPEN_DATE']);
-  assert.equal(server.exportPdf(s, id, 'report').reason, 'NO_OPEN_DATE');
-  const b = server.getAdminBootstrap(s).courses.find((c) => c.course_id === id);
-  assert.deepEqual([b.locked_reason, b.mean], ['NO_OPEN_DATE', null]);
-  // 미래 날짜 → 그 날짜 전 잠금, 오늘 → 공개
-  const c = server.getCourses_().find((x) => x.course_id === id);
+  assert.equal(r.locked, false, '응답 중에도 5명 이상이면 공개');
+  assert.equal(server.getAdminBootstrap(s).courses.find((c) => c.course_id === id).locked_reason, null);
+  const c = server.findCourse_(id);
   const base = { course_id: id, course_name: c.course_name, year: c.year, semester: c.semester, grade: c.grade, department: c.department,
     delivery_mode: c.delivery_mode, course_type: c.course_type, start_at: H.iso(c.start_at), end_at: H.iso(c.end_at), access_mode: 'code', access_code: c.access_code };
   assert.equal(server.saveCourse(s, Object.assign({}, base, { result_open_date: '2099-01-01' })).ok, true);
-  assert.equal(server.getResults(s, id).reason, 'BEFORE_OPEN_DATE');
-  const today = new Date(); const ymd = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
-  assert.equal(server.saveCourse(s, Object.assign({}, base, { result_open_date: ymd })).ok, true);
-  assert.equal(server.getResults(s, id).locked, false, '오늘 날짜면 공개');
-  // 예시 교과목은 setup 때 공개일을 넣어 바로 연습 가능
-  assert.ok(server.getCourses_().filter((x) => /^demo/.test(x.course_id)).every((x) => x.result_open_date), '예시 교과목 공개일');
+  assert.equal(server.getResults(s, id).reason, 'BEFORE_OPEN_DATE', '날짜를 정하면 그날 전까지 잠금');
+  assert.equal(server.saveCourse(s, Object.assign({}, base, { result_open_date: '' })).ok, true);
+  assert.equal(server.getResults(s, id).locked, false, '다시 비우면 바로 공개');
+  // setup은 결과공개일을 채우지 않음(예시 교과목도 비어 있음 = 바로 공개)
+  assert.ok(server.getCourses_().filter((x) => /^demo/.test(x.course_id)).every((x) => !x.result_open_date));
+  assert.ok(!('open_date_default_applied' in server.getSettingsMap_()));
 });

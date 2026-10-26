@@ -162,6 +162,7 @@ function setup() {
   // 접속코드가 비어 있는 접속코드 방식 교과목(이전 버전의 「링크만으로 참여」)에 코드를 만들어 줍니다.
   fillMissingAccessCodes_();
 
+
   // 공통 기본 문항(TEMPLATE)
   if (getItems_(APP.TEMPLATE_ID).length === 0) {
     var rows = DEFAULT_ITEMS.map(function (d, i) {
@@ -177,7 +178,7 @@ function setup() {
   // 이번 학기 교과목 예시(교과목이 하나도 없을 때만)
   var created = false;
   if (getCourses_().length === 0) {
-    SAMPLE_COURSES.forEach(createDemoCourse_);
+    SAMPLE_COURSES.forEach(function (sp) { createDemoCourse_(sp); });
     created = true;
     setSetting_('added_courses', SAMPLE_COURSES.filter(function (x) { return x.ensure; }).map(function (x) { return x.course_name; }).join('\n'),
       'setup이 추가한 기본 교과목(삭제해도 다시 만들지 않음). 직접 수정 금지');
@@ -419,7 +420,7 @@ function createDemoCourse_(spec) {
     access_mode: 'code',
     access_code: demoAccessCode_(),
     status: APP.STATUS.OPEN,
-    result_open_date: start, // 예시 교과목은 바로 결과를 볼 수 있게(비워 두면 비공개)
+    result_open_date: '', // 비워 두면 바로 공개(응답 중에도 결과 확인)
     department: depts[0],
     delivery_mode: spec.delivery_mode,
     course_type: spec.course_type || '이론+실습'
@@ -508,7 +509,7 @@ function showWebAppUrl() {
 function generateSampleResponses() {
   var demos = getCourses_().filter(function (c) { return c.course_id.indexOf('demo') === 0; });
   if (!demos.length) {
-    SAMPLE_COURSES.forEach(createDemoCourse_);
+    SAMPLE_COURSES.forEach(function (sp) { createDemoCourse_(sp); });
     demos = getCourses_().filter(function (c) { return c.course_id.indexOf('demo') === 0; });
   }
   var made = 0, names = [];
@@ -681,7 +682,7 @@ function notify_(title, message) {
 /** 더 이상 쓰지 않는 설정 키(v1.5 독립형 설치에서 추가) */
 var OBSOLETE_SETTINGS = ['script_id', 'webapp_script_id'];
 /** v1.4.4~1.4.7 단축 주소 기능의 설정(기능 삭제) — 학생 주소와 무관하므로 행만 지웁니다. */
-var OBSOLETE_SHORT_SETTINGS = ['short_url', 'short_url_target'];
+var OBSOLETE_SHORT_SETTINGS = ['short_url', 'short_url_target', 'open_date_default_applied'];
 
 /** Settings 시트에서 주어진 키의 행을 지우고, 지운 행 수를 돌려줍니다. */
 function removeSettings_(keys) {
