@@ -402,7 +402,8 @@
     function pulseCard(c) {
       const doms = (c.domains || []);
       const lock = c.locked_reason === 'MIN_RESPONSES' ? `응답 ${c.response_count}/${A.data.settings.min_responses}명 — 결과 잠김`
-        : c.locked_reason === 'BEFORE_OPEN_DATE' ? `결과 공개일 ${esc(c.result_open_date)} 전 — 전체 평균에서 제외` : '';
+        : c.locked_reason === 'BEFORE_OPEN_DATE' ? `결과 공개일 ${esc(c.result_open_date)} 전 — 전체 평균에서 제외`
+        : c.locked_reason === 'NO_OPEN_DATE' ? '결과공개일 미설정 — 비공개' : '';
       return `<button type="button" class="card interactive course-pulse" style="text-align:left;box-shadow:none" data-results="${esc(c.course_id)}"
           aria-label="${esc(c.course_name)} ${esc(termFull(c))} 결과 보기">
         ${c.response_rate == null
@@ -492,9 +493,9 @@
           <div class="field"><label for="f-grade">학년</label>${selectHtml('grade', 'f-grade', GRADES, c.grade, (g) => g + '학년')}</div>
           <div class="field"><label for="f-start">응답 시작일시</label><input class="input" id="f-start" name="start_at" type="datetime-local" value="${esc(c.start_at)}"></div>
           <div class="field"><label for="f-end">응답 종료일시</label><input class="input" id="f-end" name="end_at" type="datetime-local" value="${esc(c.end_at)}"></div>
-          <div class="field"><label for="f-open">결과공개일 <span class="muted small">(선택)</span></label>
+          <div class="field"><label for="f-open">결과공개일 <span class="muted small">(비우면 비공개)</span></label>
             <input class="input" id="f-open" name="result_open_date" type="date" value="${esc(c.result_open_date)}" aria-describedby="f-open-h">
-            <p class="hint" id="f-open-h">이 날짜 전에는 결과를 잠급니다(성적 처리 전 열람 방지).</p></div>
+            <p class="hint" id="f-open-h">이 날짜부터 결과를 볼 수 있습니다. 비워 두면 결과를 공개하지 않습니다(성적 처리 전 열람 방지).</p></div>
           <fieldset class="field full" style="border:0;padding:0;margin:0">
             <legend class="field-label">참여 방식</legend>
             <label class="check"><input type="radio" name="access_mode" value="code"${c.access_mode !== 'token' ? ' checked' : ''}> 접속코드 — 수업 중 코드를 알려 주는 방식(간편)</label>
@@ -526,7 +527,34 @@
       return o;
     }
 
+    /** 응답 종료일시가 시작일시보다 빠르거나 같으면 입력 즉시 빨간 안내, 저장 버튼 잠금 */
+    function watchDates(m, startSel, endSel) {
+      const st = $(startSel, m.el), en = $(endSel, m.el);
+      if (!st || !en) return;
+      const msgId = en.id + '-err';
+      const check = () => {
+        const bad = !!(st.value && en.value && en.value <= st.value);
+        let p = document.getElementById(msgId);
+        en.setAttribute('aria-invalid', bad ? 'true' : 'false');
+        if (bad && !p) {
+          p = document.createElement('p');
+          p.className = 'error'; p.id = msgId; p.setAttribute('role', 'alert');
+          p.innerHTML = icon('circle-alert') + ' 응답 종료일시는 시작일시보다 늦어야 합니다.';
+          en.insertAdjacentElement('afterend', p);
+          en.setAttribute('aria-describedby', msgId);
+          CES.icons();
+        } else if (!bad && p) {
+          p.remove();
+          en.removeAttribute('aria-describedby');
+        }
+        $$('[data-save]', m.el).forEach((b) => { b.disabled = bad; });
+      };
+      ['input', 'change'].forEach((ev) => { st.addEventListener(ev, check); en.addEventListener(ev, check); });
+      check();
+    }
+
     function bindCourseForm(m) {
+      watchDates(m, '#f-start', '#f-end');
       const form = $('#course-form', m.el);
       const sync = () => {
         const token = form.querySelector('[name="access_mode"]:checked').value === 'token';
@@ -587,11 +615,12 @@
             <div class="field"><label for="d-type">교과목 유형</label>${selectHtml('course_type', 'd-type', COURSE_TYPES, c.course_type)}</div>
             <div class="field"><label for="d-start">응답 시작일시</label><input class="input" id="d-start" name="start_at" type="datetime-local" value="${localDT(start)}"></div>
             <div class="field"><label for="d-end">응답 종료일시</label><input class="input" id="d-end" name="end_at" type="datetime-local" value="${localDT(end)}"></div>
-            <div class="field"><label for="d-open">결과공개일 <span class="muted small">(선택)</span></label><input class="input" id="d-open" name="result_open_date" type="date"></div>
+            <div class="field"><label for="d-open">결과공개일 <span class="muted small">(비우면 비공개)</span></label><input class="input" id="d-open" name="result_open_date" type="date"></div>
             <p class="error full hidden" id="course-err" role="alert"></p>
           </form>`,
         footer: `<button type="button" class="btn" data-close>취소</button><button type="button" class="btn primary" data-save>${icon('copy-plus')}복제</button>`
       });
+      watchDates(m, '#d-start', '#d-end');
       $('[data-save]', m.el).addEventListener('click', async (e) => {
         const data = readForm($('#dup-form', m.el));
         const restore = CES.busyButton(e.currentTarget, '복제 중…');
@@ -626,6 +655,7 @@
             <div class="field"><label for="t-sem">새 학기</label><select class="select" id="t-sem" name="semester">${SEMS.map((s) => `<option value="${s}"${s === next.s ? ' selected' : ''}>${s}학기</option>`).join('')}</select></div>
             <div class="field"><label for="t-start">응답 시작일시</label><input class="input" id="t-start" name="start_at" type="datetime-local" value="${localDT(start)}"></div>
             <div class="field"><label for="t-end">응답 종료일시</label><input class="input" id="t-end" name="end_at" type="datetime-local" value="${localDT(end)}"></div>
+            <div class="field"><label for="t-open">결과공개일 <span class="muted small">(비우면 비공개)</span></label><input class="input" id="t-open" name="result_open_date" type="date"></div>
             <label class="check full"><input type="checkbox" name="close_old" checked> 복제한 학기의 교과목을 지금 마감(이전 접속코드로는 응답 불가)</label>
             <div class="full small muted" id="t-list"></div>
             <p class="error full hidden" id="course-err" role="alert"></p>
@@ -633,12 +663,13 @@
         footer: `<button type="button" class="btn" data-close>취소</button><button type="button" class="btn primary" data-save>${icon('calendar-plus')}준비하기</button>`
       });
       const drawList = () => { $('#t-list', m.el).textContent = '대상: ' + listOf($('#t-from', m.el).value).map((c) => c.course_name).join(', '); };
+      watchDates(m, '#t-start', '#t-end');
       $('#t-from', m.el).addEventListener('change', drawList);
       drawList();
       $('[data-save]', m.el).addEventListener('click', async (e) => {
         const f = readForm($('#term-form', m.el));
         const [from_year, from_semester] = String(f.from).split('-');
-        const data = { from_year, from_semester, year: f.year, semester: f.semester, start_at: f.start_at, end_at: f.end_at, close_old: !!f.close_old };
+        const data = { from_year, from_semester, year: f.year, semester: f.semester, start_at: f.start_at, end_at: f.end_at, result_open_date: f.result_open_date || '', close_old: !!f.close_old };
         const restore = CES.busyButton(e.currentTarget, '준비 중…');
         const res = await api('prepareNewTerm', [data]);
         restore();
@@ -1201,6 +1232,15 @@
           <p class="small muted">${esc(c.course_name)} · ${esc(termFull(c))} · 마감 ${esc(dt(c.end_at))}</p>
         </section>`;
       }
+      if (r.reason === 'NO_OPEN_DATE') {
+        return `<section class="card pad-lg center stack-lg" style="max-width:640px;margin:0 auto" data-no-open-date>
+          <div class="notice-icon">${icon('lock')}</div>
+          <div><h2>결과공개일을 정하지 않아 비공개입니다</h2>
+            <p class="muted small" style="margin-top:8px">결과공개일을 비워 두면 결과를 공개하지 않습니다. 날짜를 정하면 그날부터 결과·보고서를 볼 수 있습니다(오늘 날짜를 넣으면 바로 공개).</p></div>
+          <p class="small">현재 응답 <strong class="num">${r.n}</strong>명</p>
+          <div><button type="button" class="btn primary" data-act="edit-course" data-id="${esc(c.course_id)}">${icon('calendar-clock')}결과공개일 정하기</button></div>
+        </section>`;
+      }
       return `<section class="card pad-lg center stack-lg" style="max-width:640px;margin:0 auto">
           <div class="notice-icon">${icon('calendar-clock')}</div>
           <div><h2>${esc(r.open_date)}부터 결과를 볼 수 있습니다</h2>
@@ -1553,23 +1593,15 @@
     }
 
     /* ───── 결과 보고서 PDF(매뉴얼처럼 인쇄용으로 설계, 서버에서 생성 — 글자 검색 가능) ───── */
-    /** 차트 캔버스 → 카드 배경을 깐 PNG(투명 배경이 PDF에서 어색하지 않게) */
-    function canvasPng(el) {
-      if (!el || !el.width) return '';
-      const c = document.createElement('canvas');
-      c.width = el.width; c.height = el.height;
-      const g = c.getContext('2d');
-      g.fillStyle = getComputedStyle(el.closest('.card') || document.body).backgroundColor || '#fff';
-      g.fillRect(0, 0, c.width, c.height);
-      g.drawImage(el, 0, 0);
-      try { return c.toDataURL('image/png'); } catch (e) { return ''; }
-    }
-    /** 워드 클라우드 SVG → PNG(글자 색을 인라인으로 옮겨 CSS 없이도 같은 색) */
-    function svgPng(svg) {
+    /**
+     * 보고서용 차트 그림: 화면 차트를 그대로 복사하지 않고, 화면 밖에서 밝은 색·애니메이션 없음·고정 크기로 다시 그립니다.
+     * (다크 모드 색, 애니메이션 중간 상태, 큰 그림이 PDF 쪽 밖으로 넘치는 문제를 막음) 크기 비율은 서버 REPORT_IMAGE_SIZE와 같습니다.
+     */
+    const REPORT_PX = { radar: [640, 480], semester: [640, 300], section: [640, 300], wordcloud: [640, 360] };
+    function svgToPng(svg, w, h) {
       return new Promise((done) => {
         if (!svg) return done('');
         const box = svg.getBoundingClientRect();
-        const w = Math.max(1, Math.round(box.width)), h = Math.max(1, Math.round(box.height));
         const clone = svg.cloneNode(true);
         const src = svg.querySelectorAll('text'), dst = clone.querySelectorAll('text');
         src.forEach((t, i) => {
@@ -1577,29 +1609,83 @@
           dst[i].setAttribute('fill', cs.fill);
           dst[i].setAttribute('font-family', cs.fontFamily);
           dst[i].setAttribute('font-weight', cs.fontWeight);
+          dst[i].removeAttribute('class');
         });
         clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-        clone.setAttribute('width', w); clone.setAttribute('height', h);
+        const bw = Math.max(1, box.width), bh = Math.max(1, box.height);
+        clone.setAttribute('width', bw); clone.setAttribute('height', bh);
         const im = new Image();
         im.onload = () => {
           const c = document.createElement('canvas');
           c.width = w * 2; c.height = h * 2;
           const g = c.getContext('2d');
-          g.fillStyle = getComputedStyle(svg.closest('.card') || document.body).backgroundColor || '#fff';
-          g.fillRect(0, 0, c.width, c.height);
-          g.drawImage(im, 0, 0, c.width, c.height);
+          g.fillStyle = '#ffffff'; g.fillRect(0, 0, c.width, c.height);
+          const k = Math.min(c.width / bw, c.height / bh); // 비율 유지, 가운데 정렬
+          g.drawImage(im, (c.width - bw * k) / 2, (c.height - bh * k) / 2, bw * k, bh * k);
           try { done(c.toDataURL('image/png')); } catch (e) { done(''); }
         };
         im.onerror = () => done('');
         im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(clone));
       });
     }
+    async function reportImages(r) {
+      const root = document.documentElement, prevTheme = root.getAttribute('data-theme');
+      root.setAttribute('data-theme', 'light'); // 다크 모드여도 그림은 밝은 색으로
+      const box = document.createElement('div');
+      box.style.cssText = 'position:fixed;left:-10000px;top:0;pointer-events:none';
+      box.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(box);
+      const out = {}, made = [];
+      try {
+        if (window.Chart && r) {
+          const ink = cssVar('--ink'), muted = cssVar('--muted'), line = cssVar('--line'), primary = cssVar('--primary'), gray = cssVar('--chart-muted') || '#85848D';
+          const white = { id: 'ces-white', beforeDraw: (ch) => { const g = ch.ctx; g.save(); g.fillStyle = '#ffffff'; g.fillRect(0, 0, ch.width, ch.height); g.restore(); } };
+          const draw = (key, cfg) => {
+            const [w, h] = REPORT_PX[key];
+            const cv = document.createElement('canvas');
+            cv.style.width = w + 'px'; cv.style.height = h + 'px';
+            box.appendChild(cv);
+            cfg.options = Object.assign({ responsive: false, maintainAspectRatio: false, animation: false, devicePixelRatio: 2 }, cfg.options);
+            cfg.plugins = [white];
+            cv.width = w; cv.height = h;
+            const ch = new Chart(cv, cfg);
+            made.push(ch);
+            out[key] = cv.toDataURL('image/png');
+          };
+          const font = { family: getComputedStyle(document.body).fontFamily };
+          const doms = r.stats.domains;
+          if (doms.length >= 3) {
+            const gs = r.semester_compare.groups;
+            const cur = gs.findIndex((g) => g.current);
+            const prev = cur > 0 ? gs[cur - 1] : null;
+            const sets = [{ label: '이번 학기', data: doms.map((d) => d.mean), borderColor: primary, backgroundColor: primary + '22', borderWidth: 2, pointRadius: 4, pointBackgroundColor: primary }];
+            if (prev) sets.push({ label: prev.label, data: doms.map((d) => { const x = prev.domains.find((y) => y.domain === d.domain); return x ? x.mean : null; }), borderColor: gray, backgroundColor: 'transparent', borderDash: [5, 4], borderWidth: 2, pointRadius: 4, pointBackgroundColor: gray });
+            draw('radar', { type: 'radar', data: { labels: doms.map((d) => d.domain), datasets: sets }, options: {
+              scales: { r: { min: 1, max: 5, ticks: { stepSize: 1, backdropColor: 'transparent', color: muted, font }, grid: { color: line }, angleLines: { color: line }, pointLabels: { color: ink, font: Object.assign({ size: 13, weight: 600 }, font) } } },
+              plugins: { legend: { display: sets.length > 1, labels: { color: ink, usePointStyle: true, font } }, tooltip: { enabled: false } } } });
+          }
+          const lineOpts = { scales: { y: { min: 1, max: 5, ticks: { stepSize: 0.5, color: muted, font }, grid: { color: line } }, x: { grid: { display: false }, ticks: { color: ink, font } } }, plugins: { legend: { display: false }, tooltip: { enabled: false } } };
+          const sg = r.semester_compare.groups;
+          if (sg.length >= 2) draw('semester', { type: 'line', data: { labels: sg.map((x) => x.label), datasets: [{ data: sg.map((x) => x.overall), borderColor: primary, backgroundColor: primary, borderWidth: 2, pointRadius: sg.map((x) => (x.current ? 6 : 4)), tension: 0.25 }] }, options: lineOpts });
+          const cg = r.section_compare.groups;
+          if (cg.length >= 2) draw('section', { type: 'bar', data: { labels: cg.map((x) => x.label), datasets: [{ data: cg.map((x) => x.overall), backgroundColor: cg.map((x) => (x.current ? primary : gray)), borderRadius: 4, maxBarThickness: 48 }] }, options: lineOpts });
+        }
+        const [ww, wh] = REPORT_PX.wordcloud;
+        const wc = await svgToPng($('#wc svg'), ww, wh);
+        if (wc) out.wordcloud = wc;
+      } finally {
+        made.forEach((ch) => { try { ch.destroy(); } catch (e) { /* 무시 */ } });
+        box.remove();
+        if (prevTheme == null) root.removeAttribute('data-theme'); else root.setAttribute('data-theme', prevTheme);
+      }
+      return out;
+    }
+
     async function reportPdf(btn) {
       if (!$('#res-body .section-head')) return CES.toast('결과가 열린 교과목에서 저장할 수 있습니다(응답 수가 최소 공개 수 이상).', 'error');
       const restore = CES.busyButton(btn, '보고서 만드는 중…');
       try {
-        const images = { radar: canvasPng($('#radar')), semester: canvasPng($('#semChart')), section: canvasPng($('#secChart')), wordcloud: await svgPng($('#wc svg')) };
-        Object.keys(images).forEach((k) => { if (!images[k]) delete images[k]; });
+        const images = await reportImages(A.results);
         const res = await api('exportPdf', [A.resultsCourse, 'report', { images, aiSummary: ($('#ai-summary') || {}).value || '' }]);
         if (!res.ok) return fail(res);
         CES.downloadBase64(res.filename, res.base64, 'application/pdf');

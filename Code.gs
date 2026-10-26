@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.4.13',
+  VERSION: '1.4.14',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -391,7 +391,7 @@ function duplicateCore_(src, data) {
 
 /**
  * 새 학기 준비: 한 학기의 교과목을 모두 새 학기로 복제(새 접속코드·응답 기간)하고, 원하면 이전 학기 교과목을 마감합니다.
- * data: { from_year, from_semester, year, semester, start_at, end_at, close_old }
+ * data: { from_year, from_semester, year, semester, start_at, end_at, result_open_date, close_old }
  * 새 학기에 같은 이름(·반)의 교과목이 이미 있으면 건너뜁니다(두 번 눌러도 중복 없음).
  */
 function prepareNewTerm(session, data) {
@@ -411,7 +411,7 @@ function prepareNewTerm(session, data) {
       for (var i = 0; i < sources.length; i++) {
         var src = sources[i];
         if (exists[key(src)]) { skipped.push(src.course_name); continue; }
-        var r = duplicateCore_(src, { year: ty, semester: ts, start_at: data.start_at, end_at: data.end_at });
+        var r = duplicateCore_(src, { year: ty, semester: ts, start_at: data.start_at, end_at: data.end_at, result_open_date: data.result_open_date || '' });
         if (!r.ok) return r;
         made.push({ course_id: r.course_id, course_name: src.course_name, access_mode: src.access_mode, access_code: r.access_code });
       }
@@ -561,61 +561,9 @@ function getResults(session, courseId) {
   });
 }
 
-/** 원자료 CSV(행 순서 무작위, 수식 주입 방지). */
-function exportCsv(session, courseId) {
-  return adminApi_(session, function () {
-    var ctx = resultContext_(courseId);
-    if (!ctx.ok) return ctx;
-    if (ctx.locked) return lockedResult_(ctx);
-    var cols = rawColumns_(ctx);
-    var omitted = ctx.items.length - cols.length;
-    var header = ['번호', '제출일'].concat(cols.map(function (it, i) {
-      return (i + 1) + '. [' + it.domain + '] ' + it.text + (it.reverse ? ' (역문항·원점수)' : '');
-    }));
-    var lines = [header];
-    shuffle_(ctx.rows.slice()).forEach(function (r, i) {
-      lines.push([i + 1, dateOnly_(r.submitted_date)].concat(cols.map(function (it) {
-        return r[it.item_id] == null ? '' : r[it.item_id];
-      })));
-    });
-    return { ok: true, filename: exportName_(ctx.course, '원자료') + '.csv', content: toCsv_(lines), omitted: omitted };
-  });
-}
-
 /** 원자료에 넣을 문항 열. 소규모 집단이 생기는 드롭다운(성별 등) 열은 응답자 특정 위험이 있어 제외합니다. */
 function rawColumns_(ctx) {
   return ctx.items.filter(function (it) { return it.type !== 'select' || selectGroups_(it, ctx.rows, ctx.minN).safe; });
-}
-
-/** CQI 요약표 CSV(영역별 평균·표준편차, 강점·개선점). */
-function exportCqi(session, courseId) {
-  return adminApi_(session, function () {
-    var ctx = resultContext_(courseId);
-    if (!ctx.ok) return ctx;
-    if (ctx.locked) return lockedResult_(ctx);
-    var stats = computeStats_(ctx.items, ctx.rows);
-    var cqi = cqiSummary_(stats);
-    var c = ctx.summary;
-    var lines = [
-      ['CQI 요약표', c.course_name],
-      ['학년도·학기', c.year + '학년도 ' + c.semester + '학기', '학과', c.department, '학년', c.grade, '분반', c.section, '수업 방식', c.delivery_mode, '교과목 유형', c.course_type],
-      ['응답 수', ctx.rows.length, '수강인원', c.enrollment || '', '응답률(%)', c.response_rate == null ? '' : c.response_rate],
-      ['전체 평균(5점)', stats.overall == null ? '' : stats.overall],
-      [],
-      ['영역', '문항 수', '평균', '표준편차', '긍정 응답률(%)', '해석']
-    ];
-    stats.domains.forEach(function (d) {
-      lines.push([d.domain, d.item_count, d.mean, d.sd, d.pos_pct, interpretMean_(d.mean)]);
-    });
-    lines.push([]);
-    lines.push(['구분', '영역', '문항', '평균', '표준편차']);
-    cqi.strengths.forEach(function (s) { lines.push(['강점', s.domain, s.text, s.mean, s.sd]); });
-    cqi.improvements.forEach(function (s) { lines.push(['개선점', s.domain, s.text, s.mean, s.sd]); });
-    lines.push([]);
-    lines.push(['개선 계획(교수 작성)', '']);
-    lines.push(['※ 본 자료는 학교 공식 강의평가가 아닌 교수자 자율형 형성평가·CQI 자료입니다.']);
-    return { ok: true, filename: exportName_(ctx.course, 'CQI요약') + '.csv', content: toCsv_(lines) };
-  });
 }
 
 /** 서술형 전체 텍스트(AI 요약용). 문항별로 무작위 순서. */
@@ -715,7 +663,7 @@ function pdfDocument_(title, ctx, body) {
     'table.info th{width:22%;background:#f3f2fb}table.kpis td.kpi{text-align:center;width:25%;padding:8px 4px;background:#fafafe}' +
     '.kt{color:#5b6078;font-size:8.5pt}.kb{font-size:20pt;font-weight:bold;color:#3d2fd6;line-height:1.2}.kb small{font-size:9pt;color:#5b6078}.ks{font-size:8pt;color:#5b6078}' +
     '.bar{background:#ebeaf3;height:8px;width:100%}.bar div{height:8px}.dist{height:8px;width:100%;background:#f1f0ec;white-space:nowrap;font-size:0}.dist div{display:inline-block;height:8px}' +
-    'td.nw{white-space:nowrap}.fig{text-align:center;margin:8px 0 12px;page-break-inside:avoid}.fig img{max-width:100%;max-height:300px}.cap{font-size:8.5pt;color:#5b6078;margin-top:2px}' +
+    'td.nw{white-space:nowrap}.fig{text-align:center;margin:8px 0 12px;page-break-inside:avoid}.fig img{border:1px solid #e7e4de}.cap{font-size:8.5pt;color:#5b6078;margin-top:2px}' +
     '.good{background:#DDF3E4;padding:8px 10px;margin:8px 0}.improve{background:#FFE8A3;padding:8px 10px;margin:8px 0}' +
     '</style></head><body>' +
     '<h1>' + escHtml_(title) + '</h1>' +
@@ -763,6 +711,8 @@ function rawPdfBody_(ctx) {
 /** 결과 보고서 PDF에 넣을 차트 그림(브라우저가 만든 PNG). 형식·크기를 확인해 안전한 것만 씁니다. */
 var REPORT_IMAGE_KEYS = ['radar', 'semester', 'section', 'wordcloud'];
 var REPORT_IMAGE_MAX = 3 * 1024 * 1024; // 그림 1개 최대 3MB(base64 길이)
+/** 보고서 그림 표시 크기(px). 브라우저는 radar 4:3, 비교 차트 32:15, 워드 클라우드 16:9로 그립니다. */
+var REPORT_IMAGE_SIZE = { radar: [480, 360], semester: [480, 225], section: [480, 225], wordcloud: [480, 270] };
 
 function reportImages_(opts) {
   var src = opts && opts.images && typeof opts.images === 'object' ? opts.images : {};
@@ -803,8 +753,11 @@ function reportPdfBody_(ctx, opts) {
   var c = ctx.summary;
   var settings = getSettingsMap_();
   var f = function (v) { return v == null ? '—' : String(v); };
+  // 그림 크기를 px로 고정(PDF 변환기에서 쪽 밖으로 넘치지 않게). 브라우저가 같은 비율로 그려 보냅니다.
   var figure = function (key, caption) {
-    return img[key] ? '<div class="fig"><img src="' + img[key] + '"><div class="cap">' + escHtml_(caption) + '</div></div>' : '';
+    var size = REPORT_IMAGE_SIZE[key];
+    return img[key] ? '<div class="fig"><img src="' + img[key] + '" width="' + size[0] + '" height="' + size[1] + '" style="width:' + size[0] + 'px;height:' + size[1] + 'px">' +
+      '<div class="cap">' + escHtml_(caption) + '</div></div>' : '';
   };
   var no = 0;
   var h2 = function (t) { no++; return '<h2><span class="no">' + no + '</span> ' + escHtml_(t) + '</h2>'; };
@@ -965,7 +918,8 @@ function lockedResult_(ctx) {
 /** 잠금 사유: 'MIN_RESPONSES' | 'BEFORE_OPEN_DATE' | null */
 function resultLock_(course, n, minN, now) {
   if (n < minN) return 'MIN_RESPONSES';
-  if (course.result_open_date && fmtD_(now) < fmtD_(course.result_open_date)) return 'BEFORE_OPEN_DATE';
+  if (!course.result_open_date) return 'NO_OPEN_DATE'; // 결과공개일을 정하지 않으면 비공개
+  if (fmtD_(now) < fmtD_(course.result_open_date)) return 'BEFORE_OPEN_DATE';
   return null;
 }
 
@@ -2012,11 +1966,3 @@ function exportName_(c, kind) {
     .replace(/[\\/:*?"<>|\s]+/g, '_');
 }
 
-function toCsv_(lines) {
-  return lines.map(function (cols) {
-    return cols.map(function (v) {
-      var s = guardFormula_(v == null ? '' : String(v));
-      return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-    }).join(',');
-  }).join('\r\n');
-}
