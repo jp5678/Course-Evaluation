@@ -1207,3 +1207,18 @@ test('결과공개일(선택): 비워 두면 응답 중에도 바로 공개, 정
   assert.ok(server.getCourses_().filter((x) => /^demo/.test(x.course_id)).every((x) => !x.result_open_date));
   assert.ok(!('open_date_default_applied' in server.getSettingsMap_()));
 });
+
+test('응답 추이: 진행 중 교과목의 날짜별 응답 수(시작일~오늘), 내용·시각 없음, 오래전 마감 교과목은 제외', () => {
+  const { server } = H.makeServer({ pin: '246810' });
+  const s = H.login(server, '246810');
+  const now = Date.now();
+  const id = H.createCourse(server, s, { start_at: H.iso(new Date(now - 2 * 86400000)), end_at: H.iso(new Date(now + 5 * 86400000)) });
+  for (let i = 0; i < 3; i++) server.submitResponse(id, H.codeOf(server, id), H.fullAnswers(server.itemsForCourse_(server.findCourse_(id))));
+  const c = server.getAdminBootstrap(s).courses.find((x) => x.course_id === id);
+  assert.equal(c.timeline.length, 3, '시작일부터 오늘까지 3일');
+  assert.deepEqual(c.timeline.map((x) => x.n), [0, 0, 3], '오늘 3명');
+  assert.ok(c.timeline.every((x) => Object.keys(x).join() === 'd,n' && /^\d{4}-\d{2}-\d{2}$/.test(x.d)), '날짜·개수만');
+  const old = H.createCourse(server, s, { start_at: '2025-03-01T09:00', end_at: '2025-03-10T23:59' });
+  assert.deepEqual(server.getAdminBootstrap(s).courses.find((x) => x.course_id === old).timeline, [], '오래전 마감은 제외');
+  H.GasMock.assertSerializable(server.getAdminBootstrap(s));
+});

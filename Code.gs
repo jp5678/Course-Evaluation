@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.4.15',
+  VERSION: '1.4.16',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -282,6 +282,7 @@ function getAdminBootstrap(session) {
       summary.est_minutes = estMinutes_(its);
       var todayKey = fmtD_(now);
       summary.today_count = rows.filter(function (r) { return dateOnly_(r.submitted_date) === todayKey; }).length; // 오늘(한국 시간) 새 응답
+      summary.timeline = responseTimeline_(c, rows, now);
       summary.tokens_total = (tokenStats[c.course_id] || {}).total || 0;
       summary.tokens_used = (tokenStats[c.course_id] || {}).used || 0;
       return summary;
@@ -1675,6 +1676,28 @@ function deliveryMode_(v) {
   var s = String(v == null ? '' : v).trim();
   s = APP.DELIVERY_RENAMED[s] || s;
   return APP.DELIVERY.indexOf(s) >= 0 ? s : '대면';
+}
+
+/**
+ * 대시보드 「응답 추이」: 날짜별 응답 수(응답 시작일 ~ 오늘 또는 종료일, 최대 60일).
+ * 진행 중이거나 최근 14일 안에 마감한 교과목만. 날짜별 개수만 보내고 응답 내용·시각은 보내지 않습니다.
+ */
+function responseTimeline_(course, rows, now) {
+  if (!course.start_at || !course.end_at) return [];
+  var recent = now.getTime() - course.end_at.getTime() <= 14 * 86400000;
+  if (now.getTime() < course.start_at.getTime() || !recent) return [];
+  var counts = {};
+  rows.forEach(function (r) { var k = dateOnly_(r.submitted_date); if (k) counts[k] = (counts[k] || 0) + 1; });
+  var last = course.end_at.getTime() < now.getTime() ? course.end_at : now;
+  var day = new Date(course.start_at.getTime());
+  var out = [], guard = 0, endKey = fmtD_(last);
+  while (guard++ < 60) {
+    var key = fmtD_(day);
+    out.push({ d: key, n: counts[key] || 0 });
+    if (key >= endKey) break;
+    day = new Date(day.getTime() + 86400000);
+  }
+  return out;
 }
 
 function minResponses_(settings) {

@@ -650,6 +650,36 @@ test('날짜 즉시 확인·결과공개일 바꾸기(비우면 바로 공개)·
   assert.equal(await page.evaluate(() => document.documentElement.getAttribute('data-theme')), null, '화면 테마 원래대로');
 });
 
+test('대시보드 응답 추이: 날짜별 누적 그래프, 새 응답 → [지금 새로 고침]·1분 자동 갱신으로 반영', async () => {
+  const page = await newPage({ viewport: { width: 1280, height: 900 } });
+  await page.clock.install();
+  await page.goto(base + '?scenario=admin&page=admin');
+  await page.locator('#pin').fill('123456');
+  await page.getByRole('button', { name: '로그인' }).click();
+  await page.locator('[data-trend]').waitFor();
+  await page.locator('#trendChart').waitFor();
+  const cid = await page.evaluate(() => window.__PREVIEW.courseId);
+  const name = await page.evaluate((id) => window.__server.findCourse_(id).course_name, cid);
+  const count = async () => Number((await page.locator('.trend-sum li', { hasText: name }).first().innerText()).match(/누적 (\d+)명/)[1]);
+  const before = await count();
+  const add = () => page.evaluate((id) => {
+    const sv = window.__server;
+    return sv.submitResponse(id, sv.findCourse_(id).access_code, Object.fromEntries(sv.itemsForCourse_(sv.findCourse_(id)).map((it) => [it.item_id, it.type === 'text' ? '좋아요' : it.type === 'likert5' ? 4 : (it.options[0] || '')]))).ok;
+  }, cid);
+  assert.equal(await add(), true);
+  await page.getByRole('button', { name: '지금 새로 고침' }).click();
+  await page.getByText('최신 응답으로 새로 고쳤습니다.').waitFor();
+  assert.equal(await count(), before + 1, '수동 새로 고침 반영');
+  await shot(page, 'd14-dashboard-trend');
+  // 1분 자동 갱신
+  assert.equal(await add(), true);
+  await page.clock.fastForward(61000);
+  await page.waitForFunction((args) => {
+    const li = Array.from(document.querySelectorAll('.trend-sum li')).find((x) => x.textContent.includes(args.name));
+    return li && li.textContent.includes('누적 ' + args.n + '명');
+  }, { name, n: before + 2 }, { timeout: 15000 });
+});
+
 test('사용 매뉴얼 탭: 맨 위 메뉴 끝, 12개 장, 차례로 펼치기·모두 펼치기, 360px 넘침 없음', async () => {
   const page = await newPage();
   await page.goto(base + '?scenario=admin&page=admin');
