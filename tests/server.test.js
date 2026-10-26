@@ -14,9 +14,9 @@ test('setup: 탭·헤더·기본 문항 은행·이번 학기 교과목 예시 3
     assert.deepEqual(st.sheets[name].values[0].slice(0, server.HEADERS[name].length), server.HEADERS[name]);
   }
   const tpl = server.getItems_('TEMPLATE');
-  assert.equal(tpl.length, 27, '리커트 24(F 영역 5개) + 서술형 3');
+  assert.equal(tpl.length, 31, '리커트 28(F 5개·학습 참여 4개) + 서술형 3');
   const doms = [...new Set(tpl.map((i) => i.domain))];
-  assert.deepEqual(doms, ['A. 강의 설계', 'B. 교수학습방법', 'C. 평가 및 과제', 'E. 학습 환경', 'F. 디지털·AI 활용', 'G. 종합', 'H. 온라인(비대면) 강의', '서술형']);
+  assert.deepEqual(doms, ['A. 강의 설계', 'B. 교수학습방법', 'C. 평가 및 과제', 'E. 학습 환경', 'F. 디지털·AI 활용', 'G. 학습 참여(자기평가)', 'H. 종합', 'I. 온라인(비대면) 강의', '서술형']);
   assert.ok(tpl.some((i) => /유무선 인터넷/.test(i.text)) && tpl.some((i) => /실습실의 시설/.test(i.text)) && tpl.some((i) => /이론 강의실/.test(i.text)), '학습 환경 문항');
   assert.equal(tpl.filter((i) => i.scope === 'online').length, 4, '온라인 전용 문항 4개');
   assert.match(tpl.find((i) => i.scope === 'theory').text, /^이론 강의실/);
@@ -38,13 +38,13 @@ test('setup: 탭·헤더·기본 문항 은행·이번 학기 교과목 예시 3
   assert.ok(cs.every((c) => server.itemsForCourse_(c).every((i) => i.required)), '예시 교과목 문항도 모두 필수');
   assert.equal(cs[0].course_name, '디지털리터러시와 AI활용');
   assert.equal(cs[0].delivery_mode, '대면', '디지털리터러시와 AI활용은 대면으로 초기 설정');
-  assert.equal(server.itemsForCourse_(cs[0]).length, 28, '대면: 온라인 문항 제외 + CLO 5');
-  assert.equal(server.itemsForCourse_(cs[1]).length, 32, '혼합: 온라인 문항 포함 + CLO 5');
+  assert.equal(server.itemsForCourse_(cs[0]).length, 32, '대면: 온라인 문항 제외 + CLO 5 + 학습 참여 4');
+  assert.equal(server.itemsForCourse_(cs[1]).length, 36, '혼합: 온라인 문항 포함 + CLO 5 + 학습 참여 4');
   assert.equal(st.sheets.Responses.protections[0].warningOnly, true, 'Responses 경고 보호');
   assert.equal(st.sheets.Tokens.protections[0].warningOnly, true, 'Tokens 경고 보호');
 
   server.setup();
-  assert.equal(server.getItems_('TEMPLATE').length, 27, '재실행 시 문항 중복 없음');
+  assert.equal(server.getItems_('TEMPLATE').length, 31, '재실행 시 문항 중복 없음');
   assert.equal(server.getCourses_().length, 3, '재실행 시 교과목 중복 없음');
 });
 
@@ -94,7 +94,7 @@ test('학생: 접속코드 확인 → 제출, 날짜만 저장(시각·식별정
   assert.equal(server.verifyAccess(c.course_id, 'WRONG').code, 'BAD_CODE');
   const v = server.verifyAccess(c.course_id, c.access_code.toLowerCase());
   assert.equal(v.ok, true, '대소문자 무시');
-  assert.equal(v.items.length, 28);
+  assert.equal(v.items.length, 32);
 
   const r = server.submitResponse(c.course_id, c.access_code, H.fullAnswers(v.items), 'nonce-aaaaaaaaaaaaaaaa');
   assert.equal(r.ok, true);
@@ -868,7 +868,7 @@ test('PDF 내보내기: 원자료·CQI 요약표·서술형(잠금 규칙 동일
   assert.match(rawHtml, /^%PDF-MOCK application\/pdf/);
   assert.match(rawHtml, /강의평가 원자료/);
   assert.match(rawHtml, /디지털리터러시와 AI활용/);
-  assert.match(rawHtml, /Q28/, '28문항 번호표');
+  assert.match(rawHtml, /Q32/, '32문항 번호표');
   assert.equal((rawHtml.match(/<tr><td class="n">31<\/td>/g) || []).length >= 1, true, '응답 31행');
   assert.ok(!rawHtml.includes('<script>x</script>'), 'HTML 이스케이프');
   assert.ok(rawHtml.includes('&lt;script&gt;'));
@@ -898,9 +898,9 @@ test('샘플 응답: 모든 예시 교과목 생성, 교과목별 열 범위 안
   assert.equal(dl.course, '디지털리터러시와 AI활용');
   assert.equal(dl.from, 'D');
   const colNum = (s) => s.split('').reduce((a, ch) => a * 26 + ch.charCodeAt(0) - 64, 0);
-  assert.equal(colNum(dl.to) - colNum(dl.from) + 1, 28, '대면 28문항');
+  assert.equal(colNum(dl.to) - colNum(dl.from) + 1, 32, '대면 32문항');
   assert.equal(colNum(ai.from), colNum(dl.to) + 1, 'AI융합 열은 바로 오른쪽부터');
-  assert.equal(colNum(ai.to) - colNum(ai.from) + 1, 32, '혼합 32문항');
+  assert.equal(colNum(ai.to) - colNum(ai.from) + 1, 36, '혼합 36문항');
   // 실제 값: 각 교과목 행은 자기 범위에서 모두 채워짐
   const t = server.readTable_('Responses');
   server.getCourses_().forEach((c, k) => {
@@ -1110,20 +1110,20 @@ test('전공심화과정: 2026-2학기, 실무 적용 문항 2개(I 영역, 서�
   const deep = server.getCourses_().find((c) => c.course_name === 'AI융합 간호정보학(전공심화과정)');
   assert.deepEqual([deep.year, deep.semester, deep.grade, deep.course_type, deep.delivery_mode], [2026, '2', '4', '이론+실습', '온라인(비대면)']);
   const items = server.itemsForCourse_(deep);
-  assert.equal(items.length, 34, '32 + 실무 적용 2');
+  assert.equal(items.length, 38, '36 + 실무 적용 2');
   const doms = items.map((i) => i.domain);
-  const iIdx = doms.map((d, k) => (d === 'I. 실무 적용' ? k : -1)).filter((k) => k >= 0);
-  assert.equal(iIdx.length, 2, 'I. 실무 적용 2문항');
+  const iIdx = doms.map((d, k) => (d === 'J. 실무 적용' ? k : -1)).filter((k) => k >= 0);
+  assert.equal(iIdx.length, 2, 'J. 실무 적용 2문항');
   assert.match(items[iIdx[0]].text, /임상 현장에 적용/);
   assert.match(items[iIdx[1]].text, /효율성/);
-  assert.equal(doms[iIdx[0] - 1], 'H. 온라인(비대면) 강의', 'H 영역 바로 뒤');
+  assert.equal(doms[iIdx[0] - 1], 'I. 온라인(비대면) 강의', '온라인 영역 바로 뒤');
   assert.equal(doms[iIdx[1] + 1], '서술형', '서술형 바로 앞');
   assert.ok(!items.some((i) => i.domain === 'F. 디지털·AI 활용' && /임상 현장에 적용|효율성을 높이/.test(i.text)), 'F 영역에는 없음');
   // 결과 화면에서도 영역으로 분리
   const s0 = H.login(server, '246810');
   server.generateSampleResponses();
   const res = server.getResults(s0, deep.course_id);
-  assert.ok(res.ok && res.stats.domains.some((d) => d.domain === 'I. 실무 적용' && d.item_count === 2), '결과 영역 I');
+  assert.ok(res.ok && res.stats.domains.some((d) => d.domain === 'J. 실무 적용' && d.item_count === 2), '결과 영역 J');
   server.deleteSampleData(true);
   // 이전 버전(v1.4.5)처럼 F 영역에 들어간 경우 → setup이 I 영역으로 옮김
   const t = server.readTable_('Items');
@@ -1131,9 +1131,9 @@ test('전공심화과정: 2026-2학기, 실무 적용 문항 2개(I 영역, 서�
   t.rows.filter((r) => r.course_id === deep.course_id && /임상 현장에 적용|효율성을 높이/.test(r.text)).forEach((r) => t.sheet.getRange(r._row, dcol).setValue('F. 디지털·AI 활용'));
   server.setup();
   const moved = server.itemsForCourse_(deep);
-  assert.equal(moved.filter((i) => i.domain === 'I. 실무 적용').length, 2, 'F → I 이동');
-  assert.equal(moved.length, 34);
-  assert.equal(moved[moved.length - 4].domain, 'I. 실무 적용', '서술형 앞 위치');
+  assert.equal(moved.filter((i) => i.domain === 'J. 실무 적용').length, 2, 'F → J 이동');
+  assert.equal(moved.length, 38);
+  assert.equal(moved[moved.length - 4].domain, 'J. 실무 적용', '서술형 앞 위치');
   // CLO는 AI융합 간호정보학과 동일
   const base = server.getCourses_().find((c) => c.course_name === 'AI융합 간호정보학');
   const clo = (c) => server.getItems_(c.course_id).filter((i) => i.domain === 'D. 학습성과(CLO)').map((i) => i.text);
@@ -1143,7 +1143,7 @@ test('전공심화과정: 2026-2학기, 실무 적용 문항 2개(I 영역, 서�
   const kept = server.getItems_(deep.course_id).filter((i) => !/임상 현장에 적용|효율성을 높이/.test(i.text));
   assert.equal(server.saveItems(s, deep.course_id, kept).ok, true);
   server.setup();
-  assert.equal(server.itemsForCourse_(deep).length, 32, '교수가 지운 문항은 다시 넣지 않음');
+  assert.equal(server.itemsForCourse_(deep).length, 36, '교수가 지운 문항은 다시 넣지 않음');
 });
 
 test('단축 주소 기능 삭제: setup이 short_url·short_url_target 행을 지우고 학생 주소는 유지', () => {
@@ -1232,4 +1232,35 @@ test('응답 추이: 응답 기간이 60일보다 길면 최근 60일(오늘 포
   const tl = server.getAdminBootstrap(s).courses.find((x) => x.course_id === id).timeline;
   assert.equal(tl.length, 60, '최근 60일');
   assert.equal(tl[tl.length - 1].n, 1, '마지막 날(오늘) 응답 포함');
+});
+
+test('학습 참여(자기평가) 영역: 종합 바로 앞 4문항, 이전 영역 이름 자동 변경, 응답이 있는 교과목은 문항 유지', () => {
+  const { server } = H.makeServer({ pin: '246810' });
+  const s = H.login(server, '246810');
+  const tpl = server.getItems_('TEMPLATE');
+  const g = tpl.filter((i) => i.domain === 'G. 학습 참여(자기평가)');
+  assert.equal(g.length, 4);
+  assert.match(g[0].text, /플립러닝/);
+  const idx = tpl.findIndex((i) => i.domain === 'H. 종합');
+  assert.equal(tpl[idx - 1].domain, 'G. 학습 참여(자기평가)', '종합 바로 앞');
+  // 이전 버전 시트: 학습 참여 없음, 영역 이름이 예전(G. 종합 / H. 온라인)
+  const answered = H.createCourse(server, s, { delivery_mode: '혼합' });
+  const fresh = H.createCourse(server, s, { delivery_mode: '혼합' });
+  const t = server.readTable_('Items');
+  const dcol = t.headers.indexOf('domain') + 1;
+  const back = { 'H. 종합': 'G. 종합', 'I. 온라인(비대면) 강의': 'H. 온라인(비대면) 강의' };
+  t.rows.forEach((r) => { if (back[r.domain]) t.sheet.getRange(r._row, dcol).setValue(back[r.domain]); });
+  for (const id of [answered, fresh]) server.saveItems(s, id, server.getItems_(id).filter((i) => i.domain !== 'G. 학습 참여(자기평가)'));
+  const st = server.readTable_('Settings');
+  st.sheet.getRange(st.rows.find((r) => r.key === 'engage_items_added')._row, 2).setValue('TEMPLATE');
+  assert.ok(server.getItems_(fresh).some((i) => i.domain === 'H. 종합'), '읽을 때 이전 이름 → 새 이름');
+  server.submitResponse(answered, H.codeOf(server, answered), H.fullAnswers(server.itemsForCourse_(server.findCourse_(answered))));
+  server.setup();
+  assert.ok(!server.readTable_('Items').rows.some((r) => back[r.domain] === undefined && /^G\. 종합$|^H\. 온라인/.test(r.domain)), '시트 영역 이름 변경');
+  assert.equal(server.getItems_(fresh).filter((i) => i.domain === 'G. 학습 참여(자기평가)').length, 4, '응답 없는 교과목에 추가');
+  assert.equal(server.getItems_(answered).filter((i) => i.domain === 'G. 학습 참여(자기평가)').length, 0, '응답 있는 교과목은 그대로');
+  // 교수가 지우면 다시 넣지 않음
+  server.saveItems(s, fresh, server.getItems_(fresh).filter((i) => i.domain !== 'G. 학습 참여(자기평가)'));
+  server.setup();
+  assert.equal(server.getItems_(fresh).filter((i) => i.domain === 'G. 학습 참여(자기평가)').length, 0);
 });

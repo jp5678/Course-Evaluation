@@ -7,6 +7,8 @@
  * 표시 조건: 'online'=온라인(비대면)·혼합 수업만, 'theory'=이론이 있는 교과목만, 'practice'=실습이 있는 교과목만
  * D 영역(학습성과·CLO)은 교과목마다 다르므로 교과목에서 입력합니다.
  */
+var ENGAGE_DOMAIN = 'G. 학습 참여(자기평가)';
+
 var DEFAULT_ITEMS = [
   ['A. 강의 설계', '강의계획서에 제시된 내용과 실제 수업이 일치하였다.', 'likert5'],
   ['A. 강의 설계', '수업 목표가 명확하게 제시되었다.', 'likert5'],
@@ -26,18 +28,23 @@ var DEFAULT_ITEMS = [
   ['F. 디지털·AI 활용', '수업에서 사용하는 디지털 도구·AI의 사용 방법을 충분히 안내받았다.', 'likert5'],
   ['F. 디지털·AI 활용', 'AI가 제시한 정보의 정확성과 근거를 비판적으로 검토하는 능력이 향상되었다.', 'likert5'],
   ['F. 디지털·AI 활용', 'AI 활용 시 윤리·저작권·개인정보(환자정보) 보호의 중요성을 이해하게 되었다.', 'likert5'],
-  ['G. 종합', '이 수업에 전반적으로 만족한다.', 'likert5'],
-  ['G. 종합', '이 수업을 후배에게 추천하고 싶다.', 'likert5'],
-  ['H. 온라인(비대면) 강의', '온라인 강의 영상·음성의 품질이 학습하기에 적절하였다.', 'likert5', null, 'online'],
-  ['H. 온라인(비대면) 강의', '온라인 학습 플랫폼(LMS) 접속과 사용이 원활하였다.', 'likert5', null, 'online'],
-  ['H. 온라인(비대면) 강의', '온라인 수업에서도 질문·토론 등 상호작용 기회가 충분하였다.', 'likert5', null, 'online'],
-  ['H. 온라인(비대면) 강의', '온라인 강의 자료와 공지가 제때 제공되었다.', 'likert5', null, 'online'],
+  // G. 학습 참여(자기평가): 학생 자신의 수업 준비·참여·과제·시험 준비(v1.4.18)
+  [ENGAGE_DOMAIN, '나는 플립러닝 사전 학습(동영상·자료 읽기) 등 수업 준비를 성실히 하였다.', 'likert5'],
+  [ENGAGE_DOMAIN, '나는 수업 중 질문·토론·실습 등 수업 활동에 적극적으로 참여하였다.', 'likert5'],
+  [ENGAGE_DOMAIN, '나는 과제를 기한 내에 성실하게 수행하였다.', 'likert5'],
+  [ENGAGE_DOMAIN, '나는 시험 준비를 위해 수업 내용을 꾸준히 복습하였다.', 'likert5'],
+  ['H. 종합', '이 수업에 전반적으로 만족한다.', 'likert5'],
+  ['H. 종합', '이 수업을 후배에게 추천하고 싶다.', 'likert5'],
+  ['I. 온라인(비대면) 강의', '온라인 강의 영상·음성의 품질이 학습하기에 적절하였다.', 'likert5', null, 'online'],
+  ['I. 온라인(비대면) 강의', '온라인 학습 플랫폼(LMS) 접속과 사용이 원활하였다.', 'likert5', null, 'online'],
+  ['I. 온라인(비대면) 강의', '온라인 수업에서도 질문·토론 등 상호작용 기회가 충분하였다.', 'likert5', null, 'online'],
+  ['I. 온라인(비대면) 강의', '온라인 강의 자료와 공지가 제때 제공되었다.', 'likert5', null, 'online'],
   ['서술형', '이 수업에서 가장 도움이 된 점은 무엇인가요?', 'text'],
   ['서술형', '교수학습방법·평가·과제에서 개선이 필요한 점을 적어 주세요.', 'text'],
   ['서술형', '다음 학기 수업에 바라는 점이 있다면 적어 주세요.', 'text'] // 모든 문항은 필수(setup이 기본 문항을 필수로 생성)
 ];
 
-var PRACTICE_DOMAIN = 'I. 실무 적용';
+var PRACTICE_DOMAIN = 'J. 실무 적용';
 
 /** 이번 학기 교과목 예시(샘플). 교과목명·학년은 실제 담당 교과목, 수강인원·기간은 예시값입니다. */
 var SAMPLE_COURSES = [
@@ -196,6 +203,9 @@ function setup() {
 
   // 수업 방식 이름 변경(비대면 → 온라인(비대면))을 시트에도 반영
   renameDeliveryModes_();
+  // v1.4.18: 영역 기호 재배치(종합 G→H, 온라인 H→I, 실무 적용 I→J)와 「G. 학습 참여(자기평가)」 문항 추가
+  relabelDomains_();
+  addEngageItems_();
   // 교과목별 추가 문항(예: 전공심화과정 실무 적용) — 응답이 없는 교과목에 한 번만
   addCourseExtraItems_();
 
@@ -773,4 +783,36 @@ function moveExtraItems_(courseId, extra) {
   })));
   addMissingItems_(courseId, extra, 0);
   return wrong.length;
+}
+
+/** Items 시트의 이전 영역 이름을 새 이름으로(응답은 문항 ID로 저장되므로 영향 없음). 바꾼 수를 돌려줍니다. */
+function relabelDomains_() {
+  var t = readTable_(APP.SHEETS.ITEMS);
+  var col = HEADERS.Items.indexOf('domain') + 1;
+  var n = 0;
+  t.rows.forEach(function (r) {
+    var next = DOMAIN_RENAMED[String(r.domain)];
+    if (next) { t.sheet.getRange(r._row, col).setValue(next); n++; }
+  });
+  return n;
+}
+
+/**
+ * 「G. 학습 참여(자기평가)」 문항을 기본 문항 은행과 응답이 없는 교과목에 넣습니다.
+ * 교과목마다 한 번만(교수가 지운 문항은 다시 넣지 않음), 응답이 있는 교과목은 설문 구성이 바뀌므로 건너뜁니다.
+ */
+function addEngageItems_() {
+  var wanted = DEFAULT_ITEMS.filter(function (d) { return d[0] === ENGAGE_DOMAIN; })
+    .map(function (d) { return { domain: d[0], text: d[1], type: d[2], scope: '' }; });
+  var done = String(getSettingsMap_().engage_items_added || '').split('\n').filter(String);
+  var used = {};
+  readResponses_().forEach(function (r) { used[String(r.course_id)] = true; });
+  var n = 0;
+  [APP.TEMPLATE_ID].concat(getCourses_().map(function (c) { return c.course_id; })).forEach(function (id) {
+    if (done.indexOf(id) >= 0) return;
+    if (!used[id]) n += addMissingItems_(id, wanted, 0);
+    done.push(id);
+  });
+  setSetting_('engage_items_added', done.join('\n'), '학습 참여(자기평가) 문항을 넣은 교과목 ID(다시 넣지 않음). 직접 수정 금지');
+  return n;
 }

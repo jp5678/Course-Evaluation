@@ -99,7 +99,7 @@ test('학생 360px: 진입→접속코드→익명 안내→설문(키보드 1~5
   assert.ok(sizes.every(([w, h]) => w >= 48 && h >= 48), '칩 최소 48px: ' + JSON.stringify(sizes));
   // 진행 바 접근성 속성
   const pb = await page.getAttribute('.progress', 'aria-valuetext');
-  assert.match(pb, /28개 문항 중 1번째/);
+  assert.match(pb, /32개 문항 중 1번째/);
   assert.equal(await page.locator('.chip .emo').count(), 5, '이모지 칩');
   await noHorizontalScroll(page, '설문');
   await shot(page, 'm03-question');
@@ -173,7 +173,7 @@ test('이전 버전 링크(?c=…&k=… / &t=…): 자동 접속 없이 안내 �
   await page.locator('#ct').waitFor();
 });
 
-test('혼합 수업 교과목: 온라인 문항(H) 포함 32문항, 성별 문항 없음, 모든 문항 필수', async () => {
+test('혼합 수업 교과목: 온라인 문항(I) 포함 36문항, 성별 문항 없음, 모든 문항 필수', async () => {
   const page = await newPage();
   await page.goto(base + '?scenario=student');
   const { onlineCourseId, onlineCode } = await page.evaluate(() => window.__PREVIEW);
@@ -184,7 +184,7 @@ test('혼합 수업 교과목: 온라인 문항(H) 포함 32문항, 성별 문�
   await page.getByRole('button', { name: '확인' }).click();
   await page.getByRole('button', { name: '동의하고 시작' }).click();
   await page.waitForSelector('.likert');
-  assert.match(await page.getAttribute('.progress', 'aria-valuetext'), /32개 문항 중 1번째/);
+  assert.match(await page.getAttribute('.progress', 'aria-valuetext'), /36개 문항 중 1번째/);
   let sawOnline = false, sawCheer = false, sawSelect = false;
   for (let guard = 0; guard < 40; guard++) {
     if (await page.locator('#rv').count()) break;
@@ -713,12 +713,12 @@ test('문항 편집: 영역 드롭다운에 모든 영역 표시, 영역 변경,
   await page.waitForSelector('#dom-0');
   assert.equal(await page.evaluate(() => document.getElementById('dom-0').tagName), 'SELECT', '영역은 드롭다운');
   const opts = await page.$$eval('#dom-0 option', (os) => os.map((o) => o.textContent.trim()));
-  ['A. 강의 설계', 'B. 교수학습방법', 'C. 평가 및 과제', 'D. 학습성과(CLO)', 'E. 학습 환경', 'F. 디지털·AI 활용', 'G. 종합', 'H. 온라인(비대면) 강의', '서술형']
+  ['A. 강의 설계', 'B. 교수학습방법', 'C. 평가 및 과제', 'D. 학습성과(CLO)', 'E. 학습 환경', 'F. 디지털·AI 활용', 'G. 학습 참여(자기평가)', 'H. 종합', 'I. 온라인(비대면) 강의', 'J. 실무 적용', '서술형']
     .forEach((d) => assert.ok(opts.includes(d), d + ' 표시(현재 값과 무관하게 전체 목록)'));
   assert.equal(opts[opts.length - 1], '직접 입력…');
   // 영역 변경
-  await page.selectOption('#dom-0', 'G. 종합');
-  assert.equal(await page.evaluate(() => document.getElementById('dom-0').value), 'G. 종합');
+  await page.selectOption('#dom-0', 'H. 종합');
+  assert.equal(await page.evaluate(() => document.getElementById('dom-0').value), 'H. 종합');
   // 직접 입력 → 새 영역 → 다른 문항 목록에도 나타남
   await page.selectOption('#dom-1', '__custom__');
   await page.locator('#dom-1[data-domain-edit]').fill('I. 임상실습');
