@@ -668,7 +668,7 @@
       const m = CES.modal({
         title: existing ? '교과목 편집' : '새 교과목',
         wide: true,
-        html: courseFormHtml(existing, !!existing) + (existing ? '' : '<p class="small muted" style="margin-top:12px">공통 기본 문항이 자동으로 복사됩니다. CLO 문항은 [문항] 탭에서 추가하세요.</p>'),
+        html: courseFormHtml(existing, !!existing) + (existing ? '' : '<p class="small muted" style="margin-top:12px">공통 기본 문항(일반형 CLO 5개 포함)이 자동으로 복사됩니다. [문항] 탭 ▸ [CLO 일괄 입력]으로 이 교과목의 CLO로 바꾸세요.</p>'),
         footer: `<button type="button" class="btn" data-close>취소</button><button type="button" class="btn primary" data-save>${icon('check')}저장</button>`
       });
       const form = bindCourseForm(m);
@@ -1091,6 +1091,7 @@
     }
 
     function openClo() {
+      const curD = A.items.filter((it) => it.domain === DOMAINS[3]).length;
       const m = CES.modal({
         title: 'CLO 문항 일괄 입력',
         wide: true,
@@ -1098,6 +1099,7 @@
             <p class="small muted">교과목 학습성과(CLO)를 한 줄에 하나씩 입력하세요. "나는 ~할 수 있게 되었다." 형식의 자기평가 문항으로 바뀌어 영역 D에 추가됩니다.</p>
             <div class="field"><label for="clo-in">CLO 목록</label>
               <textarea class="textarea" id="clo-in" rows="6" placeholder="간호정보시스템의 구조와 기능을 설명&#10;임상의사결정지원시스템의 원리를 이해하고 적용"></textarea></div>
+            ${curD ? `<label class="check"><input type="checkbox" id="clo-replace" checked> 기존 학습성과(D) 문항 ${curD}개를 이 목록으로 교체(기본 문항의 일반형 CLO를 바꿀 때)</label>` : ''}
             <div><div class="field-label">미리보기 (추가 후에도 수정할 수 있습니다)</div><ol id="clo-prev" class="small" style="padding-left:20px;margin:8px 0 0"></ol></div>
           </div>`,
         footer: `<button type="button" class="btn" data-close>취소</button><button type="button" class="btn primary" data-add>${icon('plus')}추가</button>`
@@ -1108,13 +1110,15 @@
       $('[data-add]', m.el).addEventListener('click', () => {
         const ls = lines();
         if (!ls.length) { CES.toast('CLO를 1개 이상 입력하세요.', 'error'); return; }
+        const replace = !!($('#clo-replace', m.el) || {}).checked;
+        if (replace) A.items = A.items.filter((it) => it.domain !== DOMAINS[3]);
         let at = A.items.findIndex((it) => /^[E-Z]\./.test(it.domain) || it.domain === '서술형' || it.type === 'select');
         if (at < 0) at = A.items.length;
         A.items.splice(at, 0, ...ls.map((t) => ({ domain: DOMAINS[3], text: t, type: 'likert5', required: true, reverse: false, options: [] })));
         markDirty();
         m.close();
         drawItems();
-        CES.toast(`CLO 문항 ${ls.length}개를 추가했습니다. [저장]을 눌러 반영하세요.`);
+        CES.toast(`CLO 문항 ${ls.length}개를 ${replace ? '교체' : '추가'}했습니다. [저장]을 눌러 반영하세요.`);
       });
     }
 

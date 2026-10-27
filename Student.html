@@ -290,6 +290,7 @@
           if (res.code === 'TOKEN_USED') { CES.store.remove(DRAFT_KEY); return notice('TOKEN_USED'); }
           if (res.code === 'CLOSED') return notice('CLOSED');
           if (res.code === 'NOT_STARTED') return notice('NOT_STARTED');
+          if (res.code === 'NO_ITEMS') return notice('SETUP_REQUIRED');
           if (msgs[res.code]) { CES.store.remove(DRAFT_KEY); return renderAuth(msgs[res.code]); }
           return notice('ERROR', { retry: true });
         }
@@ -613,6 +614,7 @@
         restore();
         if (res.code === 'TOKEN_USED') { CES.store.remove(DRAFT_KEY); return notice('TOKEN_USED'); }
         if (res.code === 'CLOSED') return notice('CLOSED');
+        if (res.code === 'NO_ITEMS') return notice('SETUP_REQUIRED');
         if (res.code === 'MISSING') {
           var id = (res.missing || [])[0];
           S.step = stepOfItem(id);

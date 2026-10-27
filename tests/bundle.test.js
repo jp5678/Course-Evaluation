@@ -26,8 +26,8 @@ function bundleServer() {
 test('설치 파일: 단일 파일로 setup 완료(파일 접근 없음), 메뉴 함수·버전 포함', () => {
   const { server } = bundleServer();
   assert.equal(server.getCourses_().length, 3);
-  assert.equal(server.getItems_('TEMPLATE').length, 31);
-  for (const fn of ['doGet', 'onOpen', 'setup', 'setAdminPinFromMenu', 'showWebAppUrl', 'generateSampleResponses', 'deleteSampleData']) {
+  assert.equal(server.getItems_('TEMPLATE').length, 36);
+  for (const fn of ['doGet', 'onOpen', 'setup', 'setAdminPinFromMenu', 'showWebAppUrl', 'generateSampleResponses', 'deleteSampleData', 'deleteAllResponses', 'keepTemplateItemsOnly']) {
     assert.equal(typeof server[fn], 'function', fn);
   }
   assert.match(BUNDLE, /@OnlyCurrentDoc/);

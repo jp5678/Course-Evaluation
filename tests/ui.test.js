@@ -453,10 +453,12 @@ test('교수 데스크톱: 결과 잠금/해제·비교 차트·접속 주소·�
   await page.getByRole('button', { name: 'CLO 일괄 입력' }).click();
   await page.locator('#clo-in').fill('간호정보시스템의 구조와 기능을 설명\n임상의사결정지원시스템을 간호과정에 적용한다');
   await page.getByText('나는 임상의사결정지원시스템을 간호과정에 적용할 수 있게 되었다.').waitFor();
+  // 새 교과목은 기본 문항의 일반형 CLO 5개를 가지고 있으므로 「교체」가 기본 선택
+  assert.equal(await page.locator('#clo-replace').isChecked(), true);
   await page.getByRole('button', { name: '추가', exact: true }).click();
   await page.getByRole('button', { name: /저장/ }).click();
   await page.getByText('문항을 저장했습니다.').waitFor();
-  assert.equal(await page.locator('.item-row').count(), before + 2);
+  assert.equal(await page.locator('.item-row').count(), before - 5 + 2, '일반형 CLO 5개 → 교과목 CLO 2개');
   await shot(page, 'd16-items');
 
   // 서버에서 CLO 위치(C 영역 뒤, E 영역 앞)
