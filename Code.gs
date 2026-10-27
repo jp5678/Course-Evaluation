@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.4.18',
+  VERSION: '1.4.19',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -44,7 +44,7 @@ var APP = {
   DELIVERY_RENAMED: { '비대면': '온라인(비대면)' },
   COURSE_TYPES: ['이론', '실습', '이론+실습'],
   // 문항 표시 조건: ''=항상, online=온라인(비대면)·혼합만, theory=이론 포함 교과목만, practice=실습 포함 교과목만
-  SCOPES: ['', 'online', 'theory', 'practice'],
+  SCOPES: ['', 'online', 'theory', 'practice', 'flipped'],
   ITEM_TYPES: ['likert5', 'single', 'multi', 'select', 'text'],
   STATUS: { READY: '준비', OPEN: '진행', CLOSED: '마감' }
 };
@@ -52,7 +52,7 @@ var APP = {
 var HEADERS = {
   Settings: ['key', 'value', 'description'],
   Courses: ['course_id', 'course_name', 'year', 'semester', 'grade', 'section', 'enrollment',
-    'start_at', 'end_at', 'access_mode', 'access_code', 'status', 'result_open_date', 'department', 'delivery_mode', 'course_type'],
+    'start_at', 'end_at', 'access_mode', 'access_code', 'status', 'result_open_date', 'department', 'delivery_mode', 'course_type', 'flipped'],
   Items: ['item_id', 'course_id', 'domain', 'text', 'type', 'required', 'order', 'reverse', 'options', 'scope'],
   Tokens: ['course_id', 'token_hash', 'used'],
   Responses: ['response_id', 'course_id', 'submitted_date']
@@ -341,9 +341,9 @@ function saveCourse(session, data) {
       if (existing) {
         // 응답이 들어온 뒤 문항 구성(표시 조건)이 바뀌면 앞뒤 응답의 문항이 달라지므로 막습니다.
         var prev = normalizeCourse_(existing);
-        var changed = prev.course_type !== c.course_type ? 'course_type' : prev.delivery_mode !== c.delivery_mode ? 'delivery_mode' : '';
+        var changed = prev.course_type !== c.course_type ? 'course_type' : prev.delivery_mode !== c.delivery_mode ? 'delivery_mode' : prev.flipped !== c.flipped ? 'flipped' : '';
         if (changed && readResponses_(c.course_id).length > 0) {
-          return { ok: false, code: 'VALIDATION', field: changed, message: '응답이 수집된 뒤에는 수업 방식·교과목 유형을 바꿀 수 없습니다(문항 구성이 바뀌기 때문입니다).' };
+          return { ok: false, code: 'VALIDATION', field: changed, message: '응답이 수집된 뒤에는 수업 방식·교과목 유형·플립러닝 운영을 바꿀 수 없습니다(문항 구성이 바뀌기 때문입니다).' };
         }
         table.sheet.getRange(existing._row, 1, 1, row.length).setValues([row]);
         if (c.delivery_mode !== '대면') addOnlineItems_(c.course_id);
@@ -372,7 +372,7 @@ function duplicateCore_(src, data) {
     course_name: src.course_name, grade: src.grade, enrollment: 0,
     access_mode: src.access_mode, access_code: '',
     department: src.department, delivery_mode: data.delivery_mode || src.delivery_mode,
-    course_type: data.course_type || src.course_type,
+    course_type: data.course_type || src.course_type, flipped: data.flipped == null ? src.flipped : data.flipped,
     year: data.year, semester: data.semester, section: data.section != null ? data.section : '',
     start_at: data.start_at, end_at: data.end_at, result_open_date: data.result_open_date || ''
   };
@@ -557,6 +557,8 @@ function getResults(session, courseId) {
       wordcloud: wordCloudData_(ctx.items, ctx.rows),
       ai_prompt: AI_PROMPT,
       cqi: cqiSummary_(stats),
+      engage: engageRelation_(ctx.items, ctx.rows, ctx.minN),
+      engage_tips: engageTips_(stats),
       likertLabels: LIKERT_LABELS
     };
   });
@@ -786,7 +788,7 @@ function reportPdfBody_(ctx, opts) {
   // 2. 영역별 결과
   html += h2('영역별 결과') + '<table><tr><th>영역</th><th class="n">문항</th><th class="n">평균</th><th style="width:28%">평균(5점)</th><th class="n">표준편차</th><th class="n">긍정(%)</th><th class="n">해석</th></tr>' +
     stats.domains.map(function (d) {
-      return '<tr><td>' + escHtml_(d.domain) + '</td><td class="n">' + d.item_count + '</td><td class="n"><b>' + f(d.mean) + '</b></td><td>' +
+      return '<tr><td>' + escHtml_(d.domain) + (d.self ? ' <span class="note">(자기평가·평균 제외)</span>' : '') + '</td><td class="n">' + d.item_count + '</td><td class="n"><b>' + f(d.mean) + '</b></td><td>' +
         meanBar_(d.mean, d.mean != null && d.mean < 3 ? '#E5484D' : '#5B4BFF') + '</td><td class="n">' + f(d.sd) + '</td><td class="n">' + f(d.pos_pct) +
         '</td><td class="n">' + escHtml_(interpretMean_(d.mean)) + '</td></tr>';
     }).join('') + '</table>' + figure('radar', '그림. 영역별 평균(레이더 차트)');
@@ -822,6 +824,28 @@ function reportPdfBody_(ctx, opts) {
       return '<h3>' + escHtml_(t.text) + ' <span class="note">(' + t.answers.length + '건)</span></h3>' +
         (t.answers.length ? '<ol>' + t.answers.map(function (a) { return '<li>' + escHtml_(a) + '</li>'; }).join('') + '</ol>' : '<p class="note">응답 없음</p>');
     }).join('') || '<p class="note">서술형 문항이 없습니다.</p>');
+
+  // 학생 학습 참여(자기평가): 강의 평가 지표와 분리
+  if (stats.self) {
+    var rel = engageRelation_(ctx.items, ctx.rows, ctx.minN);
+    var tips = engageTips_(stats);
+    html += h2('학생 학습 참여 (자기평가)') +
+      '<p>학생이 자신의 수업 준비·참여·과제·시험 준비를 스스로 평가한 결과입니다. 강의 평가가 아니므로 <b>전체 평균·긍정 응답률·강점/개선점에서 제외</b>했습니다.</p>' +
+      '<table><tr><th>문항</th><th class="n">평균</th><th class="n">긍정(%)</th></tr>' +
+      stats.items.filter(function (x) { return x.self && x.type === 'likert5'; }).map(function (x) {
+        return '<tr><td>' + escHtml_(x.text) + '</td><td class="n"><b>' + f(x.mean) + '</b></td><td class="n">' + f(x.pos_pct) + '</td></tr>';
+      }).join('') + '<tr><td><b>학습 참여 평균</b></td><td class="n"><b>' + f(stats.self.mean) + '</b></td><td class="n">' + f(stats.self.pos_pct) + '</td></tr></table>';
+    if (rel && !rel.suppressed && rel.r != null) {
+      html += '<p><b>학습 참여와 만족도의 관계</b>: 상관계수 r = ' + f(rel.r) + ' (' + escHtml_(rel.strength) + ', ' + rel.n + '명)' +
+        (rel.high && rel.low ? ' · 참여 높음(4점 이상) ' + rel.high.n + '명의 만족도 ' + f(rel.high.satisfaction) + ', 참여 낮음 ' + rel.low.n + '명의 만족도 ' + f(rel.low.satisfaction) : '') +
+        '</p><p class="note">상관은 인과가 아닙니다. 집단별 만족도는 각 집단이 최소 공개 수 이상일 때만 표시합니다(익명성 보호).</p>';
+    }
+    if (tips.length) {
+      html += '<div class="improve"><b>참여가 낮은 항목(3.5점 미만) — CQI 제안</b><ol>' + tips.map(function (t) {
+        return '<li><b>' + escHtml_(t.text) + '</b> (' + f(t.mean) + ')<br>' + escHtml_(t.tip) + '</li>';
+      }).join('') + '</ol></div>';
+    }
+  }
 
   // 6. CQI
   var list = function (arr) {
@@ -930,9 +954,60 @@ function likertScore_(item, raw) {
   return item.reverse ? 6 - n : n;
 }
 
+/** 학생 자기평가(학습 참여) 영역 이름 — 강의 평가 지표(전체 평균·강점/개선점 등)에서 제외 */
+var SELF_DOMAIN = 'G. 학습 참여(자기평가)';
+
+/**
+ * 학습 참여와 전반적 만족도의 관계: 응답자별 학습 참여 평균 × 만족도 점수의 상관계수(r),
+ * 참여 높음(4점 이상)·낮음 집단의 만족도 평균(각 집단이 최소 공개 수 이상일 때만 — 익명성 보호).
+ */
+function engageRelation_(items, rows, minN) {
+  var selfIt = items.filter(function (it) { return it.type === 'likert5' && it.domain === SELF_DOMAIN; });
+  var sat = items.filter(function (it) { return it.type === 'likert5' && it.domain !== SELF_DOMAIN && /만족/.test(it.text); })[0];
+  if (!selfIt.length || !sat) return null;
+  var pairs = [];
+  rows.forEach(function (r) {
+    var es = selfIt.map(function (it) { return likertScore_(it, r[it.item_id]); }).filter(function (v) { return v != null; });
+    var s = likertScore_(sat, r[sat.item_id]);
+    if (es.length && s != null) pairs.push([mean_(es), s]);
+  });
+  var n = pairs.length;
+  var out = { n: n, satisfaction_text: sat.text, r: null, strength: '', high: null, low: null, suppressed: false };
+  if (n < Math.max(3, minN)) { out.suppressed = true; return out; }
+  var mx = mean_(pairs.map(function (p) { return p[0]; })), my = mean_(pairs.map(function (p) { return p[1]; }));
+  var sxy = 0, sxx = 0, syy = 0;
+  pairs.forEach(function (p) { sxy += (p[0] - mx) * (p[1] - my); sxx += (p[0] - mx) * (p[0] - mx); syy += (p[1] - my) * (p[1] - my); });
+  if (sxx > 0 && syy > 0) {
+    out.r = round2_(sxy / Math.sqrt(sxx * syy));
+    var a = Math.abs(out.r);
+    out.strength = (a >= 0.5 ? '강한 ' : a >= 0.3 ? '중간 정도의 ' : a >= 0.1 ? '약한 ' : '거의 없는 ') + (a < 0.1 ? '관계' : out.r > 0 ? '양(+)의 관계' : '음(-)의 관계');
+  }
+  var hi = pairs.filter(function (p) { return p[0] >= 4; }), lo = pairs.filter(function (p) { return p[0] < 4; });
+  if (hi.length >= minN && lo.length >= minN) {
+    out.high = { n: hi.length, satisfaction: round2_(mean_(hi.map(function (p) { return p[1]; }))) };
+    out.low = { n: lo.length, satisfaction: round2_(mean_(lo.map(function (p) { return p[1]; }))) };
+  }
+  return out;
+}
+
+/** 학습 참여 문항 평균이 3.5 미만이면 문항별 CQI 개선 전략을 제안합니다. */
+var ENGAGE_TIPS = [
+  [/플립러닝|사전 학습|수업 준비/, '사전 학습 분량을 15~20분 이내로 조정하고, 수업 시작 시 짧은 확인 퀴즈(형성평가)로 사전 학습을 수업과 연결하세요. 사전 학습 안내 영상·체크리스트를 LMS에 함께 제공하면 좋습니다.'],
+  [/참여|질문|토론/, '소그룹 토의·사례 기반 활동(간호 시나리오)을 늘리고, 익명 질문 도구나 실시간 퀴즈로 발언 부담을 낮추세요. 참여 결과에 즉시 피드백을 주면 참여 동기가 높아집니다.'],
+  [/과제/, '과제 기한·평가 기준(루브릭)을 미리 공지하고, 큰 과제는 단계별 중간 점검으로 나누세요. 과제와 학습성과(CLO)의 연결을 설명하면 수행 의지가 높아집니다.'],
+  [/시험|복습/, '주차별 핵심 정리와 복습 퀴즈를 제공하고, 국가고시 유형과 연계한 형성평가로 꾸준한 복습 습관을 지원하세요.']
+];
+function engageTips_(stats) {
+  return (stats.items || []).filter(function (s) { return s.self && s.type === 'likert5' && s.mean != null && s.mean < 3.5; })
+    .map(function (s) {
+      var tip = ENGAGE_TIPS.filter(function (t) { return t[0].test(s.text); })[0];
+      return { text: s.text, mean: s.mean, tip: tip ? tip[1] : '학생 면담·중간 설문으로 참여가 낮은 원인을 확인하고, 학습 목표와 수업 활동의 연결을 분명히 안내하세요.' };
+    });
+}
+
 function computeStats_(items, rows) {
   var itemStats = items.map(function (it) {
-    var base = { item_id: it.item_id, domain: it.domain, text: it.text, type: it.type, reverse: it.reverse };
+    var base = { item_id: it.item_id, domain: it.domain, text: it.text, type: it.type, reverse: it.reverse, self: it.domain === SELF_DOMAIN };
     if (it.type === 'likert5') {
       var dist = [0, 0, 0, 0, 0], scores = [];
       rows.forEach(function (r) {
@@ -980,9 +1055,11 @@ function computeStats_(items, rows) {
     var means = byDomain[d].map(function (s) { return s.mean; });
     var dist = [0, 0, 0, 0, 0];
     byDomain[d].forEach(function (s) { s.sdist.forEach(function (n, i) { dist[i] += n; }); });
-    return polarity_({ domain: d, item_count: means.length, mean: round2_(mean_(means)), sd: round2_(domainSd_(byDomain[d], items, rows)), dist: dist }, dist);
+    return polarity_({ domain: d, item_count: means.length, mean: round2_(mean_(means)), sd: round2_(domainSd_(byDomain[d], items, rows)), dist: dist, self: d === SELF_DOMAIN }, dist);
   });
-  var likert = itemStats.filter(function (s) { return s.type === 'likert5' && s.mean != null; });
+  // 학생 자기평가(학습 참여)는 강의 평가가 아니므로 전체 평균·긍정 응답률·핵심 지표에서 뺍니다.
+  var selfItems = itemStats.filter(function (s) { return s.type === 'likert5' && s.mean != null && s.self; });
+  var likert = itemStats.filter(function (s) { return s.type === 'likert5' && s.mean != null && !s.self; });
   var allMeans = likert.map(function (s) { return s.mean; });
   var pick = function (re) {
     var s = likert.filter(function (x) { return re.test(x.text); })[0];
@@ -995,7 +1072,12 @@ function computeStats_(items, rows) {
     domains: domains,
     overall: round2_(mean_(allMeans)),
     overall_pos_pct: polarity_({}, total).pos_pct,
-    kpis: { satisfaction: pick(/만족/), recommend: pick(/추천/) }
+    kpis: { satisfaction: pick(/만족/), recommend: pick(/추천/) },
+    self: selfItems.length ? (function () {
+      var t = [0, 0, 0, 0, 0];
+      selfItems.forEach(function (s) { s.sdist.forEach(function (n, i) { t[i] += n; }); });
+      return { domain: SELF_DOMAIN, item_count: selfItems.length, mean: round2_(mean_(selfItems.map(function (s) { return s.mean; }))), pos_pct: polarity_({}, t).pos_pct };
+    })() : null
   };
 }
 
@@ -1156,7 +1238,7 @@ function textAnswers_(items, rows) {
 }
 
 function cqiSummary_(stats) {
-  var likert = stats.items.filter(function (s) { return s.type === 'likert5' && s.mean != null; });
+  var likert = stats.items.filter(function (s) { return s.type === 'likert5' && s.mean != null && !s.self; }); // 자기평가 제외
   var sorted = likert.slice().sort(function (a, b) { return (b.mean - a.mean) || (a.sd - b.sd); });
   var k = Math.min(3, Math.floor(sorted.length / 2));
   var pick = function (s) { return { domain: s.domain, text: s.text, mean: s.mean, sd: s.sd }; };
@@ -1328,6 +1410,7 @@ function normalizeCourse_(r) {
     department: String(r.department || ''),
     delivery_mode: deliveryMode_(r.delivery_mode),
     course_type: APP.COURSE_TYPES.indexOf(String(r.course_type)) >= 0 ? String(r.course_type) : '이론+실습',
+    flipped: r.flipped === '' || r.flipped == null ? true : toBool_(r.flipped), // 비어 있으면(이전 버전) 운영으로 간주
     _row: r._row
   };
 }
@@ -1335,7 +1418,7 @@ function normalizeCourse_(r) {
 function courseToRow_(c) {
   return [c.course_id, guardFormula_(c.course_name), c.year, asTextCell_(c.semester), c.grade, asTextCell_(c.section),
     c.enrollment, c.start_at, c.end_at, c.access_mode, asTextCell_(c.access_code), c.status, c.result_open_date || '',
-    guardFormula_(c.department || ''), c.delivery_mode || '대면', c.course_type || '이론+실습'];
+    guardFormula_(c.department || ''), c.delivery_mode || '대면', c.course_type || '이론+실습', c.flipped !== false];
 }
 
 function validateCourse_(d) {
@@ -1376,7 +1459,8 @@ function validateCourse_(d) {
     course: {
       course_name: name, year: year, semester: sem, grade: grade, section: section, enrollment: enroll,
       start_at: start, end_at: end, access_mode: mode, access_code: code, result_open_date: open,
-      department: department, delivery_mode: delivery, course_type: ctype
+      department: department, delivery_mode: delivery, course_type: ctype,
+      flipped: d.flipped == null ? true : (d.flipped === true || d.flipped === 'on' || d.flipped === 'true')
     }
   };
 }
@@ -1421,6 +1505,7 @@ function courseSummary_(c, n, now, url) {
     department: c.department,
     delivery_mode: c.delivery_mode,
     course_type: c.course_type,
+    flipped: c.flipped !== false,
     hours_left: status === APP.STATUS.OPEN && hoursLeft != null ? Math.round(hoursLeft * 10) / 10 : null,
     // 학생 접속 주소(공통 주소). 학생은 이 주소에서 접속코드나 토큰을 입력합니다.
     base_url: url || ''
@@ -1491,6 +1576,7 @@ function scopeVisible_(scope, course) {
   if (scope === 'online') return course.delivery_mode !== '대면';
   if (scope === 'theory') return course.course_type !== '실습';
   if (scope === 'practice') return course.course_type !== '이론';
+  if (scope === 'flipped') return course.flipped !== false; // 플립러닝 운영 교과목만
   return true;
 }
 

@@ -1264,3 +1264,78 @@ test('학습 참여(자기평가) 영역: 종합 바로 앞 4문항, 이전 영�
   server.setup();
   assert.equal(server.getItems_(fresh).filter((i) => i.domain === 'G. 학습 참여(자기평가)').length, 0);
 });
+
+test('학습 참여(자기평가) 분리: 전체 평균·긍정률·강점/개선점·핵심 지표에서 제외, 별도 self 통계·만족도와의 상관·CQI 제안', () => {
+  const { server } = H.makeServer({ pin: '246810' });
+  const s = H.login(server, '246810');
+  const id = H.createCourse(server, s);
+  const items = server.itemsForCourse_(server.findCourse_(id));
+  const selfIds = items.filter((i) => i.domain === 'G. 학습 참여(자기평가)').map((i) => i.item_id);
+  const sat = items.find((i) => /만족/.test(i.text));
+  assert.equal(selfIds.length, 4);
+  // 참여 높은 6명(5점·만족 5), 낮은 6명(2점·만족 3) — 강의 문항은 모두 4점
+  for (let k = 0; k < 12; k++) {
+    const a = H.fullAnswers(items, 4);
+    const hi = k < 6;
+    selfIds.forEach((x) => { a[x] = hi ? 5 : 2; });
+    a[sat.item_id] = hi ? 5 : 3;
+    assert.equal(server.submitResponse(id, H.codeOf(server, id), a).ok, true);
+  }
+  const r = server.getResults(s, id);
+  assert.equal(r.stats.self.item_count, 4);
+  assert.equal(r.stats.self.mean, 3.5, '자기평가 평균((5+2)/2)');
+  assert.ok(r.stats.domains.find((d) => d.domain === 'G. 학습 참여(자기평가)').self, '영역 표시용 self 표시');
+  const teachMeans = r.stats.items.filter((x) => x.type === 'likert5' && !x.self).map((x) => x.mean);
+  const expected = Math.round(teachMeans.reduce((a, b) => a + b, 0) / teachMeans.length * 100) / 100;
+  assert.equal(r.stats.overall, expected, '전체 평균은 강의 문항만');
+  assert.ok(![...r.cqi.strengths, ...r.cqi.improvements].some((x) => x.domain === 'G. 학습 참여(자기평가)'), '강점·개선점에서 제외');
+  // 상관: 참여와 만족이 같이 움직임 → r = 1, 집단(각 6명 ≥ 5) 공개
+  assert.equal(r.engage.r, 1);
+  assert.match(r.engage.strength, /강한 양/);
+  assert.deepEqual([r.engage.high.n, r.engage.high.satisfaction, r.engage.low.n, r.engage.low.satisfaction], [6, 5, 6, 3]);
+  // CQI 제안: 평균 3.5는 '미만' 아님 → 제안 없음. 낮은 응답 추가로 3.5 미만이면 문항별 제안
+  assert.equal(r.engage_tips.length, 0);
+  const a = H.fullAnswers(items, 4); selfIds.forEach((x) => { a[x] = 1; });
+  server.submitResponse(id, H.codeOf(server, id), a);
+  const r2 = server.getResults(s, id);
+  assert.equal(r2.engage_tips.length, 4);
+  assert.match(r2.engage_tips.find((t) => /플립러닝/.test(t.text)).tip, /확인 퀴즈/);
+  assert.match(r2.engage_tips.find((t) => /과제/.test(t.text)).tip, /루브릭/);
+  // 보고서에도 별도 장
+  const rep = Buffer.from(server.exportPdf(s, id, 'report').base64, 'base64').toString('utf8');
+  assert.ok(rep.includes('학생 학습 참여 (자기평가)') && /상관계수 r = 0\.\d+/.test(rep) && rep.includes('CQI 제안'));
+  // 응답이 적으면 상관 비공개
+  const id2 = H.createCourse(server, s);
+  const items2 = server.itemsForCourse_(server.findCourse_(id2));
+  for (let k = 0; k < 5; k++) server.submitResponse(id2, H.codeOf(server, id2), H.fullAnswers(items2, 2 + (k % 3)));
+  const e2 = server.getResults(s, id2).engage;
+  assert.equal(e2.high, null, '집단이 작으면 집단별 만족도 숨김');
+});
+
+test('플립러닝 운영: 체크하지 않은 교과목은 사전 학습 문항 숨김, 기본·기존 교과목은 운영, 응답 후 변경 불가', () => {
+  const { server } = H.makeServer({ pin: '246810' });
+  const s = H.login(server, '246810');
+  const tplFlip = server.getItems_('TEMPLATE').find((i) => /플립러닝 사전 학습/.test(i.text));
+  assert.equal(tplFlip.scope, 'flipped', '기본 문항 은행: 플립러닝 교과목만');
+  const on = H.createCourse(server, s);
+  const off = H.createCourse(server, s, { flipped: false });
+  const has = (id) => server.itemsForCourse_(server.findCourse_(id)).some((i) => /플립러닝 사전 학습/.test(i.text));
+  assert.equal(server.findCourse_(on).flipped, true, '지정하지 않으면 운영');
+  assert.equal(has(on), true);
+  assert.equal(server.findCourse_(off).flipped, false);
+  assert.equal(has(off), false, '운영하지 않으면 숨김');
+  assert.equal(server.getAdminBootstrap(s).courses.find((c) => c.course_id === off).flipped, false);
+  // 이전 버전 시트(flipped 열 비어 있음) → 운영으로 간주
+  const t = server.readTable_('Courses');
+  t.sheet.getRange(t.rows.find((r) => r.course_id === off)._row, server.HEADERS.Courses.indexOf('flipped') + 1).setValue('');
+  assert.equal(server.findCourse_(off).flipped, true);
+  // 응답 후 변경 불가
+  server.submitResponse(on, H.codeOf(server, on), H.fullAnswers(server.itemsForCourse_(server.findCourse_(on))));
+  const c = server.findCourse_(on);
+  const res = server.saveCourse(s, { course_id: on, course_name: c.course_name, year: c.year, semester: c.semester, grade: c.grade, department: c.department,
+    delivery_mode: c.delivery_mode, course_type: c.course_type, start_at: H.iso(c.start_at), end_at: H.iso(c.end_at), access_mode: 'code', access_code: c.access_code, flipped: false });
+  assert.equal(res.field, 'flipped');
+  // 복제 시 플립러닝 설정 유지
+  const dup = server.duplicateCourse(s, off, { year: 2027, semester: '1', start_at: '2027-03-02T09:00', end_at: '2027-03-20T23:59' });
+  assert.equal(server.findCourse_(dup.course_id).flipped, true, '원본(비어 있음 → 운영) 설정 유지');
+});

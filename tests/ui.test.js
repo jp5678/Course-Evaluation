@@ -680,6 +680,29 @@ test('대시보드 응답 추이: 날짜별 누적 그래프, 새 응답 → [�
   }, { name, n: before + 2 }, { timeout: 15000 });
 });
 
+test('결과: 학생 학습 참여(자기평가) 카드·상관·평균 제외 표시, 교과목 편집에 플립러닝 운영 체크', async () => {
+  const page = await newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(base + '?scenario=admin&page=admin');
+  await page.locator('#pin').fill('123456');
+  await page.getByRole('button', { name: '로그인' }).click();
+  await page.getByRole('tab', { name: '결과', exact: true }).click();
+  const card = page.locator('[data-self-card]');
+  await card.waitFor();
+  assert.match(await card.innerText(), /학생 학습 참여/);
+  assert.match(await card.innerText(), /자기평가 · 강의 평균에서 제외/);
+  assert.match(await card.innerText(), /상관계수 r = |관계를 계산하지 않았습니다|계산할 수 없습니다/);
+  assert.ok(await page.getByText('(자기평가·평균 제외)').count() >= 1, '영역 표에 표시');
+  await card.scrollIntoViewIfNeeded();
+  await shot(page, 'd15-self-card');
+  await card.screenshot({ path: path.join(OUT, 'd15-self-card-only.png') });
+  // 교과목 편집: 플립러닝 운영(기본 체크)
+  await page.getByRole('tab', { name: '교과목' }).click();
+  await page.getByRole('button', { name: '새 교과목' }).first().click();
+  const cb = page.getByRole('checkbox', { name: '플립러닝 운영' });
+  await cb.waitFor();
+  assert.equal(await cb.isChecked(), true, '새 교과목 기본 체크');
+});
+
 test('사용 매뉴얼 탭: 맨 위 메뉴 끝, 12개 장, 차례로 펼치기·모두 펼치기, 360px 넘침 없음', async () => {
   const page = await newPage();
   await page.goto(base + '?scenario=admin&page=admin');

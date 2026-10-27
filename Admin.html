@@ -55,7 +55,7 @@
     const GRADES = [1, 2, 3, 4];
     const DELIVERY = ['대면', '온라인(비대면)', '혼합'];
     const COURSE_TYPES = ['이론', '실습', '이론+실습'];
-    const SCOPES = { '': '항상 표시', online: '온라인(비대면)·혼합 수업만', theory: '이론 있는 교과목만', practice: '실습 있는 교과목만' };
+    const SCOPES = { '': '항상 표시', online: '온라인(비대면)·혼합 수업만', theory: '이론 있는 교과목만', practice: '실습 있는 교과목만', flipped: '플립러닝 운영 교과목만' };
     /** 서버 scopeVisible_과 같은 규칙: 문항이 이 교과목에서 보이는지 */
     const scopeVisible = (scope, c) => !scope || !c ||
       (scope === 'online' ? c.delivery_mode !== '대면' : scope === 'theory' ? c.course_type !== '실습' : scope === 'practice' ? c.course_type !== '이론' : true);
@@ -528,7 +528,7 @@
           <div class="row-between"><div class="meta">${statusBadge(c)}<span class="badge">${esc(term(c))}</span></div>
             ${c.result_open_date ? `<span class="badge warn" title="결과공개일">${icon('calendar-clock')}${esc(c.result_open_date)}</span>` : ''}</div>
           <div><h2 id="cn-${id}">${esc(c.course_name)}</h2>
-            <p class="small muted">${esc([c.department, c.grade ? c.grade + '학년' : '', c.section ? c.section + '반' : '', c.course_type, c.delivery_mode, c.enrollment ? '수강 ' + c.enrollment + '명' : '', c.item_count + '문항'].filter(Boolean).join(' · '))}</p></div>
+            <p class="small muted">${esc([c.department, c.grade ? c.grade + '학년' : '', c.section ? c.section + '반' : '', c.course_type, c.delivery_mode, c.flipped ? '플립러닝' : '', c.enrollment ? '수강 ' + c.enrollment + '명' : '', c.item_count + '문항'].filter(Boolean).join(' · '))}</p></div>
           <p class="small num muted">${icon('calendar')} ${esc(dt(c.start_at))} ~ ${esc(dt(c.end_at))}</p>
           <div>
             <div class="row-between small"><span>응답</span><span class="num"><strong>${c.response_count}</strong>${c.response_rate == null ? '명' : ` / ${c.enrollment}명 (${c.response_rate}%)`}</span></div>
@@ -574,6 +574,8 @@
           <div class="field"><label for="f-type">교과목 유형</label>${selectHtml('course_type', 'f-type', COURSE_TYPES, c.course_type)}
             <p class="hint">이론: 실습실 문항 제외 · 실습: 이론 강의실 문항 제외 · 이론+실습: 모두 표시</p></div>
           <div class="field"><label for="f-grade">학년</label>${selectHtml('grade', 'f-grade', GRADES, c.grade, (g) => g + '학년')}</div>
+          <div class="field"><label class="check" style="margin-top:28px"><input type="checkbox" name="flipped"${c.flipped !== false ? ' checked' : ''} aria-describedby="f-flip-h"> 플립러닝 운영</label>
+            <p class="hint" id="f-flip-h">체크하면 학습 참여 영역의 「플립러닝 사전 학습」 문항을 표시합니다.</p></div>
           <div class="field"><label for="f-start">응답 시작일시</label><input class="input" id="f-start" name="start_at" type="datetime-local" value="${esc(c.start_at)}"></div>
           <div class="field"><label for="f-end">응답 종료일시</label><input class="input" id="f-end" name="end_at" type="datetime-local" value="${esc(c.end_at)}"></div>
           <div class="field"><label for="f-open">결과공개일 <span class="muted small">(선택)</span></label>
@@ -607,6 +609,7 @@
       const o = {};
       fd.forEach((v, k) => { o[k] = v; });
       o.manual_close = !!form.querySelector('[name="manual_close"]:checked');
+      if (form.querySelector('[name="flipped"]')) o.flipped = !!form.querySelector('[name="flipped"]:checked');
       return o;
     }
 
@@ -1330,9 +1333,33 @@
         ? `<span class="d${i + 1}" style="flex:${n}" title="${i + 1}점 ${esc(labels[i])}: ${n}명 (${Math.round(n / total * 100)}%)"></span>` : '').join('')}</div>`;
     }
 
+    /** 학생 학습 참여(자기평가): 강의 평가 지표와 분리해 표시 + 만족도와의 관계 + 참여가 낮을 때 CQI 제안 */
+    function selfCard(r) {
+      const sf = r.stats.self;
+      if (!sf) return '';
+      const items = r.stats.items.filter((s) => s.self && s.type === 'likert5');
+      const e = r.engage;
+      let rel = '<p class="small muted">만족도 문항이 없어 관계를 계산하지 않았습니다.</p>';
+      if (e && e.suppressed) rel = `<p class="small muted">응답이 적어(${e.n}명) 관계를 계산하지 않았습니다(익명성 보호).</p>`;
+      else if (e && e.r == null) rel = '<p class="small muted">응답이 한쪽으로 몰려 상관계수를 계산할 수 없습니다.</p>';
+      else if (e) rel = `<p class="small">학습 참여 평균과 「${esc(e.satisfaction_text)}」의 상관계수 <strong class="num">r = ${fmt(e.r)}</strong> (${esc(e.strength)}, ${e.n}명)</p>
+          ${e.high && e.low ? `<div class="engage-groups"><div><span class="small muted">참여 높음(4점 이상) ${e.high.n}명</span><strong class="num">만족도 ${fmt(e.high.satisfaction)}</strong></div><div><span class="small muted">참여 낮음(4점 미만) ${e.low.n}명</span><strong class="num">만족도 ${fmt(e.low.satisfaction)}</strong></div></div>`
+            : `<p class="tiny muted">참여 높음·낮음 집단이 각각 ${r.min_responses}명 이상일 때 집단별 만족도를 보여 줍니다(익명성 보호).</p>`}
+          <p class="tiny muted">상관은 인과가 아닙니다. 참여가 높은 학생이 만족도도 높은 경향이 있는지 보는 참고 지표입니다.</p>`;
+      const tips = r.engage_tips || [];
+      return `<section class="card span-4" aria-labelledby="k-self" data-self-card>
+          <div class="row-between"><div class="card-title" id="k-self">${icon('user-check')}학생 학습 참여 <span class="small muted">(자기평가 · 강의 평균에서 제외)</span></div>
+            <span class="small">평균 <strong class="num">${fmt(sf.mean)}</strong> · 긍정 ${Math.round(sf.pos_pct)}%</span></div>
+          <ul class="small" style="margin:10px 0 0;padding-left:18px">${items.map((s) => `<li>${esc(s.text)} <strong class="num">${fmt(s.mean)}</strong></li>`).join('')}</ul>
+          <div style="margin-top:12px"><div class="small" style="font-weight:600">학습 참여와 만족도의 관계</div>${rel}</div>
+          ${tips.length ? `<div class="callout" style="margin-top:12px">${icon('lightbulb')}<div class="small"><strong>참여가 낮은 항목(3.5점 미만) — CQI 제안</strong>
+            <ul style="margin:6px 0 0;padding-left:18px">${tips.map((t) => `<li><b>${esc(t.text)}</b> (${fmt(t.mean)})<br>${esc(t.tip)}</li>`).join('')}</ul></div></div>` : ''}
+        </section>`;
+    }
+
     function resultsHtml(r) {
       const c = r.course, st = r.stats;
-      const doms = st.domains.slice().sort((a, b) => b.mean - a.mean);
+      const doms = st.domains.filter((d) => !d.self).sort((a, b) => b.mean - a.mean); // 학생 자기평가 영역 제외
       const best = doms[0], worst = doms[doms.length - 1];
       const likert = st.items.filter((s) => s.type === 'likert5');
       const choices = st.items.filter((s) => s.type === 'single' || s.type === 'multi');
@@ -1341,7 +1368,7 @@
       const sem = r.semester_compare, sec = r.section_compare;
 
       const k = st.kpis || {};
-      const sorted = st.domains.slice().sort((x, y) => y.mean - x.mean);
+      const sorted = st.domains.filter((d) => !d.self).sort((x, y) => y.mean - x.mean);
       const textItems = r.texts.filter((t) => t.answers.length);
       const kpiRing = (i, ic, title, frac, center, cap, sub, label, tone) => `
         <section class="card kpi-ring rise" style="--i:${i}" aria-label="${esc(title)}">
@@ -1371,7 +1398,7 @@
           <div class="row-between"><div class="card-title" id="h1">${icon('chart-bar-decreasing')}영역별 평균</div>
             <span class="tiny muted">세로선 = 전체 평균 ${fmt(st.overall)}</span></div>
           <div class="hbars" style="margin-top:14px">${sorted.map((d) => `
-            <div class="r"><span class="lab" title="${esc(d.domain)}">${esc(d.domain)}</span>
+            <div class="r"><span class="lab" title="${esc(d.domain)}${d.self ? ' — 학생 자기평가, 전체 평균 제외' : ''}">${esc(d.domain)}${d.self ? ' *' : ''}</span>
               <div class="track" role="img" aria-label="${esc(d.domain)} 평균 ${fmt(d.mean)}점">
                 <div class="fill${d.mean < 3.5 ? ' low' : ''}" data-w="${((d.mean - 1) / 4 * 100).toFixed(1)}%"></div>
                 <span class="ref" style="left:${((st.overall - 1) / 4 * 100).toFixed(1)}%" aria-hidden="true"></span></div>
@@ -1386,7 +1413,7 @@
               <div class="dist" role="img" aria-label="${esc(d.domain)}: 부정 ${d.neg_pct}%, 보통 ${d.neu_pct}%, 긍정 ${d.pos_pct}%">${d.dist.map((n, i) => n
                 ? `<span class="d${i + 1}" data-grow="${n}" style="flex:0 1 0" title="${i + 1}점 ${n}건"></span>` : '').join('')}</div>
               <span class="val">${Math.round(d.pos_pct)}%</span></div>`).join('')}</div>
-          <p class="tiny muted" style="margin-top:10px">오른쪽 숫자는 긍정(4·5점) 응답 비율입니다. 역문항은 환산 점수 기준입니다.</p>
+          <p class="tiny muted" style="margin-top:10px">오른쪽 숫자는 긍정(4·5점) 응답 비율입니다. 역문항은 환산 점수 기준입니다.${st.self ? ' * 학습 참여는 학생 자기평가로, 전체 평균·강점/개선점에서 제외합니다.' : ''}</p>
         </section>
 
         <section class="card span-4 rise" style="--i:6" aria-labelledby="h3">
@@ -1410,7 +1437,7 @@
           <div class="chart-box" style="margin-top:8px"><canvas id="radar" role="img" aria-label="영역별 평균 레이더 차트. 아래 표에 같은 값이 있습니다."></canvas></div>
           <div class="table-wrap"><table class="data"><caption class="sr-only">영역별 평균과 표준편차</caption>
             <thead><tr><th scope="col">영역</th><th scope="col" class="num">문항</th><th scope="col" class="num">평균</th><th scope="col" class="num">SD</th><th scope="col">해석</th></tr></thead>
-            <tbody>${st.domains.map((d) => `<tr><th scope="row" style="font-weight:600">${esc(d.domain)}</th><td class="num">${d.item_count}</td><td class="num"><strong>${fmt(d.mean)}</strong></td><td class="num">${fmt(d.sd)}</td><td class="small">${esc(interpret(d.mean))}</td></tr>`).join('')}</tbody></table></div>
+            <tbody>${st.domains.map((d) => `<tr><th scope="row" style="font-weight:600">${esc(d.domain)}${d.self ? ' <span class="tiny muted">(자기평가·평균 제외)</span>' : ''}</th><td class="num">${d.item_count}</td><td class="num"><strong>${fmt(d.mean)}</strong></td><td class="num">${fmt(d.sd)}</td><td class="small">${esc(interpret(d.mean))}</td></tr>`).join('')}</tbody></table></div>
         </section>
 
         <section class="card span-2" aria-labelledby="k5"><div class="row-between"><div class="card-title" id="k5">${icon('history')}학기 간 비교</div><span class="small muted">같은 교과목명·분반</span></div>
@@ -1445,6 +1472,7 @@
             ${t.answers.length ? quoteList(t.answers) : '<p class="small muted">응답 없음</p>'}</div>`).join('') || '<p class="small muted">서술형 문항이 없습니다.</p>'}</div>
         </section>
 
+        ${selfCard(r)}
         <section class="card span-4" aria-labelledby="k9"><div class="row-between"><div class="card-title" id="k9">${icon('clipboard-list')}CQI 요약표</div>
 </div>
           <div class="row" style="margin-top:8px;justify-content:flex-end" aria-label="보고서 PDF">
@@ -1546,7 +1574,7 @@
       const anim = CES.reducedMotion() ? false : { duration: 500 };
       const tooltip = { backgroundColor: ink, titleColor: surface, bodyColor: surface, padding: 10, cornerRadius: 10, displayColors: true };
 
-      const doms = r.stats.domains;
+      const doms = r.stats.domains.filter((d) => !d.self); // 레이더는 강의 평가 영역만
       const radarEl = $('#radar');
       if (radarEl && doms.length >= 3) {
         const gs = r.semester_compare.groups;
@@ -1728,7 +1756,7 @@
             out[key] = cv.toDataURL('image/png');
           };
           const font = { family: getComputedStyle(document.body).fontFamily };
-          const doms = r.stats.domains;
+          const doms = r.stats.domains.filter((d) => !d.self);
           if (doms.length >= 3) {
             const gs = r.semester_compare.groups;
             const cur = gs.findIndex((g) => g.current);

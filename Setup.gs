@@ -29,7 +29,7 @@ var DEFAULT_ITEMS = [
   ['F. 디지털·AI 활용', 'AI가 제시한 정보의 정확성과 근거를 비판적으로 검토하는 능력이 향상되었다.', 'likert5'],
   ['F. 디지털·AI 활용', 'AI 활용 시 윤리·저작권·개인정보(환자정보) 보호의 중요성을 이해하게 되었다.', 'likert5'],
   // G. 학습 참여(자기평가): 학생 자신의 수업 준비·참여·과제·시험 준비(v1.4.18)
-  [ENGAGE_DOMAIN, '나는 플립러닝 사전 학습(동영상·자료 읽기) 등 수업 준비를 성실히 하였다.', 'likert5'],
+  [ENGAGE_DOMAIN, '나는 플립러닝 사전 학습(동영상·자료 읽기) 등 수업 준비를 성실히 하였다.', 'likert5', null, 'flipped'], // 플립러닝 운영 교과목만
   [ENGAGE_DOMAIN, '나는 수업 중 질문·토론·실습 등 수업 활동에 적극적으로 참여하였다.', 'likert5'],
   [ENGAGE_DOMAIN, '나는 과제를 기한 내에 성실하게 수행하였다.', 'likert5'],
   [ENGAGE_DOMAIN, '나는 시험 준비를 위해 수업 내용을 꾸준히 복습하였다.', 'likert5'],
@@ -206,6 +206,8 @@ function setup() {
   // v1.4.18: 영역 기호 재배치(종합 G→H, 온라인 H→I, 실무 적용 I→J)와 「G. 학습 참여(자기평가)」 문항 추가
   relabelDomains_();
   addEngageItems_();
+  // v1.4.19: 플립러닝 사전 학습 문항은 「플립러닝 운영」 교과목에만 표시(응답 없는 곳만, 한 번)
+  applyFlippedScope_();
   // 교과목별 추가 문항(예: 전공심화과정 실무 적용) — 응답이 없는 교과목에 한 번만
   addCourseExtraItems_();
 
@@ -227,7 +229,7 @@ function annotateHeaders_() {
   var notes = {
     Courses: ['자동 생성 ID', '교과목명', '학년도(예: 2026)', '학기(1/2)', '학년', '분반(사용 안 함)', '수강인원(선택, 비우면 응답률 미표시)',
       '응답 시작일시', '응답 종료일시', 'code=접속코드, token=일회용 토큰', '접속코드(학생이 공통 주소에서 입력. 비우면 자동 생성)',
-      '준비/진행/마감(마감=수동 마감)', '결과공개일(비우면 즉시 공개)', '학과', '수업 방식(대면/온라인(비대면)/혼합)', '교과목 유형(이론/실습/이론+실습)'],
+      '준비/진행/마감(마감=수동 마감)', '결과공개일(비우면 즉시 공개)', '학과', '수업 방식(대면/온라인(비대면)/혼합)', '교과목 유형(이론/실습/이론+실습)', '플립러닝 운영(TRUE면 사전 학습 문항 표시, 비우면 운영)'],
     Items: ['문항 ID', "교과목 ID('TEMPLATE'=공통 기본 문항)", '영역', '문항', 'likert5|single|multi|select|text',
       '필수 여부', '순서', '역문항 여부(likert5만)', '선택지(| 로 구분)', "표시 조건(online=온라인(비대면)·혼합만, theory=이론 포함만, practice=실습 포함만, 빈칸=항상)"],
     Tokens: ['교과목 ID', '토큰 해시(원문은 저장하지 않음)', '사용 여부'],
@@ -803,7 +805,7 @@ function relabelDomains_() {
  */
 function addEngageItems_() {
   var wanted = DEFAULT_ITEMS.filter(function (d) { return d[0] === ENGAGE_DOMAIN; })
-    .map(function (d) { return { domain: d[0], text: d[1], type: d[2], scope: '' }; });
+    .map(function (d) { return { domain: d[0], text: d[1], type: d[2], scope: d[4] || '' }; });
   var done = String(getSettingsMap_().engage_items_added || '').split('\n').filter(String);
   var used = {};
   readResponses_().forEach(function (r) { used[String(r.course_id)] = true; });
@@ -814,5 +816,23 @@ function addEngageItems_() {
     done.push(id);
   });
   setSetting_('engage_items_added', done.join('\n'), '학습 참여(자기평가) 문항을 넣은 교과목 ID(다시 넣지 않음). 직접 수정 금지');
+  return n;
+}
+
+/** 플립러닝 사전 학습 문항의 표시 조건을 'flipped'로 맞춥니다(기본 문항 은행·응답 없는 교과목, 한 번만). */
+function applyFlippedScope_() {
+  if (getSettingsMap_().flipped_scope_applied) return 0;
+  var flippedTexts = DEFAULT_ITEMS.filter(function (d) { return d[4] === 'flipped'; }).map(function (d) { return d[1]; });
+  var used = {};
+  readResponses_().forEach(function (r) { used[String(r.course_id)] = true; });
+  var t = readTable_(APP.SHEETS.ITEMS);
+  var col = HEADERS.Items.indexOf('scope') + 1;
+  var n = 0;
+  t.rows.forEach(function (r) {
+    if (used[String(r.course_id)] || flippedTexts.indexOf(String(r.text)) < 0 || String(r.scope || '') === 'flipped') return;
+    t.sheet.getRange(r._row, col).setValue('flipped');
+    n++;
+  });
+  setSetting_('flipped_scope_applied', 'yes', '플립러닝 문항 표시 조건을 적용함. 직접 수정 금지');
   return n;
 }
