@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.4.22',
+  VERSION: '1.4.23',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -87,6 +87,11 @@ function doGet(e) {
 /** HTML include 패턴: <?!= include('Styles'); ?> */
 function include(name) {
   return HtmlService.createHtmlOutputFromFile(name).getContent();
+}
+
+/** [사용 매뉴얼] 탭 본문. 교수 화면 첫 로딩량을 줄이려고 탭을 처음 열 때 불러옵니다. */
+function getManualHtml(session) {
+  return adminApi_(session, function () { return { ok: true, html: include('Manual') }; });
 }
 
 /* ───────────────────────────── 학생 API ───────────────────────────── */
@@ -252,8 +257,8 @@ function changePin(session, currentPin, newPin) {
       return { ok: false, code: 'WRONG' };
     }
     if (!APP.PIN_PATTERN.test(String(newPin || ''))) return { ok: false, code: 'PIN_FORMAT' };
-    withLock_(function () { storePin_(String(newPin)); });
-    return { ok: true };
+    // 잠금을 얻지 못하면(BUSY) 저장하지 않았으므로 그대로 알립니다.
+    return withLock_(function () { storePin_(String(newPin)); return { ok: true }; });
   });
 }
 
@@ -622,7 +627,7 @@ function scopedTexts_(ctx, itemId) {
 }
 
 /**
- * 원자료·CQI 요약표·서술형 응답을 PDF로 내보냅니다(kind: raw | cqi | text).
+ * 원자료·서술형 응답·결과 보고서를 PDF로 내보냅니다(kind: raw | text | report).
  * 보고서 HTML을 PDF로 변환해 base64로 반환합니다. 결과와 같은 잠금 규칙(최소 공개 수·공개일)을 적용합니다.
  */
 function exportPdf(session, courseId, kind, opts) {
@@ -900,14 +905,14 @@ function saveSettings(session, data) {
     if (execUrl && !APP.EXEC_URL_RE.test(execUrl)) {
       return { ok: false, code: 'VALIDATION', field: 'webapp_url', message: '웹 앱 주소는 https://script.google.com/…/exec 형식이어야 합니다(/dev 주소는 학생이 열 수 없습니다).' };
     }
-    withLock_(function () {
+    return withLock_(function () {
       setSetting_('professor_name', name);
       setSetting_('affiliation', aff);
       setSetting_('min_responses', minN);
       setSetting_('departments', depts.join('\n'));
       if (data.webapp_url !== undefined) setSetting_('webapp_url', execUrl);
+      return { ok: true };
     });
-    return { ok: true };
   });
 }
 
@@ -1192,11 +1197,6 @@ function domainSd_(domainStats, items, rows) {
   return sd_(perResp);
 }
 
-function overallMean_(items, rows) {
-  if (!items.length || !rows.length) return null;
-  return computeStats_(items, rows).overall;
-}
-
 /** 학기 간(동일 교과목명·분반) 또는 분반 간(동일 교과목명·학년도·학기) 비교. 각 집단도 최소 공개 수를 적용합니다. */
 function compareGroups_(ctx, kind) {
   var name = normName_(ctx.course.course_name);
@@ -1279,7 +1279,7 @@ function checkCredential_(course, credential) {
     return { ok: false, code: 'TOKEN_INVALID' };
   }
   var expected = String(course.access_code || '').trim().toUpperCase();
-  if (!expected) return { ok: true };
+  if (!expected) return { ok: false, code: 'BAD_CODE' }; // 코드가 비어 있으면 교과목 ID만으로 들어오지 못하게(저장·setup이 항상 코드를 만듦)
   var given = String(credential == null ? '' : credential).trim().toUpperCase().slice(0, 20);
   return safeEqual_(given, expected) ? { ok: true } : { ok: false, code: 'BAD_CODE' };
 }
@@ -1420,9 +1420,9 @@ function normalizeCourse_(r) {
 }
 
 function courseToRow_(c) {
-  return [c.course_id, guardFormula_(c.course_name), c.year, asTextCell_(c.semester), c.grade, asTextCell_(c.section),
+  return [c.course_id, asTextCell_(c.course_name), c.year, asTextCell_(c.semester), c.grade, asTextCell_(c.section),
     c.enrollment, c.start_at, c.end_at, c.access_mode, asTextCell_(c.access_code), c.status, c.result_open_date || '',
-    guardFormula_(c.department || ''), c.delivery_mode || '대면', c.course_type || '이론+실습', c.flipped !== false];
+    asTextCell_(c.department || ''), c.delivery_mode || '대면', c.course_type || '이론+실습', c.flipped !== false];
 }
 
 function validateCourse_(d) {
@@ -1606,8 +1606,8 @@ function publicItem_(it) {
 }
 
 function itemToRow_(it) {
-  return [it.item_id, it.course_id, guardFormula_(it.domain), guardFormula_(it.text), it.type,
-    !!it.required, it.order, !!it.reverse, guardFormula_(it.options.join(' | ')), APP.SCOPES.indexOf(it.scope) >= 0 ? it.scope : ''];
+  return [it.item_id, it.course_id, asTextCell_(it.domain), asTextCell_(it.text), it.type,
+    !!it.required, it.order, !!it.reverse, asTextCell_(it.options.join(' | ')), APP.SCOPES.indexOf(it.scope) >= 0 ? it.scope : ''];
 }
 
 function validateItem_(d, idx) {
@@ -1724,11 +1724,22 @@ function readTable_(name) {
   return { sheet: sh, headers: headers, rows: rows };
 }
 
-/** 헤더 아래 본문 전체를 rows로 교체합니다. */
+/**
+ * 헤더 아래 본문 전체를 rows로 교체합니다.
+ * 시트에서 읽은 글자는 앞의 「'」가 빠진 채 돌아오므로, 다시 쓸 때 모든 글자를 텍스트 셀로 고정합니다
+ * (학생 서술형·문항 문구가 수식(=, +, -, @)·숫자·날짜로 바뀌거나 접속코드 앞자리 0이 사라지는 것 방지).
+ */
 function rewriteBody_(sh, width, rows) {
   var last = sh.getLastRow();
   if (last >= 2) sh.getRange(2, 1, last - 1, Math.max(width, sh.getLastColumn())).clearContent();
-  if (rows.length) sh.getRange(2, 1, rows.length, width).setValues(rows);
+  if (rows.length) sh.getRange(2, 1, rows.length, width).setValues(rows.map(textCells_));
+}
+
+/** 행의 글자 값을 텍스트 셀로(이미 「'」로 시작하면 그대로). 숫자·날짜·참거짓은 그대로 둡니다. */
+function textCells_(row) {
+  return row.map(function (v) {
+    return typeof v === 'string' && v !== '' && v.charAt(0) !== "'" ? "'" + v : v;
+  });
 }
 
 /** keep(row)가 false인 행을 제거합니다. 제거된 행 수를 반환합니다. */
@@ -1990,13 +2001,7 @@ function cleanText_(v, max) {
     .slice(0, max);
 }
 
-/** 수식 주입 방지: =, +, -, @(및 탭·CR)로 시작하면 앞에 ' 를 붙입니다. */
-function guardFormula_(s) {
-  s = String(s == null ? '' : s);
-  return /^[=+\-@\t\r]/.test(s) ? "'" + s : s;
-}
-
-/** 학생 입력 문자열은 항상 텍스트 셀로 저장합니다(수식 실행·날짜/숫자 자동 변환 모두 차단). */
+/** 글자 값은 항상 텍스트 셀로 저장합니다(학생 입력·교과목명·문항 문구 — 수식 실행·날짜/숫자 자동 변환 모두 차단). */
 function asTextCell_(s) {
   s = String(s == null ? '' : s);
   return s === '' ? '' : "'" + s;

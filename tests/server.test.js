@@ -146,9 +146,10 @@ test('입력 검증: 필수 누락·범위 밖 값·서술형 1,000자 제한·�
   const raw = writeLog.filter((w) => w.sheet === 'Responses' && typeof w.raw === 'string' && /HYPERLINK|SUM/.test(w.raw));
   assert.ok(raw.every((w) => w.raw.startsWith("'")), "기록 시 ' 접두");
 
-  for (const s of ['=1+1', '+1', '-1', '@x', 'plain']) {
-    assert.equal(server.guardFormula_(s), s === 'plain' ? s : "'" + s);
+  for (const s of ['=1+1', '+1', '-1', '@x', 'plain', '0123']) {
+    assert.equal(server.asTextCell_(s), "'" + s, '글자는 항상 텍스트 셀');
   }
+  assert.equal(server.asTextCell_(''), '');
 });
 
 test('기간 외 접속: 시작 전·종료 후·수동 마감 모두 차단', () => {
@@ -1408,4 +1409,48 @@ test('v1.4.22: [초기화] Items 정리 — 응답이 있으면 거부, 없으�
   assert.equal(server.getCourses_().length, 3, '교과목 유지');
   assert.equal(server.verifyAccess(c.course_id, c.access_code).code, 'NO_ITEMS', '문항 없는 교과목은 열지 않음');
   assert.equal(server.submitResponse(c.course_id, c.access_code, {}).code, 'NO_ITEMS', '빈 응답 제출 거부');
+});
+
+test('시트 정리·재작성 후에도 텍스트 보호 유지(수식·숫자·날짜로 바뀌지 않음)', () => {
+  const { env, server } = H.makeServer({ pin: PIN });
+  const s = H.login(server, PIN);
+  const c = server.getCourses_()[0];
+  const items = server.itemsForCourse_(c);
+  const txt = items.find((i) => i.type === 'text');
+  const ans = H.fullAnswers(items);
+  ans[txt.item_id] = '=IMPORTXML("http://x","//a")';
+  assert.equal(server.submitResponse(c.course_id, c.access_code, ans).ok, true);
+  const ans2 = H.fullAnswers(items);
+  ans2[txt.item_id] = '- 좋았어요';
+  assert.equal(server.submitResponse(c.course_id, c.access_code, ans2).ok, true);
+  // 접속코드가 숫자로만 된 교과목, 문항 문구가 「-」로 시작하는 교과목
+  const numId = H.createCourse(server, s, { access_code: '0123' });
+  const its = server.getItems_(numId);
+  its[0].text = '- 강의계획서와 수업 일치';
+  assert.equal(server.saveItems(s, numId, its).ok, true);
+  // 시트를 다시 쓰는 작업들
+  server.generateSampleResponses();
+  server.deleteSampleData(true);
+  server.cleanResponseSheet();
+  const other = H.createCourse(server, s, { access_code: 'ZZZ999' });
+  assert.equal(server.deleteCourse(s, other).ok, true);
+  assert.equal(server.saveItems(s, other === numId ? 'TEMPLATE' : c.course_id, server.getItems_(c.course_id)).code, 'LOCKED_ITEMS');
+  assert.equal(server.saveItems(s, 'TEMPLATE', server.getItems_('TEMPLATE')).ok, true);
+  server.setup();
+  const texts = server.readResponses_(c.course_id).map((r) => r[txt.item_id]);
+  assert.deepEqual(texts.sort(), ['- 좋았어요', '=IMPORTXML("http://x","//a")'].sort(), '학생 서술형 원문 보존');
+  assert.equal(server.findCourse_(numId).access_code, '0123', '접속코드 앞자리 0 보존');
+  assert.equal(server.getItems_(numId)[0].text, '- 강의계획서와 수업 일치', '문항 문구 보존');
+  assert.equal(server.findCourse_(numId).semester, '2', '학기 텍스트 보존');
+});
+
+test('사용 매뉴얼은 로그인한 교수에게만, 탭을 열 때 불러옴(첫 화면에 포함하지 않음)', () => {
+  const { server } = H.makeServer({ pin: PIN });
+  assert.equal(server.getManualHtml('x'.repeat(64)).code, 'AUTH');
+  const s = H.login(server, PIN);
+  const r = server.getManualHtml(s);
+  assert.equal(r.ok, true);
+  assert.match(r.html, /<template id="manual-tpl">/);
+  const admin = server.doGet({ parameter: { page: 'admin' } }).getContent();
+  assert.equal(admin.includes('<template id="manual-tpl"'), false, '교수 화면 첫 HTML에 매뉴얼 없음');
 });

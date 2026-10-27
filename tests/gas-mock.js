@@ -68,8 +68,8 @@
     if (typeof v !== 'string') return v;
     if (v.charAt(0) === "'") return v.slice(1);
     if (v === '') return '';
-    if (/^[=]/.test(v)) return '__FORMULA__' + v;
     if (/^[+-]?\d+(\.\d+)?$/.test(v.trim())) return Number(v);
+    if (/^[=+\-@]/.test(v)) return '__FORMULA__' + v; // 실제 시트처럼 =, +, -, @로 시작하는 글자는 수식으로 해석
     if (/^(TRUE|FALSE)$/i.test(v)) return v.toUpperCase() === 'TRUE';
     var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
     if (m) return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]) - KST);
