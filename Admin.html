@@ -1499,11 +1499,14 @@
           <ul class="quote-list" style="margin-top:8px">${rest.map(li).join('')}</ul></details>` : '');
     }
 
+    /** 워드 클라우드 버튼 이름: 자주 쓰는 서술형은 짧은 이름, 그 밖에는 문항 앞부분(전체 문구는 마우스를 올리면 표시) */
     function shortQ(text, i) {
       if (/도움/.test(text)) return '도움이 된 점';
       if (/개선/.test(text)) return '개선할 점';
       if (/바라/.test(text)) return '바라는 점';
-      return '문항 ' + (i + 1);
+      if (/후기/.test(text)) return '수강 후기';
+      const t = String(text || '').replace(/^(이 수업(에서|에|의)?|수업에서)\s*/, '').replace(/[.?!\s]+$/, '').trim();
+      return t ? (t.length > 10 ? t.slice(0, 10).trim() + '…' : t) : '문항 ' + (i + 1);
     }
 
     /** 드롭다운(성별 등) 집단 비교 카드. 소규모 집단이 있으면 수치 없이 사유만 표시합니다. */
