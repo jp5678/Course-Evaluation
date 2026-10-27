@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.4.21',
+  VERSION: '1.4.22',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',
@@ -150,9 +150,12 @@ function verifyAccess(courseId, credential) {
       Utilities.sleep(400); // 무차별 대입 속도 저하
       return { ok: false, code: check.code };
     }
+    var items = itemsForCourse_(course);
+    // 문항이 없는 교과목(예: Items 정리 직후)은 빈 설문을 열지 않고 「설문 준비 중」으로 안내합니다.
+    if (!items.length) return { ok: false, code: 'NO_ITEMS' };
     return {
       ok: true,
-      items: itemsForCourse_(course).map(publicItem_),
+      items: items.map(publicItem_),
       likertLabels: LIKERT_LABELS
     };
   });
@@ -171,6 +174,7 @@ function submitResponse(courseId, credential, answers, nonce) {
     if (state !== APP.STATUS.OPEN) return { ok: false, code: stateCode_(state) };
 
     var items = itemsForCourse_(course);
+    if (!items.length) return { ok: false, code: 'NO_ITEMS' };
     var clean = sanitizeAnswers_(items, answers);
     if (!clean.ok) return clean;
 

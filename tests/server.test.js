@@ -14,9 +14,9 @@ test('setup: 탭·헤더·기본 문항 은행·이번 학기 교과목 예시 3
     assert.deepEqual(st.sheets[name].values[0].slice(0, server.HEADERS[name].length), server.HEADERS[name]);
   }
   const tpl = server.getItems_('TEMPLATE');
-  assert.equal(tpl.length, 31, '리커트 28(F 5개·학습 참여 4개) + 서술형 3');
+  assert.equal(tpl.length, 36, '리커트 33(일반형 CLO 5개·F 5개·학습 참여 4개) + 서술형 3');
   const doms = [...new Set(tpl.map((i) => i.domain))];
-  assert.deepEqual(doms, ['A. 강의 설계', 'B. 교수학습방법', 'C. 평가 및 과제', 'E. 학습 환경', 'F. 디지털·AI 활용', 'G. 학습 참여(자기평가)', 'H. 종합', 'I. 온라인(비대면) 강의', '서술형']);
+  assert.deepEqual(doms, ['A. 강의 설계', 'B. 교수학습방법', 'C. 평가 및 과제', 'D. 학습성과(CLO)', 'E. 학습 환경', 'F. 디지털·AI 활용', 'G. 학습 참여(자기평가)', 'H. 종합', 'I. 온라인(비대면) 강의', '서술형']);
   assert.ok(tpl.some((i) => /유무선 인터넷/.test(i.text)) && tpl.some((i) => /실습실의 시설/.test(i.text)) && tpl.some((i) => /이론 강의실/.test(i.text)), '학습 환경 문항');
   assert.equal(tpl.filter((i) => i.scope === 'online').length, 4, '온라인 전용 문항 4개');
   assert.match(tpl.find((i) => i.scope === 'theory').text, /^이론 강의실/);
@@ -44,7 +44,13 @@ test('setup: 탭·헤더·기본 문항 은행·이번 학기 교과목 예시 3
   assert.equal(st.sheets.Tokens.protections[0].warningOnly, true, 'Tokens 경고 보호');
 
   server.setup();
-  assert.equal(server.getItems_('TEMPLATE').length, 31, '재실행 시 문항 중복 없음');
+  assert.equal(server.getItems_('TEMPLATE').length, 36, '재실행 시 문항 중복 없음');
+  // 예시 교과목은 일반형 CLO 대신 그 교과목의 CLO 5개만
+  cs.forEach((c) => {
+    const d = server.getItems_(c.course_id).filter((i) => i.domain === 'D. 학습성과(CLO)');
+    assert.equal(d.length, 5, c.course_name + ' CLO 5개');
+    assert.ok(d.every((i) => !/이 교과목/.test(i.text)), c.course_name + ' 일반형 CLO 없음');
+  });
   assert.equal(server.getCourses_().length, 3, '재실행 시 교과목 중복 없음');
 });
 
@@ -1338,4 +1344,68 @@ test('플립러닝 운영: 체크하지 않은 교과목은 사전 학습 문항
   // 복제 시 플립러닝 설정 유지
   const dup = server.duplicateCourse(s, off, { year: 2027, semester: '1', start_at: '2027-03-02T09:00', end_at: '2027-03-20T23:59' });
   assert.equal(server.findCourse_(dup.course_id).flipped, true, '원본(비어 있음 → 운영) 설정 유지');
+});
+
+test('v1.4.22: 기존 시트 CLO 보충(기본 문항 은행·CLO 없는 예시 교과목, 응답 있는 교과목 제외, 한 번만)', () => {
+  const { env, server } = H.makeServer({ pin: PIN });
+  const s = H.login(server, PIN);
+  const [dl, ai, adv] = server.getCourses_();
+  const noD = (id) => server.getItems_(id).filter((i) => i.domain !== 'D. 학습성과(CLO)');
+  // 이전 버전 상태 재현: 기본 문항 은행·AI융합·전공심화의 D 영역 없음, AI융합에는 응답 1건
+  [ 'TEMPLATE', ai.course_id, adv.course_id ].forEach((id) => assert.equal(server.saveItems(s, id, noD(id)).ok, true));
+  server.submitResponse(ai.course_id, ai.access_code, H.fullAnswers(server.itemsForCourse_(ai)));
+  server.setSetting_('clo_items_added', '');
+  server.setup();
+  const d = (id) => server.getItems_(id).filter((i) => i.domain === 'D. 학습성과(CLO)');
+  assert.equal(d('TEMPLATE').length, 5, '기본 문항 은행 일반형 CLO 5개');
+  assert.ok(d('TEMPLATE').every((i) => /^t\d+$/.test(i.item_id)), '기본 문항 ID 형식');
+  const doms = server.getItems_('TEMPLATE').map((i) => i.domain[0]);
+  assert.ok(doms.indexOf('D') > doms.lastIndexOf('C') && doms.lastIndexOf('D') < doms.indexOf('E'), 'C와 E 사이');
+  assert.equal(d(adv.course_id).length, 5, '응답 없는 전공심화과정에 CLO 5개');
+  assert.match(d(adv.course_id)[0].text, /간호정보시스템\(EMR\)/);
+  assert.equal(d(ai.course_id).length, 0, '응답 있는 교과목은 그대로');
+  assert.equal(d(dl.course_id).length, 5, '이미 있는 CLO 중복 없음');
+  // 한 번만: 교수가 지운 CLO를 되살리지 않음
+  assert.equal(server.saveItems(s, adv.course_id, noD(adv.course_id)).ok, true);
+  server.setup();
+  assert.equal(d(adv.course_id).length, 0);
+});
+
+test('v1.4.22: [초기화] 모든 응답 데이터 삭제 — 실제·샘플 응답 삭제, 사용 토큰 복구, 교과목·문항 유지', () => {
+  const { env, server } = H.makeServer({ pin: PIN });
+  const s = H.login(server, PIN);
+  server.generateSampleResponses();
+  const id = H.createCourse(server, s, { access_mode: 'token' });
+  const c = server.findCourse_(id);
+  const code = server.generateTokens(s, id, 2).tokens[0];
+  assert.equal(server.submitResponse(id, code, H.fullAnswers(server.itemsForCourse_(c))).ok, true);
+  assert.equal(server.verifyAccess(id, code).code, 'TOKEN_USED');
+  const items = server.getAllItems_().length;
+  const r = server.deleteAllResponses(true);
+  assert.equal(r.ok, true);
+  assert.equal(r.removed, 91);
+  assert.equal(r.tokens_reset, 1);
+  assert.equal(H.table(env, 'Responses').length, 0);
+  assert.equal(server.getAllItems_().length, items, '문항 유지');
+  assert.equal(server.getCourses_().length, 4, '교과목 유지');
+  assert.equal(server.verifyAccess(id, code).ok, true, '토큰 다시 사용 가능');
+});
+
+test('v1.4.22: [초기화] Items 정리 — 응답이 있으면 거부, 없으면 TEMPLATE만 남기고 문항 없는 교과목은 설문 준비 중', () => {
+  const { env, server } = H.makeServer({ pin: PIN });
+  const c = server.getCourses_()[0];
+  server.submitResponse(c.course_id, c.access_code, H.fullAnswers(server.itemsForCourse_(c)));
+  const blocked = server.keepTemplateItemsOnly(true);
+  assert.equal(blocked.code, 'HAS_RESPONSES');
+  assert.ok(server.getItems_(c.course_id).length > 0, '거부 시 문항 유지');
+  server.deleteAllResponses(true);
+  const tpl = server.getItems_('TEMPLATE').length;
+  const r = server.keepTemplateItemsOnly(true);
+  assert.equal(r.ok, true);
+  assert.ok(r.removed > 0);
+  assert.ok(server.getAllItems_().every((i) => i.course_id === 'TEMPLATE'), 'TEMPLATE만 남음');
+  assert.equal(server.getItems_('TEMPLATE').length, tpl, 'TEMPLATE 유지');
+  assert.equal(server.getCourses_().length, 3, '교과목 유지');
+  assert.equal(server.verifyAccess(c.course_id, c.access_code).code, 'NO_ITEMS', '문항 없는 교과목은 열지 않음');
+  assert.equal(server.submitResponse(c.course_id, c.access_code, {}).code, 'NO_ITEMS', '빈 응답 제출 거부');
 });

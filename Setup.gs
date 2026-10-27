@@ -5,7 +5,8 @@
 /**
  * 공통 기본 문항 은행: [영역, 문항, 유형, 선택지, 표시 조건]
  * 표시 조건: 'online'=온라인(비대면)·혼합 수업만, 'theory'=이론이 있는 교과목만, 'practice'=실습이 있는 교과목만
- * D 영역(학습성과·CLO)은 교과목마다 다르므로 교과목에서 입력합니다.
+ * D 영역(학습성과·CLO)은 일반형 5문항(지식·적용·비판적 사고·수행·태도)을 기본으로 두고, 교과목에서
+ * [CLO 일괄 입력]으로 그 교과목의 CLO로 바꿉니다(v1.4.22).
  */
 var ENGAGE_DOMAIN = 'G. 학습 참여(자기평가)';
 
@@ -20,6 +21,12 @@ var DEFAULT_ITEMS = [
   ['C. 평가 및 과제', '평가는 공정하게 이루어졌다.', 'likert5'],
   ['C. 평가 및 과제', '과제의 양과 난이도가 적절하였다.', 'likert5'],
   ['C. 평가 및 과제', '과제·시험에 대한 피드백을 적절한 시기에 받았다.', 'likert5'],
+  // D. 학습성과(CLO): 일반형(교과목에서 그 교과목의 CLO로 교체)
+  ['D. 학습성과(CLO)', '나는 이 교과목의 핵심 개념과 원리를 설명할 수 있게 되었다.', 'likert5'],
+  ['D. 학습성과(CLO)', '나는 이 교과목에서 배운 지식을 간호 사례에 적용할 수 있게 되었다.', 'likert5'],
+  ['D. 학습성과(CLO)', '나는 이 교과목과 관련된 간호 문제를 비판적으로 사고하여 해결 방안을 제시할 수 있게 되었다.', 'likert5'],
+  ['D. 학습성과(CLO)', '나는 이 교과목에서 배운 술기·도구 활용 방법을 수행할 수 있게 되었다.', 'likert5'],
+  ['D. 학습성과(CLO)', '나는 이 교과목을 통해 간호 전문직관과 윤리적 태도를 갖추게 되었다.', 'likert5'],
   ['E. 학습 환경', '이론 강의실의 환경(좌석·조명·냉난방·기자재)이 학습에 적절하였다.', 'likert5', null, 'theory'],
   ['E. 학습 환경', '실습실의 시설과 실습 기자재가 실습하기에 충분하였다.', 'likert5', null, 'practice'],
   ['E. 학습 환경', '강의실·실습실의 유무선 인터넷(Wi-Fi) 환경이 원활하였다.', 'likert5'],
@@ -99,6 +106,9 @@ function onOpen() {
     .addSeparator()
     .addItem('[테스트] 샘플 응답 생성(교과목별 30건)', 'generateSampleResponses')
     .addItem('[테스트] 샘플 데이터 모두 삭제', 'deleteSampleData')
+    .addSeparator()
+    .addItem('[초기화] 모든 응답 데이터 삭제', 'deleteAllResponses')
+    .addItem('[초기화] Items 정리(공통 기본 문항 은행만 남기기)', 'keepTemplateItemsOnly')
     .addToUi();
 }
 
@@ -210,6 +220,8 @@ function setup() {
   applyFlippedScope_();
   // 교과목별 추가 문항(예: 전공심화과정 실무 적용) — 응답이 없는 교과목에 한 번만
   addCourseExtraItems_();
+  // v1.4.22: 기본 문항 은행에 일반형 CLO, CLO가 없는 예시 교과목(응답 없음)에 그 교과목 CLO — 한 번만
+  addCloItems_();
 
   upgradeDefaults_();
   styleResponseHeaders_();
@@ -446,6 +458,7 @@ function createDemoCourse_(spec) {
   var items = [];
   var inserted = false;
   template.forEach(function (it) {
+    if (it.domain === CLO_DOMAIN) return; // 일반형 CLO 대신 이 교과목의 CLO를 넣습니다
     if (!inserted && it.domain.charAt(0) > 'D') {
       spec.clos.forEach(function (t) {
         items.push({ domain: CLO_DOMAIN, text: t, type: 'likert5', required: true, reverse: false, options: [], scope: '' });
@@ -629,6 +642,78 @@ function deleteSampleData(skipConfirm) {
   return result;
 }
 
+/** 되돌릴 수 없는 초기화 작업 전에 「삭제」를 직접 입력받습니다. 메뉴가 아닌 곳(편집기)에서는 확인 없이 진행합니다. */
+function confirmTyped_(title, message) {
+  var ui = getUiOrNull_();
+  if (!ui) return true;
+  try {
+    var r = ui.prompt(title, message + '\n\n계속하려면 「삭제」를 입력하세요.', ui.ButtonSet.OK_CANCEL);
+    return r.getSelectedButton() === ui.Button.OK && String(r.getResponseText()).trim() === '삭제';
+  } catch (e) { return false; } // 확인 창을 띄우지 못하면 삭제하지 않습니다
+}
+
+/**
+ * [초기화] 모든 응답(실제·샘플)을 삭제하고, 사용된 일회용 토큰을 다시 쓸 수 있게 되돌립니다.
+ * 교과목·문항·접속코드·토큰은 그대로 둡니다.
+ */
+function deleteAllResponses(skipConfirm) {
+  var count = readResponses_().length;
+  if (skipConfirm !== true && !confirmTyped_('모든 응답 데이터 삭제',
+    '모든 교과목의 응답 ' + count + '건(실제 응답 포함)을 삭제합니다. 되돌릴 수 없습니다.\n' +
+    '보관이 필요하면 먼저 [결과] 탭에서 PDF를 저장하거나 [파일 ▸ 사본 만들기]로 백업하세요.\n' +
+    '교과목·문항·접속코드·토큰은 그대로이며, 사용된 토큰은 다시 쓸 수 있게 됩니다.')) {
+    return { ok: false, code: 'CANCELLED' };
+  }
+  var result = withLock_(function () {
+    var removed = filterTable_(APP.SHEETS.RESPONSES, function () { return false; });
+    var t = readTable_(APP.SHEETS.TOKENS);
+    var col = HEADERS.Tokens.indexOf('used') + 1;
+    var reset = 0;
+    t.rows.forEach(function (r) {
+      if (!toBool_(r.used)) return;
+      t.sheet.getRange(r._row, col).setValue(false);
+      reset++;
+    });
+    pruneResponseColumns_(true);
+    return { ok: true, removed: removed, tokens_reset: reset };
+  });
+  notify_('모든 응답 데이터 삭제', result.ok
+    ? '응답 ' + result.removed + '건을 삭제했습니다.' + (result.tokens_reset ? '\n사용된 토큰 ' + result.tokens_reset + '개를 다시 쓸 수 있게 되돌렸습니다.' : '') +
+      '\n교과목·문항·접속코드는 그대로입니다.'
+    : '다른 작업이 진행 중입니다. 잠시 후 다시 실행하세요.');
+  return result;
+}
+
+/**
+ * [초기화] Items 시트에서 공통 기본 문항 은행(TEMPLATE)만 남기고 교과목 문항을 모두 삭제합니다.
+ * 응답이 남아 있으면 그 응답의 문항을 해석할 수 없게 되므로 실행하지 않습니다(먼저 모든 응답 데이터 삭제).
+ */
+function keepTemplateItemsOnly(skipConfirm) {
+  var responses = readResponses_().length;
+  if (responses > 0) {
+    notify_('Items 정리', '응답 ' + responses + '건이 남아 있어 실행하지 않았습니다.\n' +
+      '문항을 지우면 그 응답을 분석할 수 없게 됩니다. 먼저 메뉴 ▸ [초기화] 모든 응답 데이터 삭제를 실행하세요.');
+    return { ok: false, code: 'HAS_RESPONSES', responses: responses };
+  }
+  var count = getAllItems_().filter(function (it) { return it.course_id !== APP.TEMPLATE_ID; }).length;
+  if (skipConfirm !== true && !confirmTyped_('Items 정리(공통 기본 문항 은행만 남기기)',
+    '교과목 문항 ' + count + '개를 삭제하고 공통 기본 문항 은행(TEMPLATE)만 남깁니다. 되돌릴 수 없습니다.\n' +
+    '교과목·접속코드는 그대로이며, 문항이 없는 교과목은 학생에게 「설문 준비 중」으로 표시됩니다.\n' +
+    '관리자 화면 [문항] 탭 ▸ [기본 문항 불러오기]·[CLO 일괄 입력]으로 다시 구성하세요.')) {
+    return { ok: false, code: 'CANCELLED' };
+  }
+  var result = withLock_(function () {
+    var removed = filterTable_(APP.SHEETS.ITEMS, function (r) { return String(r.course_id) === APP.TEMPLATE_ID; });
+    pruneResponseColumns_(true);
+    return { ok: true, removed: removed };
+  });
+  notify_('Items 정리', result.ok
+    ? '교과목 문항 ' + result.removed + '개를 삭제했습니다. 공통 기본 문항 은행(TEMPLATE)만 남았습니다.\n' +
+      '각 교과목은 [문항] 탭 ▸ [기본 문항 불러오기]로 다시 구성하세요.'
+    : '다른 작업이 진행 중입니다. 잠시 후 다시 실행하세요.');
+  return result;
+}
+
 /**
  * 응답 시트의 문항 열 정리. 데이터가 있는 열은 항상 남깁니다.
  * dropAllEmpty=false: 지워진 문항의 빈 열만 / true: 데이터가 없는 문항 열 모두(응답이 들어오면 필요한 열은 자동으로 다시 생김)
@@ -740,6 +825,29 @@ function renameDeliveryModes_() {
     var next = APP.DELIVERY_RENAMED[String(r.delivery_mode).trim()];
     if (next) { t.sheet.getRange(r._row, col).setValue(next); n++; }
   });
+  return n;
+}
+
+/**
+ * D 영역(학습성과·CLO)이 없는 곳에 CLO 문항을 넣습니다. 한 번만 실행합니다(교수가 지운 CLO는 되살리지 않음).
+ * 기본 문항 은행: 일반형 CLO 5개 / 예시 교과목(응답 없음): 그 교과목의 CLO. 넣은 문항 수를 돌려줍니다.
+ */
+function addCloItems_() {
+  if (String(getSettingsMap_().clo_items_added || '') === '1') return 0;
+  var used = {};
+  readResponses_().forEach(function (r) { used[String(r.course_id)] = true; });
+  var hasClo = function (id) { return getItems_(id).some(function (it) { return it.domain === CLO_DOMAIN; }); };
+  var toItem = function (t) { return { domain: CLO_DOMAIN, text: t, type: 'likert5', scope: '' }; };
+  var n = 0;
+  if (getItems_(APP.TEMPLATE_ID).length && !hasClo(APP.TEMPLATE_ID)) {
+    n += addMissingItems_(APP.TEMPLATE_ID, DEFAULT_ITEMS.filter(function (d) { return d[0] === CLO_DOMAIN; }).map(function (d) { return toItem(d[1]); }), 0);
+  }
+  getCourses_().forEach(function (c) {
+    var spec = SAMPLE_COURSES.filter(function (x) { return x.course_name === String(c.course_name).trim(); })[0];
+    if (!spec || used[c.course_id] || !getItems_(c.course_id).length || hasClo(c.course_id)) return;
+    n += addMissingItems_(c.course_id, spec.clos.map(toItem), 0);
+  });
+  setSetting_('clo_items_added', '1', 'setup이 CLO 문항을 한 번 넣었는지(1). 직접 수정 금지');
   return n;
 }
 
