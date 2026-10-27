@@ -10,7 +10,7 @@
 
 var APP = {
   NAME: '강의평가 Studio',
-  VERSION: '1.4.20',
+  VERSION: '1.4.21',
   SHEETS: {
     SETTINGS: 'Settings',
     COURSES: 'Courses',

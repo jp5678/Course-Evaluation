@@ -692,6 +692,13 @@ test('결과: 학생 학습 참여(자기평가) 카드·상관·평균 제외 �
   assert.match(await card.innerText(), /자기평가 · 강의 평균에서 제외/);
   assert.match(await card.innerText(), /상관계수 r = |관계를 계산하지 않았습니다|계산할 수 없습니다/);
   assert.ok(await page.getByText('(자기평가·평균 제외)').count() >= 1, '영역 표에 표시');
+  // 영역별 평균과 영역별 응답 분포: 같은 항목·같은 알파벳 순 — 학습 참여는 회색
+  const labs = async (id) => (await page.locator(`section[aria-labelledby="${id}"] .hbars .lab`).allInnerTexts()).map((t) => t.replace(' *', '').trim());
+  const left = await labs('h1'), right = await labs('h2');
+  assert.deepEqual(left, right, '두 카드 항목·순서 동일');
+  assert.deepEqual(left, [...left].sort((x, y) => x.localeCompare(y, 'ko')), '영역 기호 알파벳 순');
+  assert.equal(await page.locator('section[aria-labelledby="h1"] .fill.self').count(), 1);
+  await page.locator('section[aria-labelledby="h1"]').screenshot({ path: path.join(OUT, 'd16-domain-mean.png') });
   await card.scrollIntoViewIfNeeded();
   await shot(page, 'd15-self-card');
   await card.screenshot({ path: path.join(OUT, 'd15-self-card-only.png') });
