@@ -88,7 +88,8 @@ function render(query) {
 <script>${MOCK_SRC.replace(/<\/script/gi, '<\\/script')}</script>
 <script>
 (function(){
-  var env = GasMock.createEnv({ state: GasMock.revive(window.__GAS_STATE), url: ${JSON.stringify(URL_NOW)}, fastSleep: true });
+  var __FILES = ${JSON.stringify({ 'Manual.html': H.readFile('Manual.html') }).replace(/<\/script/gi, '<\\/script').replace(/<!--/g, '\\x3C!--')};
+  var env = GasMock.createEnv({ state: GasMock.revive(window.__GAS_STATE), url: ${JSON.stringify(URL_NOW)}, fastSleep: true, readFile: function (n) { return __FILES[n]; } });
   var server = GasMock.loadServer(env, ${JSON.stringify(H.SOURCES).replace(/<\/script/gi, '<\\/script')});
   window.__server = server; window.__env = env;
   window.__runOpt = { latency: 60, failNext: {}, calls: [] , onCall: function(n){ window.__runOpt.calls.push(n); } };

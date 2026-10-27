@@ -703,10 +703,17 @@ function keepTemplateItemsOnly(skipConfirm) {
     return { ok: false, code: 'CANCELLED' };
   }
   var result = withLock_(function () {
+    // 확인 창을 띄운 사이 응답이 들어왔을 수 있으므로 잠금 안에서 다시 확인합니다.
+    var now = readResponses_().length;
+    if (now > 0) return { ok: false, code: 'HAS_RESPONSES', responses: now };
     var removed = filterTable_(APP.SHEETS.ITEMS, function (r) { return String(r.course_id) === APP.TEMPLATE_ID; });
     pruneResponseColumns_(true);
     return { ok: true, removed: removed };
   });
+  if (result.code === 'HAS_RESPONSES') {
+    notify_('Items 정리', '그사이 응답 ' + result.responses + '건이 들어와 실행하지 않았습니다. 먼저 모든 응답 데이터 삭제를 실행하세요.');
+    return result;
+  }
   notify_('Items 정리', result.ok
     ? '교과목 문항 ' + result.removed + '개를 삭제했습니다. 공통 기본 문항 은행(TEMPLATE)만 남았습니다.\n' +
       '각 교과목은 [문항] 탭 ▸ [기본 문항 불러오기]로 다시 구성하세요.'
@@ -736,7 +743,7 @@ function pruneResponseColumns_(dropAllEmpty) {
   sh.getRange(1, 1, Math.max(1, sh.getLastRow()), width).clearContent();
   sh.getRange(1, 1, 1, width).clearNote();
   sh.getRange(1, 1, 1, keep.length).setValues([keep]).setFontWeight('bold');
-  var body = t.rows.map(function (r) { return keep.map(function (h) { return r[h] == null ? '' : r[h]; }); });
+  var body = t.rows.map(function (r) { return textCells_(keep.map(function (h) { return r[h] == null ? '' : r[h]; })); });
   if (body.length) sh.getRange(2, 1, body.length, keep.length).setValues(body);
   if (width > keep.length) sh.getRange(1, keep.length + 1, 1, width - keep.length).setBackground(null);
   styleResponseHeaders_();

@@ -40,7 +40,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/lucide@0.460.0/dist/umd/lucide.min.js" defer onload="window.CES && CES.icons()"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js" defer></script>
-  <?!= include('Manual'); ?>
   <?!= include('Scripts'); ?>
   <script>
   (function () {
@@ -1815,10 +1814,19 @@
       if (res.omitted) CES.toast(`익명성 보호를 위해 소규모 집단이 있는 드롭다운 문항 ${res.omitted}개 열을 제외했습니다.`);
     }
 
-    /* ───── 사용 매뉴얼(Manual.html의 템플릿) ───── */
-    function renderManual() {
-      const tpl = document.getElementById('manual-tpl');
-      setView(tpl ? tpl.innerHTML : '<p class="muted">매뉴얼을 불러오지 못했습니다.</p>');
+    /* ───── 사용 매뉴얼(Manual.html) — 첫 화면을 가볍게 하려고 탭을 처음 열 때 서버에서 불러옵니다 ───── */
+    async function renderManual() {
+      if (A.manualHtml == null) {
+        setView(`<div class="card pad-lg center"><p class="muted">사용 매뉴얼을 불러오는 중…</p></div>`);
+        const res = await api('getManualHtml');
+        if (A.tab !== 'manual') return; // 불러오는 사이 다른 탭으로 이동
+        if (!res.ok) { fail(res); setView('<div class="card pad-lg center"><p class="muted">매뉴얼을 불러오지 못했습니다. 탭을 다시 눌러 주세요.</p></div>'); return; }
+        const box = document.createElement('div');
+        box.innerHTML = res.html;
+        const tpl = box.querySelector('#manual-tpl');
+        A.manualHtml = tpl ? tpl.innerHTML : '';
+      }
+      setView(A.manualHtml || '<p class="muted">매뉴얼을 불러오지 못했습니다.</p>');
       const all = () => $$('details', view);
       const toggle = $('[data-manual-toggle]', view);
       const sync = () => { if (toggle) toggle.textContent = all().every((d) => d.open) ? '모두 접기' : '모두 펼치기'; };
